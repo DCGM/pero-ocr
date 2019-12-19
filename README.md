@@ -2,6 +2,7 @@
 
 ## Running stuff
 
+
 Scripts (as well as tests) assume that it is possible to import ``pero_ocr`` and its components.
 
 For the current shell session, this can be achieved by setting ``PYTHONPATH`` up:
@@ -20,7 +21,14 @@ Pero can be later removed from your Python distribution by running:
 python setup.py develop --uninstall
 ```
 
-## Testing
+## Developing
+Working changes are expected to happen on `develop` branch, so if you plan to contribute, you better check it out right during cloning:
+
+```
+git clone -b develop git@github.com:DCGM/pero-ocr.git pero-ocr-others
+```
+
+### Testing
 Currently, only unittests are provided with the code. Some of the code. So simply run your preferred test runner, e.g.:
 ```
 ~/pero-ocr $ green
