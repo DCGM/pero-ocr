@@ -9,10 +9,10 @@ import argparse
 import shutil
 import traceback
 
-import pero.document_ocr.IO_utils as io
-import pero.document_ocr.parser_utils as parser
-import pero.document_ocr.layout as layout
-import pero.document_ocr.paragraph_engine as paragraphs
+import pero_ocr.document_ocr.IO_utils as io
+import pero_ocr.document_ocr.parser_utils as parser
+import pero_ocr.document_ocr.layout as layout
+import pero_ocr.document_ocr.paragraph_engine as paragraphs
 
 
 def parse_arguments():

@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import os
 
-from pero.decoding.lm_wrapper import LMWrapper, HiddenState
+from pero_ocr.decoding.lm_wrapper import LMWrapper, HiddenState
 
 
 class DummyModel(torch.nn.Module):

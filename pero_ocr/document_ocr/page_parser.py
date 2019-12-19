@@ -1,12 +1,12 @@
 import numpy as np
 
 from .layout import PageLayout, RegionLayout, TextLine
-from pero.document_ocr import crop_engine as cropper
-from pero.ocr_engine import line_ocr_engine
-from pero.line_engine import baseline_engine
-from pero.region_engine import region_engine
-from pero.region_engine import SimpleThresholdRegion
-import pero.line_engine.line_postprocessing as linepp
+from pero_ocr.document_ocr import crop_engine as cropper
+from pero_ocr.ocr_engine import line_ocr_engine
+from pero_ocr.line_engine import baseline_engine
+from pero_ocr.region_engine import region_engine
+from pero_ocr.region_engine import SimpleThresholdRegion
+import pero_ocr.line_engine.line_postprocessing as linepp
 
 
 

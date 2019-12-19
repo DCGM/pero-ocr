@@ -1,6 +1,6 @@
 import math
-from pero.sequence_alignment import levenshtein_distance
-from pero.sequence_alignment import levenshtein_alignment, edit_stats_for_alignment
+from pero_ocr.sequence_alignment import levenshtein_distance
+from pero_ocr.sequence_alignment import levenshtein_alignment, edit_stats_for_alignment
 from enum import Enum
 from collections import defaultdict, Counter
 

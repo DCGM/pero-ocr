@@ -2,8 +2,8 @@
 
 import sys
 import argparse
-from pero.transcription_io import load_transcriptions
-from pero.error_summary import ErrorsSummary
+from pero_ocr.transcription_io import load_transcriptions
+from pero_ocr.error_summary import ErrorsSummary
 from enum import Enum
 
 

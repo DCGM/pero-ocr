@@ -1,12 +1,12 @@
 from unittest import TestCase
 import math
 
-from pero.decoding.bag_of_hypotheses import BagOfHypotheses
-from pero.decoding.confusion_networks import produce_cn_from_boh
-from pero.decoding.confusion_networks import get_pivot
-from pero.decoding.confusion_networks import add_hypothese
-from pero.decoding.confusion_networks import normalize_cn
-from pero.decoding.confusion_networks import best_cn_path
+from pero_ocr.decoding.bag_of_hypotheses import BagOfHypotheses
+from pero_ocr.decoding.confusion_networks import produce_cn_from_boh
+from pero_ocr.decoding.confusion_networks import get_pivot
+from pero_ocr.decoding.confusion_networks import add_hypothese
+from pero_ocr.decoding.confusion_networks import normalize_cn
+from pero_ocr.decoding.confusion_networks import best_cn_path
 
 
 class TestGettingPivot(TestCase):

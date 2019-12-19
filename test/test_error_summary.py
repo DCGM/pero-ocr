@@ -1,5 +1,5 @@
 import unittest
-from pero.error_summary import ErrorsSummary
+from pero_ocr.error_summary import ErrorsSummary
 
 
 class SingleReferenceTests(unittest.TestCase):

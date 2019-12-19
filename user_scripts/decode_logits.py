@@ -4,10 +4,10 @@ import argparse
 import pickle
 import time
 
-from pero.decoding import confusion_networks
-from pero.decoding.decoding_itf import prepare_dense_logits, construct_lm, get_ocr_charset, BLANK_SYMBOL
-import pero.decoding.decoders as decoders
-from pero.transcription_io import save_transcriptions
+from pero_ocr.decoding import confusion_networks
+from pero_ocr.decoding.decoding_itf import prepare_dense_logits, construct_lm, get_ocr_charset, BLANK_SYMBOL
+import pero_ocr.decoding.decoders as decoders
+from pero_ocr.transcription_io import save_transcriptions
 
 
 def parse_arguments():

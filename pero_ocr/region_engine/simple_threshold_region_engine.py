@@ -4,7 +4,7 @@ import numpy as np
 
 from shapely.geometry import Polygon
 
-from pero.document_ocr.layout import PageLayout, RegionLayout
+from pero_ocr.document_ocr.layout import PageLayout, RegionLayout
 
 
 class SimpleThresholdRegion:

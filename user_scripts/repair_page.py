@@ -13,10 +13,10 @@ import cv2
 import shapely.geometry
 import tkinter as tk
 
-from pero.document_ocr import layout
-from pero.document_ocr import crop_engine as cropper
-from pero.document_ocr import repair_engine as repair
-from pero.ocr_engine import line_ocr_engine as ocr
+from pero_ocr.document_ocr import layout
+from pero_ocr.document_ocr import crop_engine as cropper
+from pero_ocr.document_ocr import repair_engine as repair
+from pero_ocr.ocr_engine import line_ocr_engine as ocr
 
 def parseargs():
     parser = argparse.ArgumentParser()

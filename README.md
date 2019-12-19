@@ -1,8 +1,8 @@
-# pero
+# pero-ocr
 
 ## Running stuff
 
-Scripts (as well as tests) assume that it is possible to import ``pero`` and its components.
+Scripts (as well as tests) assume that it is possible to import ``pero_ocr`` and its components.
 
 For the current shell session, this can be achieved by setting ``PYTHONPATH`` up:
 ```
@@ -23,6 +23,5 @@ python setup.py develop --uninstall
 ## Testing
 Currently, only unittests are provided with the code. Some of the code. So simply run your preferred test runner, e.g.:
 ```
-~/pero $ green test
+~/pero-ocr $ green
 ```
-Beware that you need to specify the test folder as the automatic test discovery can find `active_learning/adaptation/test_adapt_net.py`, which is not a test module.

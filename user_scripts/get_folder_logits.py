@@ -4,8 +4,8 @@ import argparse
 import os
 import pickle
 
-from pero.ocr_engine import line_ocr_engine as ocr
-from pero.line_images_io import read_images
+from pero_ocr.ocr_engine import line_ocr_engine as ocr
+from pero_ocr.line_images_io import read_images
 
 
 def parse_arguments():

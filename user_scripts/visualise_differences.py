@@ -11,8 +11,8 @@ import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
 
-from pero.line_images_io import read_images
-from pero.transcription_io import load_transcriptions
+from pero_ocr.line_images_io import read_images
+from pero_ocr.transcription_io import load_transcriptions
 
 
 def get_font_fn(font):

@@ -3,7 +3,7 @@
 from setuptools import setup
 
 setup(
-    name='pero',
+    name='pero-ocr',
     version='0.1',
-    packages=['pero'],
+    packages=['pero_ocr'],
 )

@@ -9,7 +9,7 @@ import cv2
 import re
 from typing import Set, List, Optional
 
-from pero.document_ocr import PageParser, PageLayout
+from pero_ocr.document_ocr import PageParser, PageLayout
 
 
 def parse_arguments():

@@ -1,7 +1,7 @@
 import unittest
-from pero.sequence_alignment import levenshtein_distance
-from pero.sequence_alignment import levenshtein_alignment
-from pero.sequence_alignment import levenshtein_alignment_path
+from pero_ocr.sequence_alignment import levenshtein_distance
+from pero_ocr.sequence_alignment import levenshtein_alignment
+from pero_ocr.sequence_alignment import levenshtein_alignment_path
 
 
 class TestLevenshteinDistance(unittest.TestCase):

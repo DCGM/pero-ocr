@@ -218,7 +218,7 @@ class EngineLineDetectorCNN(object):
 
 
 if __name__ == '__main__':
-    from pero.document_ocr import layout
+    from pero_ocr.document_ocr import layout
 
     test_layout = layout.PageLayout(id='test')
     test_p = layout.RegionLayout('r', np.zeros((4, 2)))

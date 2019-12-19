@@ -1,4 +1,4 @@
-from pero.sequence_alignment import levenshtein_alignment_path
+from pero_ocr.sequence_alignment import levenshtein_alignment_path
 import math
 
 
