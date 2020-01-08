@@ -148,7 +148,6 @@ def build_deep_net(class_count, input_tensor, train_phase, keep_prob, seq_len,
 
     return decoded, logits, logits_t, log_prob
 
-
 def build_u_net(class_count, input_tensor, train_phase, keep_prob, seq_len,
                    num_hidden=96, num_recurrent_layers=1, block_layer_count=2, base_filter_count=12, block_count_2d=3,
                    block_count_1d=2, output_subsampling=4, layer_norm=False):
@@ -360,8 +359,49 @@ def build_deep_net_with_multiple_LSTM(class_count, input_tensor, train_phase,
     return decoded_all, logits_all, logits_t_all, log_prob_all, mask_all
 
 
+def build_CRNN(class_count, input_tensor, train_phase, keep_prob, seq_len):
+    class_count = class_count + 1
+    net = input_tensor
+    print('INPUT', net.shape, file=stderr)
+
+    net = sequential_conv_block(net, train_phase, 1, 64)
+    net = tf.layers.max_pooling2d(net, 2, 2)
+
+    net = sequential_conv_block(net, train_phase, 1, 128)
+    net = tf.layers.max_pooling2d(net, 2, 2)
+
+    net = sequential_conv_block(net, train_phase, 2, 256)
+    net = tf.layers.max_pooling2d(net, (2, 1), (2, 1))
+
+    net = sequential_conv_block(net, train_phase, 2, 512)
+    net = tf.layers.max_pooling2d(net, (2, 1), (2, 1))
+
+    net = tf.layers.conv2d(
+        net, filters=512, kernel_size=(2, 1),
+        padding='valid', use_bias=False)
+    net = tf.nn.relu(net)
+    print("CONV SHAPE", net.shape, file=stderr)
+
+    net = net[:, 0, :, :]
+
+
+    lstm = tf.contrib.cudnn_rnn.CudnnGRU(2, 256, direction='bidirectional', name="awesome_lstm")
+    net = tf.transpose(net, [1, 0, 2])
+    net, x = lstm(net)
+    net = tf.transpose(net, [1, 0, 2])
+
+    logits = tf.layers.conv1d(net, class_count, 1)
+    print("LOGIT SHAPE", logits.shape, file=stderr)
+
+    logits_t = tf.transpose(logits, (1, 0, 2))
+    decoded, log_prob = tf.nn.ctc_greedy_decoder(logits_t, seq_len, merge_repeated=True)
+
+    return decoded, logits, logits_t, log_prob
+
+
 line_nets = {
     # NET_001
+    'CRNN': partial(build_CRNN),
     'LSTM_BC_3_BLC_2_BFC_12': partial(
         build_deep_net, num_hidden=96, num_recurrent_layers=1,
         block_layer_count=2, base_filter_count=12, block_count=3, output_subsampling=4),
