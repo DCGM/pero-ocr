@@ -25,7 +25,7 @@ python setup.py develop --uninstall
 Working changes are expected to happen on `develop` branch, so if you plan to contribute, you better check it out right during cloning:
 
 ```
-git clone -b develop git@github.com:DCGM/pero-ocr.git pero-ocr-others
+git clone -b develop git@github.com:DCGM/pero-ocr.git pero-ocr
 ```
 
 ### Testing
