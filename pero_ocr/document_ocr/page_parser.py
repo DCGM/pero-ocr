@@ -57,6 +57,8 @@ class MissingLogits(Exception):
 
 class PageDecoder:
     def __init__(self, decoder):
+        from pero.decoding import decoding_itf
+        self.prepare_dense_logits = decoding_itf.prepare_dense_logits
         self.decoder = decoder
 
     def process_page(self, page_layout: PageLayout):
@@ -64,7 +66,7 @@ class PageDecoder:
             if line.logits is None:
                 raise MissingLogits(f"Line {line.id} has {line.logits} in place of logits")
 
-            logits = decoding_itf.prepare_dense_logits(line.logits)
+            logits = self.prepare_dense_logits(line.logits)
             line.transcription = self.decoder(logits).best_hyp()
 
         return page_layout
