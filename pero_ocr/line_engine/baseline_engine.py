@@ -178,8 +178,8 @@ class EngineLineDetectorCNN(object):
                 heights_pred = heights_map * (baselines_img == i)[:, :, np.newaxis]
                 if np.amax(heights_pred[:, :, 0]) > 0 and np.amax(heights_pred[:, :, 1]) > 0:  # percentile will fail on zero vector, discard the baseline in such case
                     heights_pred = np.asarray([
-                        np.percentile(heights_pred[:, :, 0][heights_pred[:, :, 0] > 0], 90),
-                        np.percentile(heights_pred[:, :, 1][heights_pred[:, :, 1] > 0], 90)
+                        np.percentile(heights_pred[:, :, 0][heights_pred[:, :, 0] > 0], 70),
+                        np.percentile(heights_pred[:, :, 1][heights_pred[:, :, 1] > 0], 70)
                     ])
                     baselines_list.append(self.downsample * pos)
                     heights_list.append([int(self.downsample * round(heights_pred[0])),
