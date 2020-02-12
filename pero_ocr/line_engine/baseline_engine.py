@@ -227,7 +227,7 @@ class EngineLineDetectorCNN(object):
         temp_downsample = self.downsample
         for scale_iteration in range(2):
             height = np.median([h[0] + h[1] for h in heights_list])
-            if height < 24:
+            if height / self.downsample <= 6:
                 self.downsample = self.downsample - 1
                 try:
                     if self.downsample >= 1:
