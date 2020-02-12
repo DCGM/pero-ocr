@@ -109,6 +109,7 @@ class RegionExtractorCNN(object):
 class BaseTextlineExtractor(object):
     def __init__(self, config):
         self.merge_lines = config.getboolean('MERGE_LINES')
+        self.stretch_lines = config.getint('STRETCH_LINES')
 
     def assign_lines_to_region(self, baseline_list, heights_list, textline_list, region):
         for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):
@@ -134,6 +135,13 @@ class BaseTextlineExtractor(object):
                 region_textline_list = [linepp.baseline_to_textline(baseline, heights) for baseline, heights in zip(region_baseline_list, region_heights_list)]
                 region.lines = []
                 region = self.assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
+            scores = []
+            for line in region.lines:
+                width = line.baseline[-1][1] - line.baseline[0][1]
+                height = line.heights[0] + line.heights[1]
+                scores.append((width - self.stretch_lines) / height)
+            region.lines = [line for line, score in zip(region.lines, scores) if score > 0.5]
+
         return page_layout
 
 

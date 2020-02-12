@@ -141,7 +141,7 @@ class EngineLineDetectorCNN(object):
         out_map = self.session.run('test_probs:0', feed_dict={'test_dataset:0' : test_img_canvas/256.})
         out_map = out_map[0, :img.shape[0], :img.shape[1], :]
         out_map = out_map[self.pad:-self.pad,self.pad:-self.pad,:]
-        heights_map = out_map[:,:,:2].astype(np.uint16)
+        heights_map = out_map[:,:,:2].astype(np.float32)
         baselines_map = pp.nonmaxima_suppression(out_map[:,:,2]-out_map[:,:,3]) > self.detection_threshold
 
         return baselines_map, heights_map
@@ -183,8 +183,8 @@ class EngineLineDetectorCNN(object):
                         np.percentile(heights_pred[:, :, 1][heights_pred[:, :, 1] > 0], 70)
                     ])
                     baselines_list.append(self.downsample * pos)
-                    heights_list.append([int(self.downsample * round(heights_pred[0])),
-                                         int(self.downsample * round(heights_pred[1]))])
+                    heights_list.append([self.downsample * heights_pred[0],
+                                         self.downsample * heights_pred[1]])
 
         return baselines_list, heights_list
 
