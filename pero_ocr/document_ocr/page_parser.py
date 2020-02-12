@@ -45,7 +45,7 @@ def ocr_factory(config):
 
 
 def page_decoder_factory(config):
-    from pero.decoding import decoding_itf
+    from pero_ocr.decoding import decoding_itf
     ocr_chars = decoding_itf.get_ocr_charset(config['OCR']['OCR_JSON'])
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False)
     return PageDecoder(decoder)
@@ -57,6 +57,8 @@ class MissingLogits(Exception):
 
 class PageDecoder:
     def __init__(self, decoder):
+        from pero_ocr.decoding import decoding_itf
+        self.prepare_dense_logits = decoding_itf.prepare_dense_logits
         self.decoder = decoder
 
     def process_page(self, page_layout: PageLayout):
@@ -64,7 +66,7 @@ class PageDecoder:
             if line.logits is None:
                 raise MissingLogits(f"Line {line.id} has {line.logits} in place of logits")
 
-            logits = decoding_itf.prepare_dense_logits(line.logits)
+            logits = self.prepare_dense_logits(line.logits)
             line.transcription = self.decoder(logits).best_hyp()
 
         return page_layout

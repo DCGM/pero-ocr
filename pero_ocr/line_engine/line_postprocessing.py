@@ -1,5 +1,6 @@
 import math
 import random
+import warnings
 
 import tensorflow as tf
 import numpy as np
@@ -176,9 +177,11 @@ def mask_textline_by_region(baseline, textline, region):
     region_shpl = shapely.geometry.Polygon(region)
     if not textline_shpl.is_valid: # this can happen after merging two lines
         textline_shpl = textline_shpl.convex_hull
+    if not region_shpl.is_valid:
+        warnings.warn("Input region contains self-intersections, replacing it with convex hull...")
+        region_shpl = region_shpl.convex_hull
     baseline_is = region_shpl.intersection(baseline_shpl)
     textline_is = region_shpl.intersection(textline_shpl)
-
     if baseline_is.length > 1 and isinstance(baseline_is, shapely.geometry.LineString) and isinstance(textline_is, shapely.geometry.Polygon):
         return np.asarray(baseline_is.coords), np.asarray(textline_is.exterior.coords)
     else:
