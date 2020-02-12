@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import cv2
 import shapely
+import sys
 from scipy import ndimage
 from scipy import signal
 from scipy.ndimage.morphology import binary_erosion
@@ -187,7 +188,7 @@ class EngineLineDetectorCNN(object):
 
         return baselines_list, heights_list
 
-    def detect_lines(self, img):
+    def detect_lines_single_scale(self, img):
         """Detect lines in document image.
         :param img: input image array
         """
@@ -205,14 +206,36 @@ class EngineLineDetectorCNN(object):
             textlines_list.append(pp.baseline_to_textline(baseline, height))
 
         if self.order_lines == 'vertical':
-            baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list, textlines_list)
+            baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list,
+                                                                                   textlines_list)
         elif self.order_lines == 'reading_order':
-            baselines_list, heights_list, textlines_list = pp.order_lines_general(baselines_list, heights_list, textlines_list)
+            baselines_list, heights_list, textlines_list = pp.order_lines_general(baselines_list, heights_list,
+                                                                                  textlines_list)
         else:
             raise ValueError("Argument order_lines must be either 'vertical' or 'reading_order'.")
 
         textlines_list = [pp.rotate_coords(textline, -rotation, (0, 0)) for textline in textlines_list]
         baselines_list = [pp.rotate_coords(baseline, -rotation, (0, 0)) for baseline in baselines_list]
+
+        return baselines_list, heights_list, textlines_list
+
+    def detect_lines(self, img):
+        """Detect lines in document image.
+        :param img: input image array
+        """
+        baselines_list, heights_list, textlines_list = self.detect_lines_single_scale(img)
+        temp_downsample = self.downsample
+        for scale_iteration in range(2):
+            height = np.median([h[0] + h[1] for h in heights_list])
+            if height < 24:
+                self.downsample = self.downsample - 1
+                try:
+                    if self.downsample >= 1:
+                        baselines_list, heights_list, textlines_list = self.detect_lines_single_scale(img)
+                except:
+                    print(f'Error: Failed to detect lines in increased resolution. Downsample was {self.downsample}',
+                          file=sys.stderr)
+        self.downsample = temp_downsample
 
         return baselines_list, heights_list, textlines_list
 
