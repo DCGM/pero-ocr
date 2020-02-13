@@ -1,6 +1,7 @@
 import re
 import pickle
 from io import BytesIO
+from datetime import datetime
 
 import numpy as np
 import lxml.etree as ET
@@ -147,6 +148,131 @@ class PageLayout(object):
         with open(file_name, 'w') as out_f:
             out_f.write(xml_string)
 
+    def to_altoxml_string(self):
+        NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
+                 "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
+        root = ET.Element("alto", nsmap=NSMAP)
+        root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v2#")
+
+        description = ET.SubElement(root, "Description")
+        measurement_unit = ET.SubElement(description, "MeasurementUnit")
+        measurement_unit.text = "pixel"
+        ocr_processing = ET.SubElement(description, "OCRProcessing")
+        ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
+        processing_date_time = ET.SubElement(ocr_processing_step, "processingDateTime")
+        processing_date_time.text = datetime.today().strftime('%Y-%m-%d')
+        processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
+        processing_creator = ET.SubElement(processing_software, "softwareCreator")
+        processing_creator.text = "Project PERO"
+        software_name = ET.SubElement(processing_software, "softwareName")
+        software_name.text = "PERO OCR"
+        software_version = ET.SubElement(processing_software, "softwareVersion")
+        software_version.text = "v0.1.0"
+
+        layout = ET.SubElement(root, "Layout")
+        page = ET.SubElement(layout, "Page")
+        page.set("ID", self.id)
+        page.set("PHYSICAL_IMG_NR", str(1))
+        page.set("HEIGHT", str(self.page_size[0]))
+        page.set("WIDTH", str(self.page_size[1]))
+
+        top_margin = ET.SubElement(page, "TopMargin")
+        left_margin = ET.SubElement(page, "LeftMargin")
+        right_margin = ET.SubElement(page, "RightMargin")
+        bottom_margin = ET.SubElement(page, "BottomMargin")
+        print_space = ET.SubElement(page, "PrintSpace")
+
+        print_space_height = 0
+        print_space_width = 0
+        print_space_vpos = self.page_size[0]
+        print_space_hpos = self.page_size[1]
+        for b, block in enumerate(self.regions):
+            text_block = ET.SubElement(print_space, "TextBlock")
+            text_block.set("ID", block.id)
+
+            text_block_height = max(block.polygon[:,1]) - min(block.polygon[:,1])
+            text_block.set("HEIGHT", str(text_block_height))
+
+            text_block_width = max(block.polygon[:,0]) - min(block.polygon[:,0])
+            text_block.set("WIDTH", str(text_block_width))
+
+            text_block_vpos = min(block.polygon[:,0])
+            text_block.set("VPOS", str(text_block_vpos))
+
+            text_block_hpos = min(block.polygon[:,1])
+            text_block.set("HPOS", str(text_block_hpos))
+
+            print_space_height = max([print_space_vpos+print_space_height, text_block_vpos+text_block_height])
+            print_space_width = max([print_space_hpos+print_space_width, text_block_hpos+text_block_width])
+            print_space_vpos = min([print_space_vpos, text_block_vpos])
+            print_space_hpos = min([print_space_hpos, text_block_hpos])
+            print_space_height = print_space_height - print_space_vpos
+            print_space_width = print_space_width - print_space_hpos
+
+            for l, line in enumerate(block.lines):
+                text_line = ET.SubElement(text_block, "TextLine")
+
+                text_line_baseline = int(np.average(np.array(line.baseline)[:,0]))
+                text_line.set("BASELINE", str(text_line_baseline))
+                text_line_height = int(np.average((np.array(line.polygon)[:, 0])[len(line.polygon)//2:]))-int(np.average((np.array(line.polygon)[:,0])[:len(line.polygon)//2]))
+                text_line.set("HEIGHT", str(text_line_height))
+                text_line_width = max((np.array(line.polygon)[:, 1]))-min(np.array(line.polygon)[:, 1])
+                text_line.set("WIDTH", str(text_line_width))
+                text_line_vpos = int(np.average((np.array(line.polygon)[:, 0])[:len(line.polygon) // 2]))
+                text_line.set("VPOS", str(text_line_vpos))
+                text_line_hpos = min(np.array(line.polygon)[:, 1])
+                text_line.set("HPOS", str(text_line_hpos))
+                for w, word in enumerate(line.transcription.split()):
+                    string = ET.SubElement(text_line, "String")
+                    string.set("CONTENT", word)
+                    string.set("HEIGHT", "")
+                    string.set("WIDTH", "")
+                    string.set("VPOS", "")
+                    string.set("HPOS", "")
+                    if w != (len(line.transcription.split())-1):
+                        space = ET.SubElement(text_line, "SP")
+                        space.set("WIDTH", "")
+                        space.set("VPOS", "")
+                        space.set("HPOS", "")
+
+        top_margin.set("HEIGHT", "{}" .format(print_space_vpos))
+        top_margin.set("WIDTH", "{}" .format(self.page_size[1]))
+        top_margin.set("VPOS", "0")
+        top_margin.set("HPOS", "0")
+
+        left_margin.set("HEIGHT", "{}" .format(self.page_size[0]))
+        left_margin.set("WIDTH", "{}" .format(print_space_hpos))
+        left_margin.set("VPOS", "0")
+        left_margin.set("HPOS", "0")
+
+        right_margin.set("HEIGHT", "{}" .format(self.page_size[0]))
+        right_margin.set("WIDTH", "{}" .format(self.page_size[1]-(print_space_hpos+print_space_width)))
+        right_margin.set("VPOS", "0")
+        right_margin.set("HPOS", "{}" .format(print_space_hpos+print_space_width))
+
+        bottom_margin.set("HEIGHT", "{}" .format(self.page_size[0]-(print_space_vpos+print_space_height)))
+        bottom_margin.set("WIDTH", "{}" .format(self.page_size[1]))
+        bottom_margin.set("VPOS", "{}" .format(print_space_vpos+print_space_height))
+        bottom_margin.set("HPOS", "0")
+
+        print_space.set("HEIGHT", str(print_space_height))
+        print_space.set("WIDTH", str(print_space_width))
+        print_space.set("VPOS", str(print_space_vpos))
+        print_space.set("HPOS", str(print_space_hpos))
+
+        return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
+
+    def to_altoxml(self, file_name):
+        alto_string = self.to_altoxml_string()
+        with open(file_name, 'w') as out_f:
+            out_f.write(alto_string)
+
+    def from_altoxml_string(self, pagexml_string):
+        self.from_pagexml(BytesIO(pagexml_string))
+
+    def from_altoxml(self, file):
+        pass
+
     def save_logits(self, file_name):
         """Save page logits as a pickled dictionary of sparse matrices.
         :param file_name: to pickle into.
@@ -230,10 +356,25 @@ def element_schema(elem):
 
 
 if __name__ == '__main__':
-    test_layout = PageLayout(file='/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
-    test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')
-    image = cv2.imread('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624.jpg')
-    test_layout.render_to_image(image, '/mnt/matylda1/ikodym/junk/refactor_test/')
+    #test_layout = PageLayout(file='/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
+    #test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')
+    #image = cv2.imread('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624.jpg')
+    #test_layout.render_to_image(image, '/mnt/matylda1/ikodym/junk/refactor_test/')
+    test_layout = PageLayout()
+
+    #test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
+    #test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/8e41ecc2-57ed-412a-aa4f-d945efa7c624.logits')
+
+    test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.xml')
+    test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.logits')
+    #for i, item in enumerate(test_layout.regions):
+    #    for e, elem in enumerate(item.lines):
+    #        print(elem.logits)
+
+    image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.jpg")
+    cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test.jpg", test_layout.render_to_image(image))
+    string = test_layout.to_altoxml_string()
+    print(string)
 
 #
 # def simple_line_extraction(self, img, element_size=2):
