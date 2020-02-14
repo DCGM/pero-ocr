@@ -3,6 +3,7 @@ import cv2
 from scipy import interpolate
 from numba import jit
 
+
 class EngineLineCropper(object):
 
     def __init__(self, correct_slant=False, line_height=32, poly=0, scale=1, blend_border=5):
@@ -12,69 +13,76 @@ class EngineLineCropper(object):
         self.scale = scale
         self.blend_border = blend_border
 
-    def get_crop_inputs(self, img, baseline, height):
-        height[0] = int(round(self.scale * height[0]))
-        height[1] = int(round(self.scale * height[1]))
+    @jit
+    def reverse_value_mapping(self, forward_mapping, sample_positions, sampled_values):
+        backward_mapping = np.zeros_like(sample_positions)
+        forward_position = 0
+        for i in range(sample_positions.shape[0]):
+            while forward_mapping[forward_position] > sample_positions[i]:
+                forward_position += 1
+            d = forward_mapping[forward_position] - forward_mapping[forward_position-1]
+            da = (sample_positions[i] - forward_mapping[forward_position-1]) / d
+            backward_mapping[i] = (1 - da) * sampled_values[forward_position - 1] + da * sampled_values[forward_position]
+        return backward_mapping
 
-        line_height = height[0] + height[1]
-        line_len = 0
-        for i in range(1, len(baseline)):
-            line_len += np.linalg.norm(np.asarray(baseline[i-1]) - np.asarray(baseline[i]))
-        line_len = int(round(line_len))
+    def get_crop_inputs(self, img, baseline, line_heights, target_height):
+        line_heights = [line_heights[0], line_heights[1]]
+
         coords = np.asarray(baseline).copy().astype(int)
-        y1 = np.amin(coords[:, 0])
-        y2 = np.amax(coords[:, 0])
-        x1 = np.amin(coords[:, 1])
-        x2 = np.amax(coords[:, 1])
-        coords[:, 0] = coords[:, 0] - y1
-        coords[:, 1] = coords[:, 1] - x1
-
-        line_crop = img[np.clip(y1-height[0], 0, img.shape[0]):np.clip(y2+height[1], 0, img.shape[0]), x1:x2]
-        line_crop = np.pad(line_crop, ((0,0), (0, max(0, line_len-(x2-x1))), (0,0)), 'constant')
-
-        len_ratio = line_len / (x2 - x1)
         if self.poly:
             if coords.shape[0] > 2:
                 line_interpf = np.poly1d(np.polyfit(coords[:,1], coords[:,0], self.poly))
-                line_y_values = line_interpf(np.arange(0, line_len))
             else:
-                line_interpf = interpolate.interp1d(coords[:,1]*len_ratio, coords[:,0], kind='linear',)
-                line_y_values = line_interpf(np.arange(0, line_len))
+                line_interpf = interpolate.interp1d(coords[:,1], coords[:,0], kind='linear',)
         else:
             try:
-                line_interpf = interpolate.interp1d(coords[:,1]*len_ratio, coords[:,0], kind='cubic',)
+                line_interpf = interpolate.interp1d(coords[:,1], coords[:,0], kind='cubic',)
             except: # fall back to linear interpolation in case y_values fails (usually with very short baselines)
-                line_interpf = interpolate.interp1d(coords[:,1]*len_ratio, coords[:,0], kind='linear',)
-            line_y_values = line_interpf(np.arange(0, line_len))
-        y_values_diff = np.pad(np.diff(line_y_values), (1, 0), 'constant')
-        y_values_diff_norm = np.linalg.norm(np.stack((y_values_diff, np.ones_like(y_values_diff)), axis=1), axis=1)
+                line_interpf = interpolate.interp1d(coords[:,1], coords[:,0], kind='linear',)
 
-        coords_x = np.tile(np.arange(0, (x2-x1), (x2-x1)/line_len), (line_height, 1))
-        coords_x = coords_x[:, :line_len]
-        coords_y = np.tile(np.arange(line_height), (line_len, 1)).T + line_y_values[np.newaxis, :]
+        left = coords[:, 1].min()
+        right = coords[:, 1].max()
+        line_x_values = np.arange(left, right)
+        line_y_values = line_interpf(line_x_values)
+        line_length = ((line_x_values[:-1] - line_x_values[1:])**2 + (line_y_values[:-1] - line_y_values[1:])**2) ** 0.5
+        mapping_x_to_line_pos = np.concatenate([np.zeros(1), np.cumsum(line_length)])
 
-        if self.correct_slant:
-            coords_x = coords_x - (np.tile(np.arange(line_height), (line_len, 1)).T - height[0]) * y_values_diff[np.newaxis, :] # correct for y_values normals
-            coords_y = coords_y - (np.tile(np.arange(line_height), (line_len, 1)).T - height[0]) * (y_values_diff_norm[np.newaxis, :] - 1) # correct for normal lengths
-        else:
-            coords_x = coords_x - (np.tile(np.arange(line_height), (line_len, 1)).T - height[0]) * np.average(y_values_diff)
-            coords_y = coords_y - (np.tile(np.arange(line_height), (line_len, 1)).T - height[0]) * np.average(y_values_diff_norm - 1)
-        coords = np.stack((coords_x, coords_y), axis=2).astype(np.float32)
+        scale = target_height / (line_heights[0] + line_heights[1])
 
-        offset = [np.clip(y1-height[0], 0, img.shape[0]), x1]
+        horizontal_sample_count = int(mapping_x_to_line_pos[-1] * scale)
 
-        return line_crop, coords, offset
+        tmp = np.linspace(0, mapping_x_to_line_pos[-1], horizontal_sample_count)
+        output_x_positions = self.reverse_value_mapping(
+            mapping_x_to_line_pos, tmp, line_x_values)
+
+        output_y_positions = line_interpf(output_x_positions)
+
+        d_x = np.full_like(output_x_positions, 0.1)
+        d_y = output_y_positions - line_interpf(output_x_positions + 0.1)
+        norm_scales = (d_x**2 + d_y**2) ** 0.5
+
+        morm_x = -d_y / norm_scales
+        norm_y = d_x / norm_scales
+
+        vertical_map = np.linspace(-line_heights[0], line_heights[1], target_height).reshape(-1, 1)
+        vertical_map_x = morm_x.reshape(1, -1) * vertical_map + output_x_positions.reshape(1, -1)
+        vertical_map_y = norm_y.reshape(1, -1) * vertical_map + output_y_positions.reshape(1, -1)
+
+        coords = np.stack((vertical_map_x, vertical_map_y), axis=2).astype(np.float32)
+
+        return coords
 
     def crop(self, img, baseline, height, return_mapping=False):
-        img_crop, coords, offset = self.get_crop_inputs(img, baseline, height)
-        line_crop = cv2.remap(img_crop, coords[:, :, 0], coords[:, :, 1], interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_TRANSPARENT)
-        fy = self.line_height / line_crop.shape[0]
-        line_crop_out = cv2.resize(line_crop, (int(np.round(fy*line_crop.shape[1])), self.line_height))
+        line_coords = self.get_crop_inputs(img, baseline, height, self.line_height)
+        line_crop = cv2.remap(img, line_coords[:, :, 0], line_coords[:, :, 1],
+                              interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+
         if return_mapping:
+            raise Exception('Not implemented')
             line_mapping = self.reverse_mapping(coords, img_crop.shape)
             return line_crop_out, line_mapping*fy, offset
         else:
-            return line_crop_out
+            return line_crop
 
     def blend_in(self, img, line_crop, mapping, offset):
 
