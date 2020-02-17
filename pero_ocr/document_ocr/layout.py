@@ -264,14 +264,53 @@ class PageLayout(object):
 
     def to_altoxml(self, file_name):
         alto_string = self.to_altoxml_string()
-        with open(file_name, 'w') as out_f:
+        with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
     def from_altoxml_string(self, pagexml_string):
         self.from_pagexml(BytesIO(pagexml_string))
 
     def from_altoxml(self, file):
-        pass
+        page_tree = ET.parse(file)
+        schema = element_schema(page_tree.getroot())
+        root = page_tree.getroot()
+
+        layout = root.findall(schema+'Layout')[0]
+        page = layout.findall(schema+'Page')[0]
+
+        self.id = page.attrib['ID']
+        self.page_size = (int(page.attrib['HEIGHT']), int(page.attrib['WIDTH']))
+
+        print_space = page.findall(schema+'PrintSpace')[0]
+        for region in print_space.iter(schema + 'TextBlock'):
+            region_coords = list()
+            region_coords.append([int(region.get('VPOS')), int(region.get('HPOS'))])
+            region_coords.append([int(region.get('WIDTH')), int(region.get('HPOS'))])
+            region_coords.append([int(region.get('WIDTH')), int(region.get('HEIGHT'))])
+            region_coords.append([int(region.get('VPOS')), int(region.get('HEIGHT'))])
+
+            region_layout = RegionLayout(region.attrib['ID'], np.asarray(region_coords))
+
+            for line in region.iter(schema + 'TextLine'):
+                new_textline = TextLine(baseline=[[int(line.attrib['BASELINE']), int(line.attrib['HPOS'])], [int(line.attrib['BASELINE']), int(line.attrib['HPOS']) + int(line.attrib['WIDTH'])]], polygon=[])
+                new_textline.heights = [int(line.attrib['BASELINE'])-int(line.attrib['VPOS']), int(line.attrib['HEIGHT'])+int(line.attrib['VPOS'])-int(line.attrib['BASELINE'])]
+                new_textline.polygon.append([int(line.attrib['VPOS']), int(line.attrib['HPOS'])])
+                new_textline.polygon.append([int(line.attrib['VPOS']), int(line.attrib['HPOS'])+int(line.attrib['WIDTH'])])
+                new_textline.polygon.append([int(line.attrib['VPOS'])+int(line.attrib['HEIGHT']), int(line.attrib['HPOS'])+int(line.attrib['WIDTH'])])
+                new_textline.polygon.append([int(line.attrib['VPOS'])+int(line.attrib['HEIGHT']), int(line.attrib['HPOS'])])
+                word = ''
+                start = True
+                for text in line.iter(schema + 'String'):
+                    if start:
+                        start = False
+                        word = word + text.get('CONTENT')
+                    else:
+                        word = word + " " + text.get('CONTENT')
+
+                region_layout.lines.append(word)
+
+            self.regions.append(region_layout)
+
 
     def save_logits(self, file_name):
         """Save page logits as a pickled dictionary of sparse matrices.
@@ -360,23 +399,38 @@ if __name__ == '__main__':
     #test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')
     #image = cv2.imread('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624.jpg')
     #test_layout.render_to_image(image, '/mnt/matylda1/ikodym/junk/refactor_test/')
-    test_layout = PageLayout()
 
     #test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
     #test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/8e41ecc2-57ed-412a-aa4f-d945efa7c624.logits')
 
-    test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.xml')
-    test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.logits')
-    #for i, item in enumerate(test_layout.regions):
-    #    for e, elem in enumerate(item.lines):
-    #        print(elem.logits)
+    def save():
+        test_layout = PageLayout()
+        test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.xml')
+        test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.logits')
+        #for i, item in enumerate(test_layout.regions):
+        #    for e, elem in enumerate(item.lines):
+        #        print(elem.logits)
 
-    image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.jpg")
-    cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test.jpg", test_layout.render_to_image(image))
-    string = test_layout.to_altoxml_string()
-    print(string)
+        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.jpg")
+        cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test.jpg", test_layout.render_to_image(image))
+        string = test_layout.to_altoxml_string()
 
-#
+        test_layout.to_altoxml('test_alto.xml')
+
+        print("XXX")
+        print(test_layout.regions[0].lines[0].baseline)
+        print(test_layout.regions[0].lines[0].polygon)
+        print(test_layout.regions[0].lines[0].heights)
+        print(test_layout.regions[0].lines[0].crop)
+        print("XXX")
+    def load():
+        test_layout = PageLayout()
+        test_layout.from_altoxml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/pero_ocr/document_ocr/test_alto.xml')
+
+    save()
+    load()
+
+
 # def simple_line_extraction(self, img, element_size=2):
 #     region = np.asarray(self.coords)
 #
