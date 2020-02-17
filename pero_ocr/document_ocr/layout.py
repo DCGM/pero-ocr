@@ -7,9 +7,11 @@ import numpy as np
 import lxml.etree as ET
 import cv2
 
+from ocr_engine.softmax import softmax
+from force_alignment import force_align
 
 class TextLine(object):
-    def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None):
+    def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None, characters=None):
         self.id = id
         self.baseline = baseline
         self.polygon = polygon
@@ -17,6 +19,7 @@ class TextLine(object):
         self.transcription = transcription
         self.logits = logits
         self.crop = crop
+        self.characters = characters
 
 
 class RegionLayout(object):
@@ -222,9 +225,16 @@ class PageLayout(object):
                 text_line.set("VPOS", str(text_line_vpos))
                 text_line_hpos = min(np.array(line.polygon)[:, 1])
                 text_line.set("HPOS", str(text_line_hpos))
+
+                logits = np.array(line.logits[0].todense())
+
+                output = softmax(np.array(logits), axis=1)
+                aligned = force_align(-np.log(output), line.characters, line.characters[-1])
+
                 for w, word in enumerate(line.transcription.split()):
                     string = ET.SubElement(text_line, "String")
                     string.set("CONTENT", word)
+
                     string.set("HEIGHT", "")
                     string.set("WIDTH", "")
                     string.set("VPOS", "")
@@ -321,7 +331,7 @@ class PageLayout(object):
             for line in region.lines:
                 if line.logits is None:
                     raise Exception(f'Missing logits for line {line.id}.')
-            logits += [(line.id, line.logits) for line in region.lines]
+            logits += [(line.id, line.logits, line.characters) for line in region.lines]
         logits_dict = dict(logits)
         with open(file_name, 'wb') as f:
             pickle.dump(logits_dict, f, protocol=pickle.HIGHEST_PROTOCOL)

@@ -212,6 +212,7 @@ class PageOCR(object):
         for line, line_transcription, line_logits in zip(page_layout.lines_iterator(), transcriptions, logits):
             line.transcription = line_transcription
             line.logits = line_logits
+            line.characters = self.ocr_engine.characters
         return page_layout
 
 
