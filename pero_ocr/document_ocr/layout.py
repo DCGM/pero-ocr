@@ -10,6 +10,50 @@ import cv2
 from ocr_engine.softmax import softmax
 from force_alignment import force_align
 
+
+def find_optimal(logit, positions, idx):
+    maximum = -100
+    highest = -1
+    for i, item in enumerate(positions):
+        if maximum < logit[item][idx]:
+            maximum = logit[item][idx]
+            highest = item
+
+    return highest
+
+
+def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
+    last_char = None
+    repeating = []
+    for i, item in enumerate(label):
+        if last_char == item and last_char != idx_of_last:
+            repeating.extend([i])
+        else:
+            if repeating != []:
+                high = find_optimal(logit, repeating, last_char)
+                for e, elem in enumerate(repeating):
+                    if on_one_liberal:
+                        label[elem] = idx_of_last - 1
+                    else:
+                        label[elem] = idx_of_last
+                label[high] = last_char
+        if last_char != item:
+            repeating = []
+            if item != idx_of_last:
+                repeating.append(i)
+        last_char = item
+    if repeating != []:
+        high = find_optimal(logit, repeating, last_char)
+        for i, item in enumerate(repeating):
+            if on_one_liberal:
+                label[item] = idx_of_last - 1
+            else:
+                label[item] = idx_of_last
+        label[high] = last_char
+
+    return label
+
+
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None, characters=None):
         self.id = id
@@ -214,36 +258,89 @@ class PageLayout(object):
 
             for l, line in enumerate(block.lines):
                 text_line = ET.SubElement(text_block, "TextLine")
-
                 text_line_baseline = int(np.average(np.array(line.baseline)[:,0]))
                 text_line.set("BASELINE", str(text_line_baseline))
-                text_line_height = int(np.average((np.array(line.polygon)[:, 0])[len(line.polygon)//2:]))-int(np.average((np.array(line.polygon)[:,0])[:len(line.polygon)//2]))
-                text_line.set("HEIGHT", str(text_line_height))
-                text_line_width = max((np.array(line.polygon)[:, 1]))-min(np.array(line.polygon)[:, 1])
-                text_line.set("WIDTH", str(text_line_width))
-                text_line_vpos = int(np.average((np.array(line.polygon)[:, 0])[:len(line.polygon) // 2]))
+
+                text_line_vpos = min(np.array(line.polygon)[:, 0])
                 text_line.set("VPOS", str(text_line_vpos))
                 text_line_hpos = min(np.array(line.polygon)[:, 1])
                 text_line.set("HPOS", str(text_line_hpos))
+                text_line_height = max(np.array(line.polygon)[:, 0]) - min(np.array(line.polygon)[:, 0])
+                text_line.set("HEIGHT", str(text_line_height))
+                text_line_width = max(np.array(line.polygon)[:, 1]) - min(np.array(line.polygon)[:, 1])
+                text_line.set("WIDTH", str(text_line_width))
 
-                logits = np.array(line.logits[0].todense())
+                characters = ["\ufffd", "\n", " ", "!", "\"", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
+                              "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?", "@", "A",
+                              "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
+                              "T", "U", "V", "W", "X", "Y", "Z", "[", "]", "_", "a", "b", "c", "d", "e", "f", "g", "h",
+                              "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+                              "~", "\u00a3", "\u00a7", "\u00a9", "\u00ab", "\u00b0", "\u00bb", "\u00bd", "\u00c1",
+                              "\u00c9", "\u00cd", "\u00d3", "\u00d4", "\u00da", "\u00dd", "\u00e0", "\u00e1", "\u00e2",
+                              "\u00e3", "\u00e6", "\u00e7", "\u00e8", "\u00e9", "\u00ea", "\u00eb", "\u00ec", "\u00ed",
+                              "\u00ee", "\u00ef", "\u00f1", "\u00f2", "\u00f3", "\u00f4", "\u00f5", "\u00f9", "\u00fa",
+                              "\u00fb", "\u00fc", "\u00fd", "\u0107", "\u010c", "\u010d", "\u010e", "\u010f", "\u0119",
+                              "\u011a", "\u011b", "\u0142", "\u0144", "\u0147", "\u0148", "\u0153", "\u0158", "\u0159",
+                              "\u015b", "\u015e", "\u0160", "\u0161", "\u0164", "\u0165", "\u016e", "\u016f", "\u017a",
+                              "\u017c", "\u017d", "\u017e", "\u017f", "\u0192", "\u0247", "\u02db", "\u02ee", "\u0405",
+                              "\u1ebd", "\u2014", "\u2018", "\u2019", "\u201c", "\u201d", "\u201e", "\u20ac", "\u261e",
+                              "\u2c65", "\u2e17", "\uf161", "\uf50a", "\uf50b", "\uf50f", "\uf51e"]
 
-                output = softmax(np.array(logits), axis=1)
-                aligned = force_align(-np.log(output), array, 254)
+                chars = [i for i in range(len(characters))]
 
+                num_to_char = dict(zip(chars, characters))
+                char_to_num = dict(zip(characters, chars))
+                label = []
+                for item in (line.transcription):
+                    label.append(char_to_num[item])
+
+                logits = np.array(line.logits.todense())
+                output = softmax(logits, axis=1)
+                aligned = force_align(-np.log(output), label, len(chars))
+                narrow_label(aligned, logits, len(chars))
+
+                global_letter_counter = 0
                 for w, word in enumerate(line.transcription.split()):
+                    local_letter_counter = 0
+                    word_lenght = len(word)
+                    string_height = 0
+                    string_width = 0
+                    string_vpos = 0
+                    string_hpos = 0
+                    end_of_space = 0
+                    final = False
+                    last = True
+                    for a, ali in enumerate(aligned):
+                        if ali != len(chars):
+                            if local_letter_counter > global_letter_counter:
+                                if final:
+                                    end_of_space = text_line_hpos + 4*a
+                                    global_letter_counter = local_letter_counter
+                                    last = False
+                                    break
+                                if local_letter_counter - global_letter_counter == word_lenght:
+                                    string_width = (text_line_hpos + 4*a) - string_hpos
+                                    final = True
+                            elif local_letter_counter - global_letter_counter == 0:
+                                string_hpos = text_line_hpos + 4*a
+                            local_letter_counter += 1
+
+                    if last:
+                        string_width = (text_line_hpos + 4 * len(aligned)) - string_hpos
+
                     string = ET.SubElement(text_line, "String")
                     string.set("CONTENT", word)
 
                     string.set("HEIGHT", "")
-                    string.set("WIDTH", "")
+                    string.set("WIDTH", str(string_width))
                     string.set("VPOS", "")
-                    string.set("HPOS", "")
+                    string.set("HPOS", str(string_hpos))
                     if w != (len(line.transcription.split())-1):
                         space = ET.SubElement(text_line, "SP")
-                        space.set("WIDTH", "")
+
+                        space.set("WIDTH", str(end_of_space-(string_hpos+string_width)))
                         space.set("VPOS", "")
-                        space.set("HPOS", "")
+                        space.set("HPOS", str(string_hpos+string_width))
 
         top_margin.set("HEIGHT", "{}" .format(print_space_vpos))
         top_margin.set("WIDTH", "{}" .format(self.page_size[1]))
@@ -421,19 +518,10 @@ if __name__ == '__main__':
         #    for e, elem in enumerate(item.lines):
         #        print(elem.logits)
 
-        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/de0392e9-cdc2-42eb-aa74-a8c086c98bec.jpg")
+        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/de0392e9-cdc2-42eb-aa74-a8c086c98bec.jpeg")
         cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test.jpg", test_layout.render_to_image(image))
-        #string = test_layout.to_altoxml_string()
+        test_layout.to_altoxml("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test_alto.xml")
 
-        #test_layout.to_altoxml('test_alto.xml')
-
-        print("XXX")
-        print(test_layout.regions[0].lines[1])
-        print(test_layout.regions[0].lines[0].baseline)
-        print(test_layout.regions[0].lines[0].polygon)
-        print(test_layout.regions[0].lines[0].heights)
-        print(test_layout.regions[0].lines[0].crop)
-        print("XXX")
     def load():
         test_layout = PageLayout()
         test_layout.from_altoxml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/pero_ocr/document_ocr/test_alto.xml')
