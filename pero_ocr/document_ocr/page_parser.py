@@ -134,6 +134,13 @@ class BaseTextlineExtractor(object):
                 region_baseline_list, region_heights_list = linepp.merge_lines(region_baseline_list, region_heights_list)
                 region_textline_list = [linepp.baseline_to_textline(baseline, heights) for baseline, heights in zip(region_baseline_list, region_heights_list)]
                 region.lines = []
+                if self.order_lines == 'vertical':
+                    print('merged, ordering vertical')
+                    region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_vertical(region_baseline_list, region_heights_list, region_textline_list)
+                elif self.order_lines == 'reading_order':
+                    region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_general(region_baseline_list, region_heights_list, region_textline_list)
+                else:
+                    raise ValueError("Argument order_lines must be either 'vertical' or 'reading_order'.")
                 region = self.assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
             scores = []
             for line in region.lines:
