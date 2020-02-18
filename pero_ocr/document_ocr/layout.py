@@ -229,7 +229,7 @@ class PageLayout(object):
                 logits = np.array(line.logits[0].todense())
 
                 output = softmax(np.array(logits), axis=1)
-                aligned = force_align(-np.log(output), line.characters, line.characters[-1])
+                aligned = force_align(-np.log(output), array, 254)
 
                 for w, word in enumerate(line.transcription.split()):
                     string = ET.SubElement(text_line, "String")
@@ -415,19 +415,20 @@ if __name__ == '__main__':
 
     def save():
         test_layout = PageLayout()
-        test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.xml')
-        test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.logits')
+        test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/de0392e9-cdc2-42eb-aa74-a8c086c98bec.xml')
+        test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/de0392e9-cdc2-42eb-aa74-a8c086c98bec.logits')
         #for i, item in enumerate(test_layout.regions):
         #    for e, elem in enumerate(item.lines):
         #        print(elem.logits)
 
-        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00000080-1.jpg")
+        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/de0392e9-cdc2-42eb-aa74-a8c086c98bec.jpg")
         cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test.jpg", test_layout.render_to_image(image))
-        string = test_layout.to_altoxml_string()
+        #string = test_layout.to_altoxml_string()
 
-        test_layout.to_altoxml('test_alto.xml')
+        #test_layout.to_altoxml('test_alto.xml')
 
         print("XXX")
+        print(test_layout.regions[0].lines[1])
         print(test_layout.regions[0].lines[0].baseline)
         print(test_layout.regions[0].lines[0].polygon)
         print(test_layout.regions[0].lines[0].heights)
@@ -438,7 +439,7 @@ if __name__ == '__main__':
         test_layout.from_altoxml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/pero_ocr/document_ocr/test_alto.xml')
 
     save()
-    load()
+    #load()
 
 
 # def simple_line_extraction(self, img, element_size=2):
