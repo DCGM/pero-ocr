@@ -110,6 +110,7 @@ class BaseTextlineExtractor(object):
     def __init__(self, config):
         self.merge_lines = config.getboolean('MERGE_LINES')
         self.stretch_lines = config.getint('STRETCH_LINES')
+        self.order_lines = config['ORDER_LINES']
 
     def assign_lines_to_region(self, baseline_list, heights_list, textline_list, region):
         for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):
