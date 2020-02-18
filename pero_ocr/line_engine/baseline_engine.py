@@ -195,24 +195,12 @@ class EngineLineDetectorCNN(object):
         baselines_map, heights_map = self.infer_maps(img)
         baselines_list, heights_list = self.parse_maps(baselines_map, heights_map)
 
-        if self.stretch_lines > 0:
-            baselines_list = pp.stretch_baselines(baselines_list, self.stretch_lines)
-
         rotation = pp.get_rotation(baselines_list)
         baselines_list = [pp.rotate_coords(baseline, rotation, (0, 0)) for baseline in baselines_list]
 
         textlines_list = []
         for baseline, height in zip(baselines_list, heights_list):
             textlines_list.append(pp.baseline_to_textline(baseline, height))
-
-        if self.order_lines == 'vertical':
-            baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list,
-                                                                                   textlines_list)
-        elif self.order_lines == 'reading_order':
-            baselines_list, heights_list, textlines_list = pp.order_lines_general(baselines_list, heights_list,
-                                                                                  textlines_list)
-        else:
-            raise ValueError("Argument order_lines must be either 'vertical' or 'reading_order'.")
 
         textlines_list = [pp.rotate_coords(textline, -rotation, (0, 0)) for textline in textlines_list]
         baselines_list = [pp.rotate_coords(baseline, -rotation, (0, 0)) for baseline in baselines_list]

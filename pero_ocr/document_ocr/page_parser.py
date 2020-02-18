@@ -112,6 +112,47 @@ class BaseTextlineExtractor(object):
         self.stretch_lines = config.getint('STRETCH_LINES')
         self.order_lines = config['ORDER_LINES']
 
+    def postprocess_region_lines(self, region):
+        region_baseline_list = [line.baseline for line in region.lines]
+        region_textline_list = [line.polygon for line in region.lines]
+        region_heights_list = [line.heights for line in region.lines]
+
+        rotation = linepp.get_rotation(region_baseline_list)
+        region_baseline_list = [linepp.rotate_coords(baseline, rotation, (0, 0)) for baseline in region_baseline_list]
+
+        if self.stretch_lines > 0:
+            region_baseline_list = linepp.stretch_baselines(region_baseline_list, self.stretch_lines)
+
+        region_textline_list = []
+        for baseline, height in zip(region_baseline_list, region_heights_list):
+            region_textline_list.append(linepp.baseline_to_textline(baseline, height))
+
+        if self.merge_lines:
+            region_baseline_list, region_heights_list = linepp.merge_lines(region_baseline_list, region_heights_list)
+            region_textline_list = [linepp.baseline_to_textline(baseline, heights) for baseline, heights in zip(region_baseline_list, region_heights_list)]
+
+        region.lines = []
+        if self.order_lines == 'vertical':
+            region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_vertical(region_baseline_list, region_heights_list, region_textline_list)
+        elif self.order_lines == 'reading_order':
+            region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_general(region_baseline_list, region_heights_list, region_textline_list)
+        else:
+            raise ValueError("Argument order_lines must be either 'vertical' or 'reading_order'.")
+
+        region_textline_list = [linepp.rotate_coords(textline, -rotation, (0, 0)) for textline in region_textline_list]
+        region_baseline_list = [linepp.rotate_coords(baseline, -rotation, (0, 0)) for baseline in region_baseline_list]
+
+        scores = []
+        for line in region.lines:
+            width = line.baseline[-1][1] - line.baseline[0][1]
+            height = line.heights[0] + line.heights[1]
+            scores.append((width - self.stretch_lines) / height)
+        region.lines = [line for line, score in zip(region.lines, scores) if score > 0.5]
+
+        region = self.assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
+
+        return region
+
     def assign_lines_to_region(self, baseline_list, heights_list, textline_list, region):
         for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):
             baseline_intersection, textline_intersection = linepp.mask_textline_by_region(baseline, textline, region.polygon)
@@ -129,26 +170,7 @@ class BaseTextlineExtractor(object):
 
         for region in page_layout.regions:
             region = self.assign_lines_to_region(baseline_list, heights_list, textline_list, region)
-            if self.merge_lines:
-                region_baseline_list = [line.baseline for line in region.lines]
-                region_heights_list = [line.heights for line in region.lines]
-                region_baseline_list, region_heights_list = linepp.merge_lines(region_baseline_list, region_heights_list)
-                region_textline_list = [linepp.baseline_to_textline(baseline, heights) for baseline, heights in zip(region_baseline_list, region_heights_list)]
-                region.lines = []
-                if self.order_lines == 'vertical':
-                    print('merged, ordering vertical')
-                    region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_vertical(region_baseline_list, region_heights_list, region_textline_list)
-                elif self.order_lines == 'reading_order':
-                    region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_general(region_baseline_list, region_heights_list, region_textline_list)
-                else:
-                    raise ValueError("Argument order_lines must be either 'vertical' or 'reading_order'.")
-                region = self.assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
-            scores = []
-            for line in region.lines:
-                width = line.baseline[-1][1] - line.baseline[0][1]
-                height = line.heights[0] + line.heights[1]
-                scores.append((width - self.stretch_lines) / height)
-            region.lines = [line for line, score in zip(region.lines, scores) if score > 0.5]
+            region = self.postprocess_region_lines(region)
 
         return page_layout
 
