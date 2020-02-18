@@ -120,16 +120,15 @@ class BaseTextlineExtractor(object):
         rotation = linepp.get_rotation(region_baseline_list)
         region_baseline_list = [linepp.rotate_coords(baseline, rotation, (0, 0)) for baseline in region_baseline_list]
 
+        if self.merge_lines:
+            region_baseline_list, region_heights_list = linepp.merge_lines(region_baseline_list, region_heights_list)
+            
         if self.stretch_lines > 0:
             region_baseline_list = linepp.stretch_baselines(region_baseline_list, self.stretch_lines)
 
         region_textline_list = []
         for baseline, height in zip(region_baseline_list, region_heights_list):
             region_textline_list.append(linepp.baseline_to_textline(baseline, height))
-
-        if self.merge_lines:
-            region_baseline_list, region_heights_list = linepp.merge_lines(region_baseline_list, region_heights_list)
-            region_textline_list = [linepp.baseline_to_textline(baseline, heights) for baseline, heights in zip(region_baseline_list, region_heights_list)]
 
         region.lines = []
         if self.order_lines == 'vertical':
@@ -182,17 +181,13 @@ class TextlineExtractorCNN(BaseTextlineExtractor):
         downsample = config.getint('DOWNSAMPLE')
         pad = config.getint('PAD')
         use_cpu = config.getboolean('USE_CPU')
-        order_lines = config['ORDER_LINES']
         detection_threshold = config.getfloat('DETECTION_THRESHOLD')
-        stretch_lines = config.getint('STRETCH_LINES')
         self.line_engine = baseline_engine.EngineLineDetectorCNN(
             model_path=model_path,
             downsample=downsample,
             pad=pad,
             use_cpu=use_cpu,
-            order_lines=order_lines,
             detection_threshold=detection_threshold,
-            stretch_lines=stretch_lines
         )
 
 

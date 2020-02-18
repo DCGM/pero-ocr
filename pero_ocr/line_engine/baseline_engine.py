@@ -101,15 +101,11 @@ class EngineLineDetectorSimple(object):
 
 
 class EngineLineDetectorCNN(object):
-    def __init__(self, model_path, downsample=4, pad=50, use_cpu=False,
-                 order_lines='reading_order', detection_threshold=0.5,
-                 stretch_lines=0):
+    def __init__(self, model_path, downsample=4, pad=50, use_cpu=False, detection_threshold=0.5):
 
         self.downsample = downsample
         self.pad = pad
-        self.order_lines = order_lines
         self.detection_threshold = detection_threshold
-        self.stretch_lines = stretch_lines
 
         tf.reset_default_graph()
         saver = tf.train.import_meta_graph(model_path + '.meta')
