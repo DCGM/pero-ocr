@@ -67,7 +67,7 @@ class PageLayout(object):
                 new_textline = TextLine(id=line.attrib['id'])
                 heights = re.findall("\d+", line.attrib['custom'])
                 if re.findall("heights", line.attrib['custom']):
-                    heights_array = np.asarray([int(round(float(x))) for x in heights])
+                    heights_array = np.asarray([float(x) for x in heights])
                     if heights_array.shape[0] == 3:
                         heights = np.zeros(2, dtype=np.int32)
                         heights[0] = heights_array[1]
@@ -125,7 +125,7 @@ class PageLayout(object):
                 text_line = ET.SubElement(text_region, "TextLine")
                 text_line.set("id", line.id)
                 if line.heights is not None:
-                    text_line.set("custom", "heights {" + str(int(line.heights[0])) + ", " + str(int(line.heights[1])) + "}")
+                    text_line.set("custom", "heights {" + str(line.heights[0]) + ", " + str(line.heights[1]) + "}")
                 coords = ET.SubElement(text_line, "Coords")
 
                 if line.polygon is not None:

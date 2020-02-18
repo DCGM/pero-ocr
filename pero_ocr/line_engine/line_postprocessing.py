@@ -55,7 +55,7 @@ def merge_lines(baselines, heights):
                     new_height[1] = heights[l_num][1]
             new_line_inds = np.argsort(np.asarray(new_line)[:, 1])
             baselines.append([new_line[x] for x in new_line_inds.tolist()])
-            heights.append(new_height.astype(np.int32).tolist())
+            heights.append(new_height.tolist())
 
     baselines = filter_list(baselines, merged_lines)
     heights = filter_list(heights, merged_lines)
@@ -195,9 +195,9 @@ def baseline_to_textline(baseline, heights):
     """
 
     pos_up = np.asarray(baseline.copy()).astype(int)
-    pos_up[:,0] -= heights[0]
+    pos_up[:,0] -= int(round(heights[0]))
     pos_down = np.asarray(baseline.copy()).astype(int)
-    pos_down[:,0] += heights[1]
+    pos_down[:,0] += int(round(heights[1]))
     pos_t = np.concatenate([pos_up, pos_down[::-1,:]], axis=0)
 
     return np.clip(pos_t, 0, None)
