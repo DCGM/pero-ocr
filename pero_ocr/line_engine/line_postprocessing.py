@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 import cv2
 import shapely.geometry
-from scipy import ndimage
+from scipy import ndimage, interpolate
 from sklearn import cluster
 
 
@@ -144,6 +144,35 @@ def stretch_baselines(baselines, stretch):
     return baselines_stretched
 
 
+def stretch_baselines_to_region(baselines, region):
+    baselines_stretched = []
+    region = np.concatenate((region, region[:1, :]), axis=0)
+    for baseline in baselines:
+        line_interpf = np.poly1d(np.polyfit(baseline[:, 1], baseline[:, 0], 1))
+        y_1 = line_interpf(np.amin(region[:, 1]))
+        y_2 = line_interpf(np.amax(region[:, 1]))
+        baseline_ls = shapely.geometry.LineString([(y_1, np.amin(region[:, 1])), (y_2, np.amax(region[:, 1]))])
+        region_ls = shapely.geometry.LineString(region)
+
+        intersections_ls = region_ls.intersection(baseline_ls)
+        intersections = np.squeeze(np.asarray([intersection.coords.xy for intersection in intersections_ls]))
+        intersection_left = intersections[np.argmin(intersections[:, 1]), :]
+        intersection_right = intersections[np.argmax(intersections[:, 1]), :]
+
+        baselines_stretched.append(np.concatenate((intersection_left[np.newaxis, :], baseline, intersection_right[np.newaxis, :]), axis=0))
+    return baselines_stretched
+
+
+def resample_baselines(baselines):
+    baselines_resampled = []
+    for baseline in baselines:
+        line_interpf = np.poly1d(np.polyfit(baseline[:,1], baseline[:,0], 2))
+        new_xs = np.linspace(int(np.amin(baseline[:,1])), int(np.amax(baseline[:,1])), 10)
+        new_ys = line_interpf(new_xs)
+        baselines_resampled.append(np.stack((new_ys, new_xs), axis=-1))
+    return baselines_resampled
+
+
 def nonmaxima_suppression(input, element_size=(7,1)):
     """Vertical non-maxima suppression.
     :param input: input array
@@ -200,7 +229,7 @@ def baseline_to_textline(baseline, heights):
     pos_down[:,0] += int(round(heights[1]))
     pos_t = np.concatenate([pos_up, pos_down[::-1,:]], axis=0)
 
-    return np.clip(pos_t, 0, None)
+    return pos_t#np.clip(pos_t, 0, None)
 
 
 def get_rotation(lines):

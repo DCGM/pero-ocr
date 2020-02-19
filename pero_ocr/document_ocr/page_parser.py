@@ -109,28 +109,36 @@ class RegionExtractorCNN(object):
 class BaseTextlineExtractor(object):
     def __init__(self, config):
         self.merge_lines = config.getboolean('MERGE_LINES')
-        self.stretch_lines = config.getint('STRETCH_LINES')
+        self.stretch_lines = config['STRETCH_LINES']
+        if self.stretch_lines != 'max':
+            self.stretch_lines = int(self.stretch_lines)
+        self.resample_lines = config.getboolean('RESAMPLE_LINES')
         self.order_lines = config['ORDER_LINES']
 
     def postprocess_region_lines(self, region):
         region_baseline_list = [line.baseline for line in region.lines]
         region_textline_list = [line.polygon for line in region.lines]
         region_heights_list = [line.heights for line in region.lines]
+        region.lines = []
 
         rotation = linepp.get_rotation(region_baseline_list)
         region_baseline_list = [linepp.rotate_coords(baseline, rotation, (0, 0)) for baseline in region_baseline_list]
 
         if self.merge_lines:
             region_baseline_list, region_heights_list = linepp.merge_lines(region_baseline_list, region_heights_list)
-            
-        if self.stretch_lines > 0:
+
+        if self.stretch_lines == 'max':
+            region_baseline_list = linepp.stretch_baselines_to_region(region_baseline_list, linepp.rotate_coords(region.polygon.copy(), rotation, (0, 0)))
+        elif self.stretch_lines > 0:
             region_baseline_list = linepp.stretch_baselines(region_baseline_list, self.stretch_lines)
+
+        if self.resample_lines:
+            region_baseline_list = linepp.resample_baselines(region_baseline_list)
 
         region_textline_list = []
         for baseline, height in zip(region_baseline_list, region_heights_list):
             region_textline_list.append(linepp.baseline_to_textline(baseline, height))
 
-        region.lines = []
         if self.order_lines == 'vertical':
             region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_vertical(region_baseline_list, region_heights_list, region_textline_list)
         elif self.order_lines == 'reading_order':
@@ -147,8 +155,8 @@ class BaseTextlineExtractor(object):
             height = line.heights[0] + line.heights[1]
             scores.append((width - self.stretch_lines) / height)
         region.lines = [line for line, score in zip(region.lines, scores) if score > 0.5]
-
         region = self.assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
+
 
         return region
 
