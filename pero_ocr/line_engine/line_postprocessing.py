@@ -26,12 +26,12 @@ def merge_lines(baselines, heights):
         lines_to_merge_i = list()
         for j in range(len(baselines)):
             if i != j:
-                avg_hpos_1 = np.average(np.asarray(baselines[i])[:, 0]).astype(np.int32)
-                avg_hpos_2 = np.average(np.asarray(baselines[j])[:, 0]).astype(np.int32)
-                min_i = np.amin(np.asarray(baselines[i])[:, 1]).astype(np.int32)
-                max_i = np.amax(np.asarray(baselines[i])[:, 1]).astype(np.int32)
-                min_j = np.amin(np.asarray(baselines[j])[:, 1]).astype(np.int32)
-                max_j = np.amax(np.asarray(baselines[j])[:, 1]).astype(np.int32)
+                avg_hpos_1 = np.average(np.asarray(baselines[i])[:, 1]).astype(np.int32)
+                avg_hpos_2 = np.average(np.asarray(baselines[j])[:, 1]).astype(np.int32)
+                min_i = np.amin(np.asarray(baselines[i])[:, 0]).astype(np.int32)
+                max_i = np.amax(np.asarray(baselines[i])[:, 0]).astype(np.int32)
+                min_j = np.amin(np.asarray(baselines[j])[:, 0]).astype(np.int32)
+                max_j = np.amax(np.asarray(baselines[j])[:, 0]).astype(np.int32)
                 v_overlay = (min_i > min_j and max_i < max_j) or (min_j > min_i and max_j < max_i)
                 h_overlay = np.minimum(avg_hpos_1 + heights[i][1], avg_hpos_2 + heights[j][1]) - np.maximum(avg_hpos_1 - heights[i][0], avg_hpos_2 - heights[j][0])
                 if h_overlay > (0.7 * np.minimum(heights[i][0] + heights[i][1], heights[j][0] + heights[j][1])) and not v_overlay:
@@ -53,7 +53,7 @@ def merge_lines(baselines, heights):
                     new_height[0] = heights[l_num][0]
                 if heights[l_num][1] > new_height[1]:
                     new_height[1] = heights[l_num][1]
-            new_line_inds = np.argsort(np.asarray(new_line)[:, 1])
+            new_line_inds = np.argsort(np.asarray(new_line)[:, 0])
             baselines.append([new_line[x] for x in new_line_inds.tolist()])
             heights.append(new_height.tolist())
 
@@ -71,9 +71,9 @@ def cluster_baselines(baselines, heights):
     :param baselines: list of baselines to cluster
     :param heights: list of respective textline heights
     """
-    baseline_features = np.asarray([[baseline[0][1], (baseline[0][0]+baseline[-1][0])/2] for baseline in baselines])
+    baseline_features = np.asarray([[baseline[0][0], (baseline[0][1]+baseline[-1][1])/2] for baseline in baselines])
     alpha = 4  # how much to reduce vertical difference penalty
-    feature_normalizers = np.asarray([[baseline[-1][1] - baseline[0][1], alpha*height[0]] for baseline, height in zip(baselines, heights)])
+    feature_normalizers = np.asarray([[baseline[-1][0] - baseline[0][0], alpha*height[0]] for baseline, height in zip(baselines, heights)])
     feature_normalizers = np.median(feature_normalizers, axis=0)
     baseline_labels = cluster.DBSCAN(eps=0.5, min_samples=1).fit(baseline_features/feature_normalizers).labels_
 
@@ -93,10 +93,10 @@ def order_lines_general(baselines, heights, textlines):
     clusters_h_inds = list()
     for c in clusters:
         bs_inds = np.where(baseline_labels == c)[0]
-        v_min = np.amin(np.asarray([baselines[bs_ind][0][0] for bs_ind in bs_inds]))
-        v_max = np.amax(np.asarray([baselines[bs_ind][0][0] for bs_ind in bs_inds]))
-        h_min = np.median(np.asarray([baselines[bs_ind][0][1] for bs_ind in bs_inds]))
-        h_max = np.median(np.asarray([baselines[bs_ind][-1][1] for bs_ind in bs_inds]))
+        v_min = np.amin(np.asarray([baselines[bs_ind][0][1] for bs_ind in bs_inds]))
+        v_max = np.amax(np.asarray([baselines[bs_ind][0][1] for bs_ind in bs_inds]))
+        h_min = np.median(np.asarray([baselines[bs_ind][0][0] for bs_ind in bs_inds]))
+        h_max = np.median(np.asarray([baselines[bs_ind][-1][0] for bs_ind in bs_inds]))
         clusters_v_inds.append([v_min, v_max])
         clusters_h_inds.append([h_min, h_max])
     clusters_rank = np.zeros_like(clusters)
@@ -125,7 +125,7 @@ def order_lines_vertical(baselines, heights, textlines):
     :param heights: list of respective textline heights
     :param textlines: list of respective textline polygons
     """
-    baselines_order = [baseline[0][0]+random.uniform(0.001, 0.999) for baseline in baselines]  # adding random number to order to prevent swapping when two lines are on same y-coord
+    baselines_order = [baseline[0][1]+random.uniform(0.001, 0.999) for baseline in baselines]  # adding random number to order to prevent swapping when two lines are on same y-coord
     baselines = [baseline for _, baseline in sorted(zip(baselines_order, baselines))]
     heights = [height for _, height in sorted(zip(baselines_order, heights))]
     textlines = [textline for _, textline in sorted(zip(baselines_order, textlines))]
@@ -137,9 +137,9 @@ def stretch_baselines(baselines, stretch):
     baselines_stretched = []
     for baseline in baselines:
         last_point = baseline[-1:, :].copy()
-        last_point[0,1] += stretch
+        last_point[0,0] += stretch
         first_point = baseline[:1, :].copy()
-        first_point[0,1] -= stretch
+        first_point[0,0] -= stretch
         baselines_stretched.append(np.concatenate((first_point, baseline, last_point), axis=0))
     return baselines_stretched
 
@@ -148,16 +148,16 @@ def stretch_baselines_to_region(baselines, region):
     baselines_stretched = []
     region = np.concatenate((region, region[:1, :]), axis=0)
     for baseline in baselines:
-        line_interpf = np.poly1d(np.polyfit(baseline[:, 1], baseline[:, 0], 1))
-        y_1 = line_interpf(np.amin(region[:, 1]))
-        y_2 = line_interpf(np.amax(region[:, 1]))
-        baseline_ls = shapely.geometry.LineString([(y_1, np.amin(region[:, 1])), (y_2, np.amax(region[:, 1]))])
+        line_interpf = np.poly1d(np.polyfit(baseline[:, 0], baseline[:, 1], 1))
+        y_1 = line_interpf(np.amin(region[:, 0]))
+        y_2 = line_interpf(np.amax(region[:, 0]))
+        baseline_ls = shapely.geometry.LineString([(np.amin(region[:, 0]), y_1), (np.amax(region[:, 0]), y_2)])
         region_ls = shapely.geometry.LineString(region)
 
         intersections_ls = region_ls.intersection(baseline_ls)
         intersections = np.squeeze(np.asarray([intersection.coords.xy for intersection in intersections_ls]))
-        intersection_left = intersections[np.argmin(intersections[:, 1]), :]
-        intersection_right = intersections[np.argmax(intersections[:, 1]), :]
+        intersection_left = intersections[np.argmin(intersections[:, 0]), :]
+        intersection_right = intersections[np.argmax(intersections[:, 0]), :]
 
         baselines_stretched.append(np.concatenate((intersection_left[np.newaxis, :], baseline, intersection_right[np.newaxis, :]), axis=0))
     return baselines_stretched
@@ -166,10 +166,10 @@ def stretch_baselines_to_region(baselines, region):
 def resample_baselines(baselines):
     baselines_resampled = []
     for baseline in baselines:
-        line_interpf = np.poly1d(np.polyfit(baseline[:,1], baseline[:,0], 2))
-        new_xs = np.linspace(int(np.amin(baseline[:,1])), int(np.amax(baseline[:,1])), 10)
+        line_interpf = np.poly1d(np.polyfit(baseline[:,0], baseline[:,1], 2))
+        new_xs = np.linspace(int(np.amin(baseline[:,0])), int(np.amax(baseline[:,0])), 10)
         new_ys = line_interpf(new_xs)
-        baselines_resampled.append(np.stack((new_ys, new_xs), axis=-1))
+        baselines_resampled.append(np.stack((new_xs, new_ys), axis=-1))
     return baselines_resampled
 
 
@@ -224,9 +224,9 @@ def baseline_to_textline(baseline, heights):
     """
 
     pos_up = np.asarray(baseline.copy()).astype(int)
-    pos_up[:,0] -= int(round(heights[0]))
+    pos_up[:,1] -= int(round(heights[0]))
     pos_down = np.asarray(baseline.copy()).astype(int)
-    pos_down[:,0] += int(round(heights[1]))
+    pos_down[:,1] += int(round(heights[1]))
     pos_t = np.concatenate([pos_up, pos_down[::-1,:]], axis=0)
 
     return pos_t#np.clip(pos_t, 0, None)
@@ -242,12 +242,12 @@ def get_rotation(lines):
         first_line_point = line[0].astype(np.float64)
         last_line_point = line[-1].astype(np.float64)
 
-        if last_line_point[0] != first_line_point[0]:
+        if last_line_point[1] != first_line_point[1]:
             rotation = math.degrees(
-                math.atan((last_line_point[0] - first_line_point[0]) / (last_line_point[1] - first_line_point[1])))
+                math.atan((last_line_point[1] - first_line_point[1]) / (last_line_point[0] - first_line_point[0])))
             length = math.sqrt(
-                math.pow(last_line_point[1] - first_line_point[1], 2)
-                + math.pow(last_line_point[0] - first_line_point[0], 2))
+                math.pow(last_line_point[0] - first_line_point[0], 2)
+                + math.pow(last_line_point[1] - first_line_point[1], 2))
             lines_info.append((length, rotation))
         else:
             lines_info.append((0,0))
@@ -270,9 +270,9 @@ def rotate_coords(coords, rotation, center):
     :param center: center of rotation
     """
     M = cv2.getRotationMatrix2D((center), rotation, 1)
-    change_coords = [[item[1], item[0]] for item in coords]
+    change_coords = [[item[0], item[1]] for item in coords]
     coords = np.array([change_coords])
     rotated_coords = cv2.transform(coords, M)[0]
-    out_coords = [[item[1], item[0]] for item in rotated_coords]
+    out_coords = [[item[0], item[1]] for item in rotated_coords]
 
     return np.asarray(out_coords)

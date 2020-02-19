@@ -79,9 +79,9 @@ class WholePageRegion(object):
     def process_page(self, img, page_layout: PageLayout):
         corners = np.asarray([
             [0, 0],
-            [0, page_layout.page_size[1]],
-            [page_layout.page_size[0], page_layout.page_size[1]],
-            [page_layout.page_size[0], 0]
+            [page_layout.page_size[1], 0],
+            [page_layout.page_size[1], page_layout.page_size[0]],
+            [0, page_layout.page_size[0]]
         ])
         page_layout.regions = [RegionLayout('r1', corners)]
         return page_layout
@@ -117,61 +117,61 @@ class BaseTextlineExtractor(object):
         self.heights_from_regions = config.getboolean('HEIGHTS_FROM_REGIONS')
 
     def postprocess_region_lines(self, region):
-        region_baseline_list = [line.baseline for line in region.lines]
-        region_textline_list = [line.polygon for line in region.lines]
-        region_heights_list = [line.heights for line in region.lines]
-        region.lines = []
+        if region.lines:
+            region_baseline_list = [line.baseline for line in region.lines]
+            region_textline_list = [line.polygon for line in region.lines]
+            region_heights_list = [line.heights for line in region.lines]
+            region.lines = []
 
-        rotation = linepp.get_rotation(region_baseline_list)
-        region_baseline_list = [linepp.rotate_coords(baseline, rotation, (0, 0)) for baseline in region_baseline_list]
+            rotation = linepp.get_rotation(region_baseline_list)
+            region_baseline_list = [linepp.rotate_coords(baseline, rotation, (0, 0)) for baseline in region_baseline_list]
 
-        if self.merge_lines:
-            region_baseline_list, region_heights_list = linepp.merge_lines(region_baseline_list, region_heights_list)
+            if self.merge_lines:
+                region_baseline_list, region_heights_list = linepp.merge_lines(region_baseline_list, region_heights_list)
 
-        if self.stretch_lines == 'max':
-            region_baseline_list = linepp.stretch_baselines_to_region(region_baseline_list, linepp.rotate_coords(region.polygon.copy(), rotation, (0, 0)))
-        elif self.stretch_lines > 0:
-            region_baseline_list = linepp.stretch_baselines(region_baseline_list, self.stretch_lines)
+            if self.stretch_lines == 'max':
+                region_baseline_list = linepp.stretch_baselines_to_region(region_baseline_list, linepp.rotate_coords(region.polygon.copy(), rotation, (0, 0)))
+            elif self.stretch_lines > 0:
+                region_baseline_list = linepp.stretch_baselines(region_baseline_list, self.stretch_lines)
 
-        if self.resample_lines:
-            region_baseline_list = linepp.resample_baselines(region_baseline_list)
+            if self.resample_lines:
+                region_baseline_list = linepp.resample_baselines(region_baseline_list)
 
-        if self.heights_from_regions:
+            if self.heights_from_regions:
+                scores = []
+                region_heights_list = []
+                for baseline in region_baseline_list:
+                    baseline = linepp.rotate_coords(baseline, -rotation, (0, 0))
+                    height_asc = np.amin(baseline[:,1]) - np.amin(region.polygon[:,1])
+                    height_des = np.amax(region.polygon[:,1]) - np.amax(baseline[:,1])
+                    region_heights_list.append((height_asc, height_des))
+                    # the final line in the bounding box should be the longest and in case of ambiguity, also have the biggest ascender height
+                    scores.append(np.amax(baseline[:,0]) - np.amin(baseline[:,0]) + height_asc)
+                best_ind = np.argmax(np.asarray(scores))
+                region_baseline_list = [region_baseline_list[best_ind]]
+                region_heights_list = [region_heights_list[best_ind]]
+
+            region_textline_list = []
+            for baseline, height in zip(region_baseline_list, region_heights_list):
+                region_textline_list.append(linepp.baseline_to_textline(baseline, height))
+
+            if self.order_lines == 'vertical':
+                region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_vertical(region_baseline_list, region_heights_list, region_textline_list)
+            elif self.order_lines == 'reading_order':
+                region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_general(region_baseline_list, region_heights_list, region_textline_list)
+            else:
+                raise ValueError("Argument order_lines must be either 'vertical' or 'reading_order'.")
+
+            region_textline_list = [linepp.rotate_coords(textline, -rotation, (0, 0)) for textline in region_textline_list]
+            region_baseline_list = [linepp.rotate_coords(baseline, -rotation, (0, 0)) for baseline in region_baseline_list]
+
             scores = []
-            region_heights_list = []
-            for baseline in region_baseline_list:
-                baseline = linepp.rotate_coords(baseline, -rotation, (0, 0))
-                height_asc = np.amin(baseline[:,0]) - np.amin(region.polygon[:,0])
-                height_des = np.amax(region.polygon[:,0]) - np.amax(baseline[:,0])
-                region_heights_list.append((height_asc, height_des))
-                # the final line in the bounding box should be the longest and in case of ambiguity, also have the biggest ascender height
-                scores.append(np.amax(baseline[:,1]) - np.amin(baseline[:,1]) + height_asc)
-            best_ind = np.argmax(np.asarray(scores))
-            region_baseline_list = [region_baseline_list[best_ind]]
-            region_heights_list = [region_heights_list[best_ind]]
-            print(region_heights_list)
-
-        region_textline_list = []
-        for baseline, height in zip(region_baseline_list, region_heights_list):
-            region_textline_list.append(linepp.baseline_to_textline(baseline, height))
-
-        if self.order_lines == 'vertical':
-            region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_vertical(region_baseline_list, region_heights_list, region_textline_list)
-        elif self.order_lines == 'reading_order':
-            region_baseline_list, region_heights_list, region_textline_list = linepp.order_lines_general(region_baseline_list, region_heights_list, region_textline_list)
-        else:
-            raise ValueError("Argument order_lines must be either 'vertical' or 'reading_order'.")
-
-        region_textline_list = [linepp.rotate_coords(textline, -rotation, (0, 0)) for textline in region_textline_list]
-        region_baseline_list = [linepp.rotate_coords(baseline, -rotation, (0, 0)) for baseline in region_baseline_list]
-
-        scores = []
-        for line in region.lines:
-            width = line.baseline[-1][1] - line.baseline[0][1]
-            height = line.heights[0] + line.heights[1]
-            scores.append((width - self.stretch_lines) / height)
-        region.lines = [line for line, score in zip(region.lines, scores) if score > 0.5]
-        region = self.assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
+            for line in region.lines:
+                width = line.baseline[-1][0] - line.baseline[0][0]
+                height = line.heights[0] + line.heights[1]
+                scores.append((width - self.stretch_lines) / height)
+            region.lines = [line for line, score in zip(region.lines, scores) if score > 0.5]
+            region = self.assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
 
         return region
 

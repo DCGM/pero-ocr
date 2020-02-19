@@ -92,7 +92,7 @@ class EngineLineDetectorSimple(object):
                 intersection = region.intersection(line)
                 if not intersection.is_empty:
                     if valid_baseline:
-                        baselines_list.append(np.round(np.asarray(list(region.intersection(line).coords[:]))).astype(np.int16))
+                        baselines_list.append(np.flip(np.round(np.asarray(list(region.intersection(line).coords[:]))).astype(np.int16), axis=1))
                         heights_list.append([baseline_coord-yb1, yb2-baseline_coord])
 
         textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
@@ -153,15 +153,15 @@ class EngineLineDetectorCNN(object):
         baselines_img, num_detections = ndimage.measurements.label(baselines_map, structure=np.ones((3, 3)))
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
-        inds = np.stack([inds[0], inds[1]], axis=1)
+        inds = np.stack([inds[1], inds[0]], axis=1) # go from matrix indexing to image indexing
 
         for i in range(1, num_detections+1):
             baseline_inds, = np.where(labels == i)
             if len(baseline_inds) > 15:
                 pos = inds[baseline_inds]
-                _, indices = np.unique(pos[:, 1], return_index=True)
+                _, indices = np.unique(pos[:, 0], return_index=True)
                 pos = pos[indices]
-                x_index = np.argsort(pos[:, 1])
+                x_index = np.argsort(pos[:, 0])
                 pos = pos[x_index]
 
                 pos_step = np.amax([15, pos.shape[0]//10])
