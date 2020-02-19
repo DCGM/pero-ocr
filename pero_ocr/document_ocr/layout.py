@@ -61,16 +61,17 @@ class PageLayout(object):
             region_layout = RegionLayout(region.attrib['id'], np.asarray(region_coords))
             for line in region.iter(schema + 'TextLine'):
                 new_textline = TextLine(id=line.attrib['id'])
-                heights = re.findall("\d+", line.attrib['custom'])
-                if re.findall("heights", line.attrib['custom']):
-                    heights_array = np.asarray([float(x) for x in heights])
-                    if heights_array.shape[0] == 3:
-                        heights = np.zeros(2, dtype=np.int32)
-                        heights[0] = heights_array[1]
-                        heights[1] = heights_array[2] - heights_array[0]
-                    else:
-                        heights = heights_array
-                    new_textline.heights = heights.tolist()
+                if 'custom' in line.attrib:
+                    heights = re.findall("\d+", line.attrib['custom'])
+                    if re.findall("heights", line.attrib['custom']):
+                        heights_array = np.asarray([float(x) for x in heights])
+                        if heights_array.shape[0] == 3:
+                            heights = np.zeros(2, dtype=np.int32)
+                            heights[0] = heights_array[1]
+                            heights[1] = heights_array[2] - heights_array[0]
+                        else:
+                            heights = heights_array
+                        new_textline.heights = heights.tolist()
 
                 baseline = line.find(schema + 'Baseline')
                 if baseline is not None:
