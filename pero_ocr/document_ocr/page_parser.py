@@ -114,6 +114,7 @@ class BaseTextlineExtractor(object):
             self.stretch_lines = int(self.stretch_lines)
         self.resample_lines = config.getboolean('RESAMPLE_LINES')
         self.order_lines = config['ORDER_LINES']
+        self.heights_from_regions = config.getboolean('HEIGHTS_FROM_REGIONS')
 
     def postprocess_region_lines(self, region):
         region_baseline_list = [line.baseline for line in region.lines]
@@ -134,6 +135,21 @@ class BaseTextlineExtractor(object):
 
         if self.resample_lines:
             region_baseline_list = linepp.resample_baselines(region_baseline_list)
+
+        if self.heights_from_regions:
+            scores = []
+            region_heights_list = []
+            for baseline in region_baseline_list:
+                baseline = linepp.rotate_coords(baseline, -rotation, (0, 0))
+                height_asc = np.amin(baseline[:,0]) - np.amin(region.polygon[:,0])
+                height_des = np.amax(region.polygon[:,0]) - np.amax(baseline[:,0])
+                region_heights_list.append((height_asc, height_des))
+                # the final line in the bounding box should be the longest and in case of ambiguity, also have the biggest ascender height
+                scores.append(np.amax(baseline[:,1]) - np.amin(baseline[:,1]) + height_asc)
+            best_ind = np.argmax(np.asarray(scores))
+            region_baseline_list = [region_baseline_list[best_ind]]
+            region_heights_list = [region_heights_list[best_ind]]
+            print(region_heights_list)
 
         region_textline_list = []
         for baseline, height in zip(region_baseline_list, region_heights_list):
@@ -156,7 +172,6 @@ class BaseTextlineExtractor(object):
             scores.append((width - self.stretch_lines) / height)
         region.lines = [line for line, score in zip(region.lines, scores) if score > 0.5]
         region = self.assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
-
 
         return region
 
