@@ -7,51 +7,9 @@ import numpy as np
 import lxml.etree as ET
 import cv2
 
-from ocr_engine.softmax import softmax
-from force_alignment import force_align
-
-
-def find_optimal(logit, positions, idx):
-    maximum = -100
-    highest = -1
-    for i, item in enumerate(positions):
-        if maximum < logit[item][idx]:
-            maximum = logit[item][idx]
-            highest = item
-
-    return highest
-
-
-def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
-    last_char = None
-    repeating = []
-    for i, item in enumerate(label):
-        if last_char == item and last_char != idx_of_last:
-            repeating.extend([i])
-        else:
-            if repeating != []:
-                high = find_optimal(logit, repeating, last_char)
-                for e, elem in enumerate(repeating):
-                    if on_one_liberal:
-                        label[elem] = idx_of_last - 1
-                    else:
-                        label[elem] = idx_of_last
-                label[high] = last_char
-        if last_char != item:
-            repeating = []
-            if item != idx_of_last:
-                repeating.append(i)
-        last_char = item
-    if repeating != []:
-        high = find_optimal(logit, repeating, last_char)
-        for i, item in enumerate(repeating):
-            if on_one_liberal:
-                label[item] = idx_of_last - 1
-            else:
-                label[item] = idx_of_last
-        label[high] = last_char
-
-    return label
+from pero_ocr.ocr_engine.softmax import softmax
+from pero_ocr.document_ocr.crop_engine import EngineLineCropper
+from pero_ocr.force_alignment import force_align
 
 
 class TextLine(object):
@@ -299,6 +257,9 @@ class PageLayout(object):
                 aligned = force_align(-np.log(output), label, len(chars))
                 narrow_label(aligned, logits, len(chars))
 
+                crop_engine = EngineLineCropper()
+                line_coords = crop_engine.get_crop_inputs(None, line.baseline, line.heights, (line.heights[0]+line.heights[1]))
+
                 global_letter_counter = 0
                 for w, word in enumerate(line.transcription.split()):
                     local_letter_counter = 0
@@ -499,6 +460,49 @@ def element_schema(elem):
     else:
         schema = None
     return '{' + schema + '}'
+
+
+def find_optimal(logit, positions, idx):
+    maximum = -100
+    highest = -1
+    for i, item in enumerate(positions):
+        if maximum < logit[item][idx]:
+            maximum = logit[item][idx]
+            highest = item
+
+    return highest
+
+
+def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
+    last_char = None
+    repeating = []
+    for i, item in enumerate(label):
+        if last_char == item and last_char != idx_of_last:
+            repeating.extend([i])
+        else:
+            if repeating != []:
+                high = find_optimal(logit, repeating, last_char)
+                for e, elem in enumerate(repeating):
+                    if on_one_liberal:
+                        label[elem] = idx_of_last - 1
+                    else:
+                        label[elem] = idx_of_last
+                label[high] = last_char
+        if last_char != item:
+            repeating = []
+            if item != idx_of_last:
+                repeating.append(i)
+        last_char = item
+    if repeating != []:
+        high = find_optimal(logit, repeating, last_char)
+        for i, item in enumerate(repeating):
+            if on_one_liberal:
+                label[item] = idx_of_last - 1
+            else:
+                label[item] = idx_of_last
+        label[high] = last_char
+
+    return label
 
 
 if __name__ == '__main__':
