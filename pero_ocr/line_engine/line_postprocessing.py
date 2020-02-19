@@ -156,9 +156,9 @@ def stretch_baselines_to_region(baselines, region):
         region_ls = shapely.geometry.LineString(region)
 
         intersections_ls = region_ls.intersection(baseline_ls)
-        intersections = np.squeeze(np.asarray([intersection.coords.xy for intersection in intersections_ls]))
         #intersection can be empty due to borderline baselines and integer coordinate rotations
-        if intersections.shape[0] > 0:
+        if isinstance(intersections_ls, shapely.geometry.MultiPoint):
+            intersections = np.squeeze(np.asarray([intersection.coords.xy for intersection in intersections_ls]))
             intersection_left = intersections[np.argmin(intersections[:, 0]), :]
             intersection_right = intersections[np.argmax(intersections[:, 0]), :]
 
