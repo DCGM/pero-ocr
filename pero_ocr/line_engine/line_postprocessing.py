@@ -148,6 +148,7 @@ def stretch_baselines_to_region(baselines, region):
     baselines_stretched = []
     region = np.concatenate((region, region[:1, :]), axis=0)
     for baseline in baselines:
+        # print(shapely.geometry.LineString(baseline).intersects(shapely.geometry.Polygon(region)))
         line_interpf = np.poly1d(np.polyfit(baseline[:, 0], baseline[:, 1], 1))
         y_1 = line_interpf(np.amin(region[:, 0]))
         y_2 = line_interpf(np.amax(region[:, 0]))
@@ -156,10 +157,12 @@ def stretch_baselines_to_region(baselines, region):
 
         intersections_ls = region_ls.intersection(baseline_ls)
         intersections = np.squeeze(np.asarray([intersection.coords.xy for intersection in intersections_ls]))
-        intersection_left = intersections[np.argmin(intersections[:, 0]), :]
-        intersection_right = intersections[np.argmax(intersections[:, 0]), :]
+        #intersection can be empty due to borderline baselines and integer coordinate rotations
+        if intersections.shape[0] > 0:
+            intersection_left = intersections[np.argmin(intersections[:, 0]), :]
+            intersection_right = intersections[np.argmax(intersections[:, 0]), :]
 
-        baselines_stretched.append(np.concatenate((intersection_left[np.newaxis, :], baseline, intersection_right[np.newaxis, :]), axis=0))
+            baselines_stretched.append(np.concatenate((intersection_left[np.newaxis, :], baseline, intersection_right[np.newaxis, :]), axis=0))
     return baselines_stretched
 
 
@@ -211,7 +214,7 @@ def mask_textline_by_region(baseline, textline, region):
         region_shpl = region_shpl.convex_hull
     baseline_is = region_shpl.intersection(baseline_shpl)
     textline_is = region_shpl.intersection(textline_shpl)
-    if baseline_is.length > 1 and isinstance(baseline_is, shapely.geometry.LineString) and isinstance(textline_is, shapely.geometry.Polygon):
+    if isinstance(baseline_is, shapely.geometry.LineString) and isinstance(textline_is, shapely.geometry.Polygon):
         return np.asarray(baseline_is.coords), np.asarray(textline_is.exterior.coords)
     else:
         return None, None
