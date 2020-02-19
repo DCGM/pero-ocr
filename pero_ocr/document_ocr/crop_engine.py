@@ -43,30 +43,30 @@ class EngineLineCropper(object):
         left = coords[:, 1].min()
         right = coords[:, 1].max()
         line_x_values = np.arange(left, right)
-        line_y_values = line_interpf(line_x_values)
+        line_y_values = line_interpf(line_x_values) # positions in source
         line_length = ((line_x_values[:-1] - line_x_values[1:])**2 + (line_y_values[:-1] - line_y_values[1:])**2) ** 0.5
-        mapping_x_to_line_pos = np.concatenate([np.zeros(1), np.cumsum(line_length)])
+        mapping_x_to_line_pos = np.concatenate([np.zeros(1), np.cumsum(line_length)]) # mapping of source to t
 
         scale = target_height / (line_heights[0] + line_heights[1])
 
-        horizontal_sample_count = int(mapping_x_to_line_pos[-1] * scale)
+        horizontal_sample_count = int(mapping_x_to_line_pos[-1] * scale) # number of target samples
 
         tmp = np.linspace(0, mapping_x_to_line_pos[-1], horizontal_sample_count)
-        output_x_positions = self.reverse_value_mapping(
+        output_x_positions = self.reverse_value_mapping( # get source x baseline positions in target pixels
             mapping_x_to_line_pos, tmp, line_x_values)
 
-        output_y_positions = line_interpf(output_x_positions)
+        output_y_positions = line_interpf(output_x_positions) # get source baseline y positions in target pixels
 
         d_x = np.full_like(output_x_positions, 0.1)
         d_y = output_y_positions - line_interpf(output_x_positions + 0.1)
-        norm_scales = (d_x**2 + d_y**2) ** 0.5
+        norm_scales = (d_x**2 + d_y**2) ** 0.5 # get normals
 
-        morm_x = -d_y / norm_scales
+        norm_x = -d_y / norm_scales
         norm_y = d_x / norm_scales
 
         vertical_map = np.linspace(-line_heights[0], line_heights[1], target_height).reshape(-1, 1)
-        vertical_map_x = morm_x.reshape(1, -1) * vertical_map + output_x_positions.reshape(1, -1)
-        vertical_map_y = norm_y.reshape(1, -1) * vertical_map + output_y_positions.reshape(1, -1)
+        vertical_map_x = norm_x.reshape(1, -1) * vertical_map + output_x_positions.reshape(1, -1) # get the rest of source x positions for target pixels computed from normals
+        vertical_map_y = norm_y.reshape(1, -1) * vertical_map + output_y_positions.reshape(1, -1) # get the rest of source y positions for target pixels computed from normals
 
         coords = np.stack((vertical_map_x, vertical_map_y), axis=2).astype(np.float32)
 
