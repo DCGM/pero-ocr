@@ -148,8 +148,8 @@ class BaseTextlineExtractor(object):
                 region_heights_list = []
                 for baseline in region_baseline_list:
                     baseline = linepp.rotate_coords(baseline, -rotation, (0, 0))
-                    height_asc = np.amin(baseline[:,1]) - np.amin(region.polygon[:,1])
-                    height_des = np.amax(region.polygon[:,1]) - np.amax(baseline[:,1])
+                    height_asc = int(round(np.amin(baseline[:,1]) - np.amin(region.polygon[:,1])))
+                    height_des = int(round(np.amax(region.polygon[:,1]) - np.amax(baseline[:,1])))
                     region_heights_list.append((height_asc, height_des))
                     # the final line in the bounding box should be the longest and in case of ambiguity, also have the biggest ascender height
                     scores.append(np.amax(baseline[:,0]) - np.amin(baseline[:,0]) + height_asc)
