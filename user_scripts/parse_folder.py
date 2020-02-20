@@ -77,7 +77,7 @@ def main():
     config = configparser.ConfigParser()
     config.read(config_path)
 
-    page_parser = PageParser(config)
+    page_parser = PageParser(config, config_path=os.path.dirname(config_path))
 
     input_image_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_IMAGE_PATH')
     input_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_XML_PATH')
