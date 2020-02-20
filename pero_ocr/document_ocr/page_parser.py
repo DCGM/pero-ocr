@@ -1,4 +1,5 @@
 import numpy as np
+from os.path import isabs, join, realpath
 
 from .layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import crop_engine as cropper
@@ -9,46 +10,51 @@ from pero_ocr.region_engine import SimpleThresholdRegion
 import pero_ocr.line_engine.line_postprocessing as linepp
 
 
-
-def layout_parser_factory(config):
+def layout_parser_factory(config, config_path=''):
     config = config['LAYOUT_PARSER']
     if config['METHOD'] == 'WHOLE_PAGE_REGION':
-        region_parser = WholePageRegion(config)
+        region_parser = WholePageRegion(config, config_path=config_path)
     elif config['METHOD'] == 'cnn':
-        region_parser = RegionExtractorCNN(config)
+        region_parser = RegionExtractorCNN(config, config_path=config_path)
     elif config['METHOD'] == 'SIMPLE_THRESHOLD_REGION':
-        region_parser = SimpleThresholdRegion(config)
+        region_parser = SimpleThresholdRegion(config, config_path=config_path)
     else:
         raise ValueError('Unknown layout parser method: {}'.format(config['METHOD']))
     return region_parser
 
 
-def line_parser_factory(config):
+def line_parser_factory(config, config_path=''):
     config = config['LINE_PARSER']
     if config['METHOD'] == 'cnn':
-        line_parser = TextlineExtractorCNN(config)
+        line_parser = TextlineExtractorCNN(config, config_path=config_path)
     elif config['METHOD'] == 'simple':
-        line_parser = TextlineExtractorSimple(config)
+        line_parser = TextlineExtractorSimple(config, config_path=config_path)
     else:
         raise ValueError('Unknown line parser method: {}'.format(config['METHOD']))
     return line_parser
 
 
-def line_cropper_factory(config):
+def line_cropper_factory(config, config_path=''):
     config = config['LINE_CROPPER']
-    return LineCropper(config)
+    return LineCropper(config, config_path=config_path)
 
 
-def ocr_factory(config):
+def ocr_factory(config, config_path=''):
     config = config['OCR']
     return PageOCR(config)
 
 
-def page_decoder_factory(config):
+def page_decoder_factory(config, config_path=''):
     from pero_ocr.decoding import decoding_itf
     ocr_chars = decoding_itf.get_ocr_charset(config['OCR']['OCR_JSON'])
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False)
-    return PageDecoder(decoder)
+    return PageDecoder(decoder, config_path=config_path)
+
+
+def compose_path(file_path, reference_path):
+    if reference_path and not isabs(file_path):
+        file_path = join(reference_path, file_path)
+    return file_path
 
 
 class MissingLogits(Exception):
@@ -73,7 +79,7 @@ class PageDecoder:
 
 
 class WholePageRegion(object):
-    def __init__(self, config):
+    def __init__(self, config, config_path=''):
         pass
 
     def process_page(self, img, page_layout: PageLayout):
@@ -88,8 +94,8 @@ class WholePageRegion(object):
 
 
 class RegionExtractorCNN(object):
-    def __init__(self, config):
-        model_path = config['MODEL_PATH']
+    def __init__(self, config, config_path=''):
+        model_path = compose_path(config['MODEL_PATH'], config_path)
         downsample = config.getint('DOWNSAMPLE')
         use_cpu = config.getboolean('USE_CPU')
         self.region_engine = region_engine.EngineRegionDetector(
@@ -175,9 +181,9 @@ class BaseTextlineExtractor(object):
 
 
 class TextlineExtractorCNN(BaseTextlineExtractor):
-    def __init__(self, config):
+    def __init__(self, config, config_path=''):
         super(TextlineExtractorCNN, self).__init__(config)
-        model_path = config['MODEL_PATH']
+        model_path = compose_path(config['MODEL_PATH'], config_path)
         downsample = config.getint('DOWNSAMPLE')
         pad = config.getint('PAD')
         use_cpu = config.getboolean('USE_CPU')
@@ -192,7 +198,7 @@ class TextlineExtractorCNN(BaseTextlineExtractor):
 
 
 class TextlineExtractorSimple(object):
-    def __init__(self, config):
+    def __init__(self, config, config_path=''):
         adaptive_threshold = config.getint('ADAPTIVE_THRESHOLD')
         block_size = config.getint('BLOCK_SIZE')
         minimum_length = config.getint('MINIMUM_LENGTH')
@@ -214,7 +220,7 @@ class TextlineExtractorSimple(object):
 
 
 class LineCropper(object):
-    def __init__(self, config):
+    def __init__(self, config, config_path=''):
         poly = config.getint('INTERP')
         line_scale = config.getfloat('LINE_SCALE')
         line_height = config.getint('LINE_HEIGHT')
@@ -231,8 +237,8 @@ class LineCropper(object):
 
 
 class PageOCR(object):
-    def __init__(self, config):
-        json_file = config['OCR_JSON']
+    def __init__(self, config, config_path=''):
+        json_file = compose_path(config['OCR_JSON'], config_path)
         self.ocr_engine = line_ocr_engine.EngineLineOCR(json_file, gpu_id=0)
 
     def process_page(self, img, page_layout: PageLayout):
@@ -249,7 +255,7 @@ class PageOCR(object):
 
 
 class PageParser (object):
-    def __init__(self, config):
+    def __init__(self, config, config_path=''):
         self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER')
         self.run_line_parser = config['PAGE_PARSER'].getboolean('RUN_LINE_PARSER')
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER')
@@ -262,15 +268,15 @@ class PageParser (object):
         self.ocr = None
         self.decoder = None
         if self.run_layout_parser:
-            self.layout_parser = layout_parser_factory(config)
+            self.layout_parser = layout_parser_factory(config, config_path=config_path)
         if self.run_line_parser:
-            self.line_parser = line_parser_factory(config)
+            self.line_parser = line_parser_factory(config, config_path=config_path)
         if self.run_line_cropper:
-            self.line_cropper = line_cropper_factory(config)
+            self.line_cropper = line_cropper_factory(config, config_path=config_path)
         if self.run_ocr:
-            self.ocr = ocr_factory(config)
+            self.ocr = ocr_factory(config, config_path=config_path)
         if self.run_decoder:
-            self.decoder = page_decoder_factory(config)
+            self.decoder = page_decoder_factory(config, config_path=config_path)
 
     def process_page(self, image, page_layout):
         if self.run_layout_parser:
