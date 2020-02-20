@@ -41,7 +41,7 @@ def line_cropper_factory(config, config_path=''):
 
 def ocr_factory(config, config_path=''):
     config = config['OCR']
-    return PageOCR(config)
+    return PageOCR(config, config_path=config_path)
 
 
 def page_decoder_factory(config, config_path=''):
