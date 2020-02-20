@@ -31,17 +31,17 @@ class EngineLineCropper(object):
         coords = np.asarray(baseline).copy().astype(int)
         if self.poly:
             if coords.shape[0] > 2:
-                line_interpf = np.poly1d(np.polyfit(coords[:,1], coords[:,0], self.poly))
+                line_interpf = np.poly1d(np.polyfit(coords[:,0], coords[:,1], self.poly))
             else:
-                line_interpf = interpolate.interp1d(coords[:,1], coords[:,0], kind='linear',)
+                line_interpf = interpolate.interp1d(coords[:,0], coords[:,1], kind='linear',)
         else:
             try:
-                line_interpf = interpolate.interp1d(coords[:,1], coords[:,0], kind='cubic',)
+                line_interpf = interpolate.interp1d(coords[:,0], coords[:,1], kind='cubic',)
             except: # fall back to linear interpolation in case y_values fails (usually with very short baselines)
-                line_interpf = interpolate.interp1d(coords[:,1], coords[:,0], kind='linear',)
+                line_interpf = interpolate.interp1d(coords[:,0], coords[:,1], kind='linear',)
 
-        left = coords[:, 1].min()
-        right = coords[:, 1].max()
+        left = coords[:, 0].min()
+        right = coords[:, 0].max()
         line_x_values = np.arange(left, right)
         line_y_values = line_interpf(line_x_values) # positions in source
         line_length = ((line_x_values[:-1] - line_x_values[1:])**2 + (line_y_values[:-1] - line_y_values[1:])**2) ** 0.5
@@ -120,8 +120,8 @@ class EngineLineCropper(object):
 
         one_line_points = []
 
-        p1 = baseline[0, ::-1]
-        p2 = baseline[-1, ::-1]
+        p1 = baseline[0, :]
+        p2 = baseline[-1, :]
         dir = (p2 - p1)
         dir = dir / (dir ** 2).sum() ** 0.5
         n = dir[::-1] * dy
