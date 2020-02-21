@@ -53,48 +53,36 @@ class PageLayout(object):
         for region in page_tree.iter(schema + 'TextRegion'):
             region_coords = list()
 
-            for coords in region.findall(schema + 'Coords'):
-                if 'points' in coords.attrib:
-                    points_string = coords.attrib['points'].split(' ')
-                    for points in points_string:
-                        x, y = points.split(',')
-                        region_coords.append([int(round(float(x))), int(round(float(y)))])
-                else:
-                    for point in coords.findall(schema + 'Point'):
-                        x, y = point.attrib['x'], point.attrib['y']
-                        region_coords.append([int(round(float(x))), int(round(float(y)))])
+            coords = region.find(schema + 'Coords')
+            if 'points' in coords.attrib:
+                region_coords = points_string_to_array(coords)
+            else:
+                for point in coords.findall(schema + 'Point'):
+                    x, y = point.attrib['x'], point.attrib['y']
+                    region_coords.append([int(round(float(x))), int(round(float(y)))])
 
             region_layout = RegionLayout(region.attrib['id'], np.asarray(region_coords))
             for line in region.iter(schema + 'TextLine'):
                 new_textline = TextLine(id=line.attrib['id'])
-                heights = re.findall("\d+", line.attrib['custom'])
-                if re.findall("heights", line.attrib['custom']):
-                    heights_array = np.asarray([float(x) for x in heights])
-                    if heights_array.shape[0] == 3:
-                        heights = np.zeros(2, dtype=np.int32)
-                        heights[0] = heights_array[1]
-                        heights[1] = heights_array[2] - heights_array[0]
-                    else:
-                        heights = heights_array
-                    new_textline.heights = heights.tolist()
+                if 'custom' in line.attrib:
+                    heights = re.findall("\d+", line.attrib['custom'])
+                    if re.findall("heights", line.attrib['custom']):
+                        heights_array = np.asarray([float(x) for x in heights])
+                        if heights_array.shape[0] == 3:
+                            heights = np.zeros(2, dtype=np.int32)
+                            heights[0] = heights_array[1]
+                            heights[1] = heights_array[2] - heights_array[0]
+                        else:
+                            heights = heights_array
+                        new_textline.heights = heights.tolist()
 
                 baseline = line.find(schema + 'Baseline')
                 if baseline is not None:
-                    points_string = baseline.attrib['points'].split(' ')
-                    baseline = list()
-                    for point in points_string:
-                        x, y = point.split(',')
-                        baseline.append([int(round(float(y))), int(round(float(x)))])
-                    new_textline.baseline = baseline
+                    new_textline.baseline = points_string_to_array(baseline)
 
                 textline = line.find(schema + 'Coords')
                 if textline is not None:
-                    points_string = textline.attrib['points'].split(' ')
-                    textline = list()
-                    for point in points_string:
-                        x, y = point.split(',')
-                        textline.append([int(round(float(y))), int(round(float(x)))])
-                    new_textline.polygon = textline
+                    new_textline.polygon = points_string_to_array(textline)
 
                 transcription = line.find(schema + 'TextEquiv')
                 if transcription is not None:
@@ -120,7 +108,7 @@ class PageLayout(object):
             text_region = ET.SubElement(page, "TextRegion")
             coords = ET.SubElement(text_region, "Coords")
             text_region.set("id", region_layout.id)
-            points = ["{},{}".format(int(x[0]), int(x[1])) for x in region_layout.polygon]
+            points = ["{},{}".format(int(coord[0]), int(coord[1])) for coord in region_layout.polygon]
             points = " ".join(points)
             coords.set("points", points)
             for line in region_layout.lines:
@@ -131,13 +119,13 @@ class PageLayout(object):
                 coords = ET.SubElement(text_line, "Coords")
 
                 if line.polygon is not None:
-                    points = ["{},{}".format(int(x[1]), int(x[0])) for x in line.polygon]
+                    points = ["{},{}".format(int(coord[0]), int(coord[1])) for coord in line.polygon]
                     points = " ".join(points)
                     coords.set("points", points)
 
                 if line.baseline is not None:
                     baseline_element = ET.SubElement(text_line, "Baseline")
-                    points = ["{},{}".format(int(x[1]), int(x[0])) for x in line.baseline]
+                    points = ["{},{}".format(int(coord[0]), int(coord[1])) for coord in line.baseline]
                     points = " ".join(points)
                     baseline_element.set("points", points)
 
@@ -403,13 +391,13 @@ class PageLayout(object):
         for region_layout in self.regions:
             image = draw_lines(
                 image,
+                [region_layout.polygon], color=(255, 0, 0), circles=(True, True, True), close=True)
+            image = draw_lines(
+                image,
                 [line.baseline for line in region_layout.lines], color=(0,0,255), circles=(True, True, False))
             image = draw_lines(
                 image,
                 [line.polygon for line in region_layout.lines], color=(0,255,0), close=True)
-            image = draw_lines(
-                image,
-                [region_layout.polygon], color=(255, 0, 0), circles=(True, True, True), close=True)
         return image
 
     def lines_iterator(self):
@@ -430,16 +418,16 @@ def draw_lines(img, lines, color=(255,0,0), circles=(False, False, False), close
         first = line[0]
         last = first
         if circles[0]:
-            cv2.circle(img, (int(last[1]), int(last[0])), 3, color, 4)
+            cv2.circle(img, (int(last[0]), int(last[1])), 3, color, 4)
         for p in line[1:]:
-            cv2.line(img, (int(last[1]), int(last[0])), (int(p[1]), int(p[0])), color, 2)
+            cv2.line(img, (int(last[0]), int(last[1])), (int(p[0]), int(p[1])), color, 2)
             if circles[1]:
-                cv2.circle(img, (int(last[1]), int(last[0])), 3, color, 4)
+                cv2.circle(img, (int(last[0]), int(last[1])), 3, color, 4)
             last = p
         if circles[1]:
-            cv2.circle(img, (int(line[-1][1]), int(line[-1][0])), 3, color, 4)
+            cv2.circle(img, (int(line[-1][0]), int(line[-1][1])), 3, color, 4)
         if close:
-            cv2.line(img, (int(last[1]), int(last[0])), (int(first[1]), int(first[0])), color, 2)
+            cv2.line(img, (int(last[0]), int(last[1])), (int(first[0]), int(first[1])), color, 2)
     return img
 
 
@@ -451,6 +439,13 @@ def element_schema(elem):
     return '{' + schema + '}'
 
 
+def points_string_to_array(coords):
+    coords = coords.attrib['points'].split(' ')
+    coords = [t.split(",") for t in coords]
+    coords = [[int(round(float(x))), int(round(float(y)))] for x, y in coords]
+    return np.asarray(coords)
+
+  
 def find_optimal(logit, positions, idx):
     maximum = -100
     highest = -1
@@ -492,17 +487,15 @@ def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
         label[high] = last_char
 
     return label
-
-
+  
+ 
 if __name__ == '__main__':
     #test_layout = PageLayout(file='/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
     #test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')
     #image = cv2.imread('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624.jpg')
-    #test_layout.render_to_image(image, '/mnt/matylda1/ikodym/junk/refactor_test/')
-
-    #test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
-    #test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/8e41ecc2-57ed-412a-aa4f-d945efa7c624.logits')
-
+    #img = test_layout.render_to_image(image)
+    #cv2.imwrite('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_RENDER.jpg', img)
+    
     def save():
         test_layout = PageLayout()
         test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/de0392e9-cdc2-42eb-aa74-a8c086c98bec.xml')
@@ -520,62 +513,3 @@ if __name__ == '__main__':
 
     save()
     load()
-
-# def simple_line_extraction(self, img, element_size=2):
-#     region = np.asarray(self.coords)
-#
-#     y1, y2, x1, x2 = np.amin(region[:, 1]), np.amax(region[:, 1]), np.amin(region[:, 0]), np.amax(region[:, 0])
-#     column_width = x2 - x1
-#     column_height = y2 - y1
-#     img_crop = img[y1:y2, x1:x2, :]
-#     img_crop = img_crop.mean(axis=2).astype(np.uint8)
-#     img_crop = cv2.adaptiveThreshold(img_crop, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 91, 20) == 0
-#
-#     img_crop_labeled, num_features = sn.measurements.label(img_crop)
-#     proj = np.sum(img_crop, axis=1)
-#     corr = np.correlate(proj, proj, mode='full')[proj.shape[0]:]
-#     corr_peaks = ss.find_peaks(corr, prominence=0, distance=1)[0]
-#     if len(corr_peaks) > 0:
-#         line_period = float(ss.find_peaks(corr, prominence=0, distance=1)[0][0])
-#     else:
-#         line_period = 1
-#     target_signal = - np.diff(proj)
-#     target_signal[target_signal < 0] = 0
-#
-#     baseline_coords = ss.find_peaks(target_signal, distance=int(round(0.85*line_period)))[0]
-#
-#     poly_coords = [coords[::-1] for coords in self.coords]
-#     region = shapely.geometry.polygon.Polygon(poly_coords)
-#     used_inds = []
-#
-#     for baseline_coord in baseline_coords[::-1]:
-#         valid_baseline = True
-#         matching_objects = np.unique(img_crop_labeled[baseline_coord-10, column_width//10:-column_width//10])[1:]
-#         if len(matching_objects) > 0:
-#             for ind in matching_objects:
-#                 if ind in used_inds:
-#                     valid_baseline = False
-#                 used_inds.append(ind)
-#
-#             for yb1 in range(baseline_coord, 0, -3):
-#                 line_inds_to_check = img_crop_labeled[yb1, column_width//10:-column_width//10]
-#                 if not np.any(np.intersect1d(matching_objects, line_inds_to_check)):
-#                     break
-#
-#             for yb2 in range(baseline_coord, column_height, 3):
-#                 line_inds_to_check = img_crop_labeled[yb2, column_width//10:-column_width//10]
-#                 if not np.any(np.intersect1d(matching_objects, line_inds_to_check)):
-#                     break
-#
-#             xb1, xb2 = 0, column_width
-#
-#             if yb2 - yb1 < 6:
-#                 valid_baseline = False
-#
-#             line = shapely.geometry.LineString([[y1+baseline_coord, x1+xb1-20], [y1+baseline_coord, x1+xb2+20]])
-#             intersection = region.intersection(line)
-#             if not intersection.is_empty:
-#                 if valid_baseline:
-#                     self.baselines.append(np.round(np.asarray(list(region.intersection(line).coords[:]))).astype(np.int16))
-#                     self.heights.append([baseline_coord-yb1, yb2-baseline_coord])
-#

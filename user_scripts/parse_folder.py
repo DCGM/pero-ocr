@@ -77,7 +77,7 @@ def main():
     config = configparser.ConfigParser()
     config.read(config_path)
 
-    page_parser = PageParser(config)
+    page_parser = PageParser(config, config_path=os.path.dirname(config_path))
 
     input_image_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_IMAGE_PATH')
     input_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_XML_PATH')
@@ -104,7 +104,7 @@ def main():
     if input_image_path is not None:
         print(f'Reading images from {input_image_path}.')
         images_to_process = [f for f in os.listdir(input_image_path) if
-                             os.path.splitext(f)[1].lower() in ['.jpg', '.jpeg', '.png']]
+                             os.path.splitext(f)[1].lower() in ['.jpg', '.jpeg', '.png', '.tif']]
         ids_to_process = [os.path.splitext(os.path.basename(file))[0] for file in images_to_process]
     elif input_xml_path is not None:
         print(f'Reading page xml from {input_xml_path}')

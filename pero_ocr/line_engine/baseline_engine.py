@@ -92,7 +92,7 @@ class EngineLineDetectorSimple(object):
                 intersection = region.intersection(line)
                 if not intersection.is_empty:
                     if valid_baseline:
-                        baselines_list.append(np.round(np.asarray(list(region.intersection(line).coords[:]))).astype(np.int16))
+                        baselines_list.append(np.flip(np.round(np.asarray(list(region.intersection(line).coords[:]))).astype(np.int16), axis=1))
                         heights_list.append([baseline_coord-yb1, yb2-baseline_coord])
 
         textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
@@ -101,15 +101,11 @@ class EngineLineDetectorSimple(object):
 
 
 class EngineLineDetectorCNN(object):
-    def __init__(self, model_path, downsample=4, pad=50, use_cpu=False,
-                 order_lines='reading_order', detection_threshold=0.5,
-                 stretch_lines=0):
+    def __init__(self, model_path, downsample=4, pad=50, use_cpu=False, detection_threshold=0.5):
 
         self.downsample = downsample
         self.pad = pad
-        self.order_lines = order_lines
         self.detection_threshold = detection_threshold
-        self.stretch_lines = stretch_lines
 
         tf.reset_default_graph()
         saver = tf.train.import_meta_graph(model_path + '.meta')
@@ -157,15 +153,15 @@ class EngineLineDetectorCNN(object):
         baselines_img, num_detections = ndimage.measurements.label(baselines_map, structure=np.ones((3, 3)))
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
-        inds = np.stack([inds[0], inds[1]], axis=1)
+        inds = np.stack([inds[1], inds[0]], axis=1) # go from matrix indexing to image indexing
 
         for i in range(1, num_detections+1):
             baseline_inds, = np.where(labels == i)
             if len(baseline_inds) > 15:
                 pos = inds[baseline_inds]
-                _, indices = np.unique(pos[:, 1], return_index=True)
+                _, indices = np.unique(pos[:, 0], return_index=True)
                 pos = pos[indices]
-                x_index = np.argsort(pos[:, 1])
+                x_index = np.argsort(pos[:, 0])
                 pos = pos[x_index]
 
                 pos_step = np.amax([15, pos.shape[0]//10])
@@ -195,24 +191,12 @@ class EngineLineDetectorCNN(object):
         baselines_map, heights_map = self.infer_maps(img)
         baselines_list, heights_list = self.parse_maps(baselines_map, heights_map)
 
-        if self.stretch_lines > 0:
-            baselines_list = pp.stretch_baselines(baselines_list, self.stretch_lines)
-
         rotation = pp.get_rotation(baselines_list)
         baselines_list = [pp.rotate_coords(baseline, rotation, (0, 0)) for baseline in baselines_list]
 
         textlines_list = []
         for baseline, height in zip(baselines_list, heights_list):
             textlines_list.append(pp.baseline_to_textline(baseline, height))
-
-        if self.order_lines == 'vertical':
-            baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list,
-                                                                                   textlines_list)
-        elif self.order_lines == 'reading_order':
-            baselines_list, heights_list, textlines_list = pp.order_lines_general(baselines_list, heights_list,
-                                                                                  textlines_list)
-        else:
-            raise ValueError("Argument order_lines must be either 'vertical' or 'reading_order'.")
 
         textlines_list = [pp.rotate_coords(textline, -rotation, (0, 0)) for textline in textlines_list]
         baselines_list = [pp.rotate_coords(baseline, -rotation, (0, 0)) for baseline in baselines_list]
