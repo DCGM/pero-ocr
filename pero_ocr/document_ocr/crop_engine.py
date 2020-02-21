@@ -25,7 +25,7 @@ class EngineLineCropper(object):
             backward_mapping[i] = (1 - da) * sampled_values[forward_position - 1] + da * sampled_values[forward_position]
         return backward_mapping
 
-    def get_crop_inputs(self, img, baseline, line_heights, target_height):
+    def get_crop_inputs(self, baseline, line_heights, target_height):
         line_heights = [line_heights[0], line_heights[1]]
 
         coords = np.asarray(baseline).copy().astype(int)
@@ -73,7 +73,7 @@ class EngineLineCropper(object):
         return coords
 
     def crop(self, img, baseline, height, return_mapping=False):
-        line_coords = self.get_crop_inputs(img, baseline, height, self.line_height)
+        line_coords = self.get_crop_inputs(baseline, height, self.line_height)
         line_crop = cv2.remap(img, line_coords[:, :, 0], line_coords[:, :, 1],
                               interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 
