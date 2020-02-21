@@ -194,16 +194,16 @@ class PageLayout(object):
             text_block = ET.SubElement(print_space, "TextBlock")
             text_block.set("ID", block.id)
 
-            text_block_height = max(block.polygon[:,0]) - min(block.polygon[:,0])
+            text_block_height = max(block.polygon[:,1]) - min(block.polygon[:,1])
             text_block.set("HEIGHT", str(text_block_height))
 
-            text_block_width = max(block.polygon[:,1]) - min(block.polygon[:,1])
+            text_block_width = max(block.polygon[:,0]) - min(block.polygon[:,0])
             text_block.set("WIDTH", str(text_block_width))
 
-            text_block_vpos = min(block.polygon[:,0])
+            text_block_vpos = min(block.polygon[:,1])
             text_block.set("VPOS", str(text_block_vpos))
 
-            text_block_hpos = min(block.polygon[:,1])
+            text_block_hpos = min(block.polygon[:,0])
             text_block.set("HPOS", str(text_block_hpos))
 
             print_space_height = max([print_space_vpos+print_space_height, text_block_vpos+text_block_height])
@@ -215,16 +215,16 @@ class PageLayout(object):
 
             for l, line in enumerate(block.lines):
                 text_line = ET.SubElement(text_block, "TextLine")
-                text_line_baseline = int(np.average(np.array(line.baseline)[:,0]))
+                text_line_baseline = int(np.average(np.array(line.baseline)[:,1]))
                 text_line.set("BASELINE", str(text_line_baseline))
 
-                text_line_vpos = min(np.array(line.polygon)[:, 0])
+                text_line_vpos = min(np.array(line.polygon)[:, 1])
                 text_line.set("VPOS", str(text_line_vpos))
-                text_line_hpos = min(np.array(line.polygon)[:, 1])
+                text_line_hpos = min(np.array(line.polygon)[:, 0])
                 text_line.set("HPOS", str(text_line_hpos))
-                text_line_height = max(np.array(line.polygon)[:, 0]) - min(np.array(line.polygon)[:, 0])
+                text_line_height = max(np.array(line.polygon)[:, 1]) - min(np.array(line.polygon)[:, 1])
                 text_line.set("HEIGHT", str(text_line_height))
-                text_line_width = max(np.array(line.polygon)[:, 1]) - min(np.array(line.polygon)[:, 1])
+                text_line_width = max(np.array(line.polygon)[:, 0]) - min(np.array(line.polygon)[:, 0])
                 text_line.set("WIDTH", str(text_line_width))
 
                 characters = ["\ufffd", "\n", " ", "!", "\"", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
@@ -356,20 +356,20 @@ class PageLayout(object):
         print_space = page.findall(schema+'PrintSpace')[0]
         for region in print_space.iter(schema + 'TextBlock'):
             region_coords = list()
-            region_coords.append([int(region.get('VPOS')), int(region.get('HPOS'))])
-            region_coords.append([int(region.get('VPOS')), int(region.get('HPOS'))+int(region.get('WIDTH'))])
-            region_coords.append([int(region.get('VPOS'))+int(region.get('HEIGHT')), int(region.get('HPOS'))+int(region.get('WIDTH'))])
-            region_coords.append([int(region.get('VPOS'))+int(region.get('HEIGHT')), int(region.get('HPOS'))])
+            region_coords.append([int(region.get('HPOS')), int(region.get('VPOS'))])
+            region_coords.append([int(region.get('HPOS'))+int(region.get('WIDTH')), int(region.get('VPOS'))])
+            region_coords.append([int(region.get('HPOS'))+int(region.get('WIDTH')), int(region.get('VPOS'))+int(region.get('HEIGHT'))])
+            region_coords.append([int(region.get('HPOS')), int(region.get('VPOS'))+int(region.get('HEIGHT'))])
 
             region_layout = RegionLayout(region.attrib['ID'], np.asarray(region_coords))
 
             for line in region.iter(schema + 'TextLine'):
-                new_textline = TextLine(baseline=[[int(line.attrib['BASELINE']), int(line.attrib['HPOS'])], [int(line.attrib['BASELINE']), int(line.attrib['HPOS']) + int(line.attrib['WIDTH'])]], polygon=[])
-                new_textline.heights = [int(line.attrib['BASELINE'])-int(line.attrib['VPOS']), int(line.attrib['HEIGHT'])+int(line.attrib['VPOS'])-int(line.attrib['BASELINE'])]
-                new_textline.polygon.append([int(line.attrib['VPOS']), int(line.attrib['HPOS'])])
-                new_textline.polygon.append([int(line.attrib['VPOS']), int(line.attrib['HPOS'])+int(line.attrib['WIDTH'])])
-                new_textline.polygon.append([int(line.attrib['VPOS'])+int(line.attrib['HEIGHT']), int(line.attrib['HPOS'])+int(line.attrib['WIDTH'])])
-                new_textline.polygon.append([int(line.attrib['VPOS'])+int(line.attrib['HEIGHT']), int(line.attrib['HPOS'])])
+                new_textline = TextLine(baseline=[[int(line.attrib['HPOS']), int(line.attrib['BASELINE'])], [int(line.attrib['HPOS']) + int(line.attrib['WIDTH']), int(line.attrib['BASELINE'])]], polygon=[])
+                new_textline.heights = [int(line.attrib['HEIGHT'])+int(line.attrib['VPOS'])-int(line.attrib['BASELINE']), int(line.attrib['BASELINE'])-int(line.attrib['VPOS'])]
+                new_textline.polygon.append([int(line.attrib['HPOS']), int(line.attrib['VPOS'])])
+                new_textline.polygon.append([int(line.attrib['HPOS'])+int(line.attrib['WIDTH']), int(line.attrib['VPOS'])])
+                new_textline.polygon.append([int(line.attrib['HPOS'])+int(line.attrib['WIDTH']), int(line.attrib['VPOS'])+int(line.attrib['HEIGHT'])])
+                new_textline.polygon.append([int(line.attrib['HPOS']), int(line.attrib['VPOS'])+int(line.attrib['HEIGHT'])])
                 word = ''
                 start = True
                 for text in line.iter(schema + 'String'):
@@ -525,18 +525,20 @@ if __name__ == '__main__':
     
     def save():
         test_layout = PageLayout()
-        test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/europeana1.xml')
-        test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/europeana1.logits')
+        test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.xml')
+        test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.logits')
 
-        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/europeana1.jpg")
-        cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/page_xml.jpg", test_layout.render_to_image(image))
+        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.jpeg")
+        cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/xml_page.jpg", test_layout.render_to_image(image))
         test_layout.to_altoxml("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test_alto.xml")
+
 
     def load():
         test_layout = PageLayout()
         test_layout.from_altoxml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test_alto.xml')
-        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/europeana1.jpg")
-        cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/alto_xml.jpg", test_layout.render_to_image(image))
+        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.jpeg")
+        cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/xml_alto.jpg", test_layout.render_to_image(image))
+
 
     save()
     load()
