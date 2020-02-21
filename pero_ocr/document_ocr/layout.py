@@ -227,25 +227,8 @@ class PageLayout(object):
                 text_line_width = max(np.array(line.polygon)[:, 0]) - min(np.array(line.polygon)[:, 0])
                 text_line.set("WIDTH", str(text_line_width))
 
-                characters = ["\ufffd", "\n", " ", "!", "\"", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
-                               "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?", "@", "A",
-                               "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
-                               "T", "U", "V", "W", "X", "Y", "Z", "[", "]", "_", "a", "b", "c", "d", "e", "f", "g", "h",
-                               "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
-                               "~", "\u00a3", "\u00a7", "\u00a9", "\u00ab", "\u00b0", "\u00bb", "\u00bd", "\u00c1",
-                               "\u00c9", "\u00cd", "\u00d3", "\u00d4", "\u00da", "\u00dd", "\u00e0", "\u00e1", "\u00e2",
-                               "\u00e3", "\u00e6", "\u00e7", "\u00e8", "\u00e9", "\u00ea", "\u00eb", "\u00ec", "\u00ed",
-                               "\u00ee", "\u00ef", "\u00f1", "\u00f2", "\u00f3", "\u00f4", "\u00f5", "\u00f9", "\u00fa",
-                               "\u00fb", "\u00fc", "\u00fd", "\u0107", "\u010c", "\u010d", "\u010e", "\u010f", "\u0119",
-                               "\u011a", "\u011b", "\u0142", "\u0144", "\u0147", "\u0148", "\u0153", "\u0158", "\u0159",
-                               "\u015b", "\u015e", "\u0160", "\u0161", "\u0164", "\u0165", "\u016e", "\u016f", "\u017a",
-                               "\u017c", "\u017d", "\u017e", "\u017f", "\u0192", "\u0247", "\u02db", "\u02ee", "\u0405",
-                               "\u1ebd", "\u2014", "\u2018", "\u2019", "\u201c", "\u201d", "\u201e", "\u20ac", "\u261e",
-                               "\u2c65", "\u2e17", "\uf161", "\uf50a", "\uf50b", "\uf50f", "\uf51e"]
-
-                chars = [i for i in range(len(characters))]
-
-                char_to_num = dict(zip(characters, chars))
+                chars = [i for i in range(len(text_line.characters))]
+                char_to_num = dict(zip(text_line.characters, chars))
                 label = []
                 for item in (line.transcription):
                     label.append(char_to_num[item])
