@@ -1,5 +1,6 @@
 import re
 import pickle
+import json
 from io import BytesIO
 from datetime import datetime
 
@@ -65,16 +66,26 @@ class PageLayout(object):
             for line in region.iter(schema + 'TextLine'):
                 new_textline = TextLine(id=line.attrib['id'])
                 if 'custom' in line.attrib:
-                    heights = re.findall("\d+", line.attrib['custom'])
-                    if re.findall("heights", line.attrib['custom']):
-                        heights_array = np.asarray([float(x) for x in heights])
-                        if heights_array.shape[0] == 3:
-                            heights = np.zeros(2, dtype=np.int32)
-                            heights[0] = heights_array[1]
-                            heights[1] = heights_array[2] - heights_array[0]
-                        else:
-                            heights = heights_array
-                        new_textline.heights = heights.tolist()
+                    custom_str = line.attrib['custom']
+                    if 'heights_v2' in custom_str:
+                        for word in custom_str.split():
+                            if 'heights_v2' in word:
+                                new_textline.heights = json.loads(word.split(":")[1])
+                    else:
+                        if re.findall("heights", line.attrib['custom']):
+                            heights = re.findall("\d+", line.attrib['custom'])
+                            heights_array = np.asarray([float(x) for x in heights])
+                            if heights_array.shape[0] == 4:
+                                heights = np.zeros(2, dtype=np.float32)
+                                heights[0] = heights_array[0]
+                                heights[1] = heights_array[2]
+                            elif heights_array.shape[0] == 3:
+                                heights = np.zeros(2, dtype=np.float32)
+                                heights[0] = heights_array[1]
+                                heights[1] = heights_array[2] - heights_array[0]
+                            else:
+                                heights = heights_array
+                            new_textline.heights = heights.tolist()
 
                 baseline = line.find(schema + 'Baseline')
                 if baseline is not None:
@@ -115,7 +126,7 @@ class PageLayout(object):
                 text_line = ET.SubElement(text_region, "TextLine")
                 text_line.set("id", line.id)
                 if line.heights is not None:
-                    text_line.set("custom", "heights {" + str(line.heights[0]) + ", " + str(line.heights[1]) + "}")
+                    text_line.set("custom", f"heights_v2:[{line.heights[0]:.1f},{line.heights[1]:.1f}]")
                 coords = ET.SubElement(text_line, "Coords")
 
                 if line.polygon is not None:
