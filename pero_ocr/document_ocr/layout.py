@@ -393,6 +393,7 @@ class PageLayout(object):
                 if line.id not in logits_dict:
                     raise Exception(f'Missing line id {line.id} in logits {file_name}.')
                 line.logits = logits_dict[line.id]
+                line.characters = logits_dict[line.id]
 
     def render_to_image(self, image):
         """Render layout into image.
