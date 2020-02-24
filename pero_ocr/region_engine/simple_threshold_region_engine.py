@@ -13,7 +13,7 @@ class SimpleThresholdRegion:
 
     def process_page(self, img: np.ndarray, page_layout: PageLayout):
         polygons = SimpleThresholdRegion._compute_layout(img)
-        page_layout.regions = [RegionLayout(f'r-{idx}', polygon) for idx, polygon in enumerate(polygons)]
+        page_layout.regions = [RegionLayout(f'r-{idx}', polygon[:, ::-1]) for idx, polygon in enumerate(polygons)]
         return page_layout
 
     @staticmethod
