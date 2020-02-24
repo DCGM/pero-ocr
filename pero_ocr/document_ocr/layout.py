@@ -372,12 +372,17 @@ class PageLayout(object):
         :param file_name: to pickle into.
         """
         logits = []
+        characters = []
         for region in self.regions:
             for line in region.lines:
                 if line.logits is None:
                     raise Exception(f'Missing logits for line {line.id}.')
-            logits += [(line.id, line.logits, line.characters) for line in region.lines]
+                if line.characters is None:
+                    raise Exception(f'Missing logit mapping to characters for line {line.id}.')
+            logits += [(line.id, line.logits) for line in region.lines]
+            characters += [(line.id, line.characters) for line in region.lines]
         logits_dict = dict(logits)
+        logits_dict['line_characters'] = dict(characters)
         with open(file_name, 'wb') as f:
             pickle.dump(logits_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -388,12 +393,17 @@ class PageLayout(object):
         with open(file_name, 'rb') as f:
             logits_dict = pickle.load(f)
 
+        if 'line_characters' in logits_dict:
+            characters = logits_dict['line_characters']
+        else:
+            characters = dict([(k, None) for k in logits_dict])
+
         for region in self.regions:
             for line in region.lines:
                 if line.id not in logits_dict:
                     raise Exception(f'Missing line id {line.id} in logits {file_name}.')
                 line.logits = logits_dict[line.id]
-                line.characters = logits_dict[line.id]
+                line.characters = characters[line.id]
 
     def render_to_image(self, image):
         """Render layout into image.

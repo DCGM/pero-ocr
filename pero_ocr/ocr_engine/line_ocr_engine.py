@@ -26,7 +26,7 @@ class EngineLineOCR(object):
         else:
             self.checkpoint = realpath(join(dirname(json_def), self.config['checkpoint']))
 
-        self.characters = self.config['characters']
+        self.characters = tuple(self.config['characters'])
         self.net_name = self.config['net_name']
         self.gpu_id = gpu_id
 
