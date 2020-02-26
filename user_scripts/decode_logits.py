@@ -62,7 +62,10 @@ def main():
         print('\rProcessing {} [{}/{}, {:.2f}s/line, ETA {:.2f}s]'.format(name, i+1, len(names), time_per_line, time_per_line*nb_lines_ahead), end='')
         dense_logits = prepare_dense_logits(sparse_logits)
 
-        boh = decoder(dense_logits, args.model_eos)
+        if args.greedy:
+            boh = decoder(dense_logits)
+        else:
+            boh = decoder(dense_logits, args.model_eos)
         one_best = boh.best_hyp()
         decodings[name] = one_best
         confidences[name] = boh.confidence()
