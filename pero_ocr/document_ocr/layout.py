@@ -24,6 +24,11 @@ class TextLine(object):
         self.crop = crop
         self.characters = characters
 
+    def get_dense_logits(self, zero_logit_value=-80):
+        dense_logits = self.logits.toarray()
+        dense_logits[dense_logits == 0] = zero_logit_value
+        return dense_logits
+
 
 class RegionLayout(object):
     def __init__(self, id, polygon):
