@@ -5,7 +5,7 @@ import argparse
 import json
 import cv2
 import numpy as np
-from os.path import isabs, realpath, join,dirname
+from os.path import isabs, realpath, join, dirname
 from scipy import sparse
 import tensorflow as tf
 
