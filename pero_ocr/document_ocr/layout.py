@@ -162,6 +162,7 @@ class PageLayout(object):
         measurement_unit = ET.SubElement(description, "MeasurementUnit")
         measurement_unit.text = "pixel"
         ocr_processing = ET.SubElement(description, "OCRProcessing")
+        ocr_processing.set("ID", "IdOcr")
         ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
         processing_date_time = ET.SubElement(ocr_processing_step, "processingDateTime")
         processing_date_time.text = datetime.today().strftime('%Y-%m-%d')
@@ -175,7 +176,7 @@ class PageLayout(object):
 
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
-        page.set("ID", self.id)
+        page.set("ID", "id_"+self.id)
         page.set("PHYSICAL_IMG_NR", str(1))
         page.set("HEIGHT", str(self.page_size[0]))
         page.set("WIDTH", str(self.page_size[1]))
@@ -227,8 +228,9 @@ class PageLayout(object):
                 text_line_width = max(np.array(line.polygon)[:, 0]) - min(np.array(line.polygon)[:, 0])
                 text_line.set("WIDTH", str(text_line_width))
 
-                chars = [i for i in range(len(text_line.characters))]
-                char_to_num = dict(zip(text_line.characters, chars))
+                chars = [i for i in range(len(line.characters))]
+                char_to_num = dict(zip(line.characters, chars))
+
                 label = []
                 for item in (line.transcription):
                     label.append(char_to_num[item])
@@ -274,6 +276,7 @@ class PageLayout(object):
                     string = ET.SubElement(text_line, "String")
                     string.set("CONTENT", word)
 
+                    string_hpos -= 1
                     all_x = line_coords[:, int(string_hpos*lm_const):int(string_hpos*lm_const)+int(string_width*lm_const), 0]
                     all_y = line_coords[:, int(string_hpos*lm_const):int(string_hpos*lm_const)+int(string_width*lm_const), 1]
 
@@ -283,8 +286,8 @@ class PageLayout(object):
                     string.set("HPOS", str(int(np.min(all_x))))
                     if w != (len(line.transcription.split())-1):
                         space = ET.SubElement(text_line, "SP")
-                        all_x = line_coords[:, int((string_hpos+string_width) * lm_const):int((string_hpos+string_width) * lm_const) + int((end_of_space-(string_hpos+string_width)+1) * lm_const), 0]
-                        all_y = line_coords[:, int((string_hpos+string_width) * lm_const):int((string_hpos+string_width) * lm_const) + int((end_of_space-(string_hpos+string_width)+1) * lm_const), 1]
+                        all_x = line_coords[:, int((string_hpos+string_width) * lm_const):int((string_hpos+string_width) * lm_const) + int((end_of_space-(string_hpos+string_width)) * lm_const), 0]
+                        all_y = line_coords[:, int((string_hpos+string_width) * lm_const):int((string_hpos+string_width) * lm_const) + int((end_of_space-(string_hpos+string_width)) * lm_const), 1]
 
                         space.set("WIDTH", str(int(np.max(all_x)-np.min(all_x))))
                         space.set("VPOS", str(int(np.min(all_y))))
@@ -333,7 +336,7 @@ class PageLayout(object):
         layout = root.findall(schema+'Layout')[0]
         page = layout.findall(schema+'Page')[0]
 
-        self.id = page.attrib['ID']
+        self.id = page.attrib['ID'][3:]
         self.page_size = (int(page.attrib['HEIGHT']), int(page.attrib['WIDTH']))
 
         print_space = page.findall(schema+'PrintSpace')[0]
@@ -466,17 +469,6 @@ def points_string_to_array(coords):
     coords = [[int(round(float(x))), int(round(float(y)))] for x, y in coords]
     return np.asarray(coords)
 
-  
-def find_optimal(logit, positions, idx):
-    maximum = -100
-    highest = -1
-    for i, item in enumerate(positions):
-        if maximum < logit[item][idx]:
-            maximum = logit[item][idx]
-            highest = item
-
-    return highest
-
 
 def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
     last_char = None
@@ -486,7 +478,7 @@ def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
             repeating.extend([i])
         else:
             if repeating != []:
-                high = find_optimal(logit, repeating, last_char)
+                high = repeating[0]
                 for e, elem in enumerate(repeating):
                     if on_one_liberal:
                         label[elem] = idx_of_last - 1
@@ -499,7 +491,7 @@ def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
                 repeating.append(i)
         last_char = item
     if repeating != []:
-        high = find_optimal(logit, repeating, last_char)
+        high = repeating[0]
         for i, item in enumerate(repeating):
             if on_one_liberal:
                 label[item] = idx_of_last - 1
