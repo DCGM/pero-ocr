@@ -30,6 +30,40 @@ class RegionLayout(object):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
         self.lines = []
+        self.transcription = None
+
+    def to_page_xml(self, page_element):
+        region_element = ET.SubElement(page_element, "TextRegion")
+        coords = ET.SubElement(region_element, "Coords")
+        region_element.set("id", self.id)
+        points = ["{},{}".format(int(coord[0]), int(coord[1])) for coord in self.polygon]
+        points = " ".join(points)
+        coords.set("points", points)
+        if self.transcription is not None:
+            text_element = ET.SubElement(region_element, "TextEquiv")
+            text_element = ET.SubElement(text_element, "Unicode")
+            text_element.text = self.transcription
+        return region_element
+
+
+def get_region_from_page_xml(region_element, schema):
+    coords = region_element.find(schema + 'Coords')
+    if 'points' in coords.attrib:
+        region_coords = points_string_to_array(coords)
+    else:
+        region_coords = list()
+        for point in coords.findall(schema + 'Point'):
+            x, y = point.attrib['x'], point.attrib['y']
+            region_coords.append([float(x), float(y)])
+        region_coords = np.asarray(region_coords)
+
+    layout_region = RegionLayout(region_element.attrib['id'], np.asarray(region_coords))
+    transcription = region_element.find(schema + 'TextEquiv')
+    if transcription is not None:
+        layout_region.transcription = transcription.find(schema + 'Unicode').text
+        if layout_region.transcription is None:
+            layout_region.transcription = ''
+    return layout_region
 
 
 class PageLayout(object):
@@ -52,17 +86,8 @@ class PageLayout(object):
         self.page_size = (int(page.attrib['imageHeight']), int(page.attrib['imageWidth']))
 
         for region in page_tree.iter(schema + 'TextRegion'):
-            region_coords = list()
+            region_layout = get_region_from_page_xml(region, schema)
 
-            coords = region.find(schema + 'Coords')
-            if 'points' in coords.attrib:
-                region_coords = points_string_to_array(coords)
-            else:
-                for point in coords.findall(schema + 'Point'):
-                    x, y = point.attrib['x'], point.attrib['y']
-                    region_coords.append([int(round(float(x))), int(round(float(y)))])
-
-            region_layout = RegionLayout(region.attrib['id'], np.asarray(region_coords))
             for line in region.iter(schema + 'TextLine'):
                 new_textline = TextLine(id=line.attrib['id'])
                 if 'custom' in line.attrib:
@@ -115,13 +140,8 @@ class PageLayout(object):
         page.set("imageHeight", str(self.page_size[0]))
 
         for region_layout in self.regions:
+            text_region = region_layout.to_page_xml(page)
 
-            text_region = ET.SubElement(page, "TextRegion")
-            coords = ET.SubElement(text_region, "Coords")
-            text_region.set("id", region_layout.id)
-            points = ["{},{}".format(int(coord[0]), int(coord[1])) for coord in region_layout.polygon]
-            points = " ".join(points)
-            coords.set("points", points)
             for line in region_layout.lines:
                 text_line = ET.SubElement(text_region, "TextLine")
                 text_line.set("id", line.id)
