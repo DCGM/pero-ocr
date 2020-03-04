@@ -13,7 +13,7 @@ from .CTC_nets import build_eval_net, line_nets
 from .softmax import softmax
 
 
-class EngineLineOCR(object):
+class BaseEngineLineOCR(object):
     def __init__(self, json_def, gpu_id=0, batch_size=8):
         with open(json_def, 'r', encoding='utf8') as f:
             self.config = json.load(f)
@@ -31,37 +31,9 @@ class EngineLineOCR(object):
         self.gpu_id = gpu_id
 
         self.batch_size = batch_size
-        self.data_shape = [self.batch_size, self.line_px_height, None, 3]
 
-        self.net_graph = tf.Graph()
-        tf.reset_default_graph()
-        with self.net_graph.as_default():
-            net = line_nets[self.net_name]
-            (saver, input_data, _, seq_len, logits, logits_t, decoded, _) = build_eval_net(
-                [self.batch_size, self.line_px_height, None, 3], len(self.characters), net)
-
-        self.net_subsampling = 1
-        self.out_decoded = decoded
-        self.out_logits = logits
-        self.in_seq_len = seq_len
-        self.saver = saver
-        self.input_data = input_data
         self.line_padding_px = 32
 
-        if gpu_id is None:
-            config = tf.ConfigProto(device_count={'GPU': 0})
-        else:
-            config = tf.ConfigProto(device_count={'GPU': 1})
-            config.gpu_options.allow_growth = True
-        self.session = tf.Session(graph=self.net_graph, config=config)
-        self.saver.restore(self.session, self.checkpoint)
-        self.data_shape[2] = 128
-        out_logits, = self.session.run(
-            [self.out_logits],
-            feed_dict={self.input_data: np.zeros(self.data_shape, dtype=np.uint8)}
-        )
-        self.net_subsampling = self.data_shape[2] / out_logits.shape[1]
-        self.data_shape[2] = None
 
     def process_lines(self, lines):
         """Runs ocr network on multiple lines.
@@ -99,30 +71,73 @@ class EngineLineOCR(object):
             for data, ids in zip(batch_data, batch_line_ids):
                 data[:, self.line_padding_px:self.line_padding_px+lines[ids].shape[1], :] = lines[ids]
 
-            seq_lengths = np.ones([self.batch_size], dtype=np.int32) * batch_data.shape[2] / self.net_subsampling
+            out_transcriptions, out_logits = self.run_ocr(batch_data)
 
-            out_decoded, out_logits = self.session.run(
-                [self.out_decoded, self.out_logits],
-                feed_dict={self.input_data: batch_data, self.in_seq_len: seq_lengths})
-
-            out_decoded = out_decoded[0]
-            for i, ids in enumerate(batch_line_ids):
-                pos, = np.nonzero(out_decoded.indices[:, 0] == i)
-                tmp_string = ''
-                if pos.size:
-                    for val in out_decoded.values[pos]:
-                        tmp_string += self.characters[val]
-                all_transcriptions[ids] = tmp_string
-
-            for ids, line_logits in zip(batch_line_ids, out_logits):
+            for ids, transcription, line_logits in zip(batch_line_ids, out_transcriptions, out_logits):
+                all_transcriptions[ids] = transcription
                 line_logits = line_logits[
-                    int(self.line_padding_px // self.net_subsampling - 2):int(lines[ids].shape[1] // self.net_subsampling + 8)]
+                              int(self.line_padding_px // self.net_subsampling - 2):int(
+                                  lines[ids].shape[1] // self.net_subsampling + 8)]
                 line_probs = softmax(line_logits, axis=1)
                 line_logits[line_probs < 0.0001] = 0
                 line_logits = sparse.csc_matrix(line_logits)
                 all_logits[ids] = line_logits
 
         return all_transcriptions, all_logits
+
+
+class EngineLineOCR(BaseEngineLineOCR):
+    def __init__(self, json_def, gpu_id=0, batch_size=8):
+        super(EngineLineOCR, self).__init__(json_def, gpu_id=0, batch_size=8)
+
+        self.net_graph = tf.Graph()
+        tf.reset_default_graph()
+        with self.net_graph.as_default():
+            net = line_nets[self.net_name]
+            (saver, input_data, _, seq_len, logits, logits_t, decoded, _) = build_eval_net(
+                [self.batch_size, self.line_px_height, None, 3], len(self.characters), net)
+
+        self.net_subsampling = 1
+        self.out_decoded = decoded
+        self.out_logits = logits
+        self.in_seq_len = seq_len
+        self.saver = saver
+        self.input_data = input_data
+
+        if gpu_id is None:
+            config = tf.ConfigProto(device_count={'GPU': 0})
+        else:
+            config = tf.ConfigProto(device_count={'GPU': 1})
+            config.gpu_options.allow_growth = True
+        self.session = tf.Session(graph=self.net_graph, config=config)
+        self.saver.restore(self.session, self.checkpoint)
+
+        self.data_shape = [self.batch_size, self.line_px_height, None, 3]
+        self.data_shape[2] = 128
+        out_logits, = self.session.run(
+            [self.out_logits],
+            feed_dict={self.input_data: np.zeros(self.data_shape, dtype=np.uint8)}
+        )
+        self.net_subsampling = self.data_shape[2] / out_logits.shape[1]
+        self.data_shape[2] = None
+
+    def run_ocr(self, batch_data):
+        seq_lengths = np.ones([self.batch_size], dtype=np.int32) * batch_data.shape[2] / self.net_subsampling
+
+        out_decoded, out_logits = self.session.run(
+            [self.out_decoded, self.out_logits],
+            feed_dict={self.input_data: batch_data, self.in_seq_len: seq_lengths})
+
+        out_decoded = out_decoded[0]
+        transcriptions = [None] * batch_data.shape[0]
+        for i in range(batch_data.shape[0]):
+            pos, = np.nonzero(out_decoded.indices[:, 0] == i)
+            tmp_string = ''
+            if pos.size:
+                for val in out_decoded.values[pos]:
+                    tmp_string += self.characters[val]
+            transcriptions[i] = tmp_string
+        return transcriptions, out_logits
 
 
 def test_line_ocr(line_list, ocr_engine_json):
