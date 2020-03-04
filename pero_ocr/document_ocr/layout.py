@@ -46,18 +46,22 @@ class RegionLayout(object):
         return region_element
 
 
-def get_region_from_page_xml(region_element, schema):
-    coords = region_element.find(schema + 'Coords')
-    if 'points' in coords.attrib:
-        region_coords = points_string_to_array(coords)
+def get_coords_form_page_xml(coords_element, schema):
+    if 'points' in coords_element.attrib:
+        coords = points_string_to_array(coords_element.attrib['points'])
     else:
-        region_coords = list()
-        for point in coords.findall(schema + 'Point'):
+        coords = []
+        for point in coords_element.findall(schema + 'Point'):
             x, y = point.attrib['x'], point.attrib['y']
-            region_coords.append([float(x), float(y)])
-        region_coords = np.asarray(region_coords)
+            coords.append([float(x), float(y)])
+        coords = np.asarray(coords)
+    return coords
 
-    layout_region = RegionLayout(region_element.attrib['id'], np.asarray(region_coords))
+
+def get_region_from_page_xml(region_element, schema):
+    coords_element = region_element.find(schema + 'Coords')
+    region_coords = get_coords_form_page_xml(coords_element, schema)
+    layout_region = RegionLayout(region_element.attrib['id'], region_coords)
     transcription = region_element.find(schema + 'TextEquiv')
     if transcription is not None:
         layout_region.transcription = transcription.find(schema + 'Unicode').text
@@ -114,11 +118,11 @@ class PageLayout(object):
 
                 baseline = line.find(schema + 'Baseline')
                 if baseline is not None:
-                    new_textline.baseline = points_string_to_array(baseline)
+                    new_textline.baseline = get_coords_form_page_xml(baseline, schema)
 
                 textline = line.find(schema + 'Coords')
                 if textline is not None:
-                    new_textline.polygon = points_string_to_array(textline)
+                    new_textline.polygon = get_coords_form_page_xml(textline, schema)
 
                 transcription = line.find(schema + 'TextEquiv')
                 if transcription is not None:
@@ -484,7 +488,7 @@ def element_schema(elem):
 
 
 def points_string_to_array(coords):
-    coords = coords.attrib['points'].split(' ')
+    coords = coords.split(' ')
     coords = [t.split(",") for t in coords]
     coords = [[int(round(float(x))), int(round(float(y)))] for x, y in coords]
     return np.asarray(coords)
