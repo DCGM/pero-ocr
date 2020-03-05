@@ -8,6 +8,8 @@ import argparse
 import cv2
 import re
 from typing import Set, List, Optional
+import traceback
+import sys
 
 from pero_ocr.document_ocr import PageParser, PageLayout
 
@@ -132,40 +134,49 @@ def main():
             current=index+1, total=len(ids_to_process), percentage=(index+1)/len(ids_to_process) * 100,
             file_id=file_id))
 
-        if input_image_path is not None:
-            image = cv2.imread(os.path.join(input_image_path, image_file_name), 1)
-            if image is None:
-                raise Exception(f'Unable to read image "{os.path.join(input_image_path, image_file_name)}"')
-        else:
-            image = None
+        try:
+            if input_image_path is not None:
+                image = cv2.imread(os.path.join(input_image_path, image_file_name), 1)
+                if image is None:
+                    raise Exception(f'Unable to read image "{os.path.join(input_image_path, image_file_name)}"')
+            else:
+                image = None
 
-        if input_xml_path:
-            page_layout = PageLayout(file=os.path.join(input_xml_path, file_id + '.xml'))
-        else:
-            page_layout = PageLayout(id=file_id, page_size=(image.shape[0], image.shape[1]))
+            if input_xml_path:
+                page_layout = PageLayout(file=os.path.join(input_xml_path, file_id + '.xml'))
+            else:
+                page_layout = PageLayout(id=file_id, page_size=(image.shape[0], image.shape[1]))
 
-        if input_logit_path is not None:
-            page_layout.load_logits(os.path.join(input_logit_path, file_id + '.logits'))
+            if input_logit_path is not None:
+                page_layout.load_logits(os.path.join(input_logit_path, file_id + '.logits'))
 
-        page_layout = page_parser.process_page(image, page_layout)
+            page_layout = page_parser.process_page(image, page_layout)
 
-        if output_xml_path is not None:
-            page_layout.to_pagexml(os.path.join(output_xml_path, file_id + '.xml'))
+            if output_xml_path is not None:
+                page_layout.to_pagexml(os.path.join(output_xml_path, file_id + '.xml'))
 
-        if output_render_path is not None:
-            page_layout.render_to_image(image)
-            cv2.imwrite(os.path.join(output_render_path, file_id + '.jpg'), image)
+            if output_render_path is not None:
+                page_layout.render_to_image(image)
+                cv2.imwrite(os.path.join(output_render_path, file_id + '.jpg'), image)
 
-        if output_logit_path is not None:
-            page_layout.save_logits(os.path.join(output_logit_path, file_id + '.logits'))
+            if output_logit_path is not None:
+                page_layout.save_logits(os.path.join(output_logit_path, file_id + '.logits'))
 
-        if output_line_path is not None:
-            for region in page_layout.regions:
-                for line in region.lines:
-                    cv2.imwrite(
-                        os.path.join(output_line_path, f'{file_id}-{line.id}.jpg'),
-                        line.crop.astype(np.uint8),
-                        [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+            if output_line_path is not None:
+                for region in page_layout.regions:
+                    for line in region.lines:
+                        cv2.imwrite(
+                            os.path.join(output_line_path, f'{file_id}-{line.id}.jpg'),
+                            line.crop.astype(np.uint8),
+                            [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+        except KeyboardInterrupt:
+            traceback.print_exc()
+            print('Terminated by user.')
+            sys.exit()
+        except Exception as e:
+            print(f'ERROR: Failed to process file {file_id}.')
+            print(e)
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
