@@ -122,15 +122,11 @@ class EngineLineDetectorCNN(object):
         :param img: input image array
         """
 
-        img = cv2.resize(img, (0,0), fx=1/self.downsample, fy=1/self.downsample)
+        img = cv2.resize(img, (0,0), fx=1/self.downsample, fy=1/self.downsample, interpolation=cv2.INTER_AREA)
         img = np.pad(img, [(self.pad, self.pad), (self.pad, self.pad), (0,0)], 'constant')
 
-        new_shape_x = img.shape[0]
-        new_shape_y = img.shape[1]
-        while not new_shape_x % 64 == 0:
-            new_shape_x += 1
-        while not new_shape_y % 64 == 0:
-            new_shape_y += 1
+        new_shape_x = int(np.ceil(img.shape[0] / 64) * 64)
+        new_shape_y = int(np.ceil(img.shape[1] / 64) * 64)
         test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3))
         test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
 
@@ -153,30 +149,29 @@ class EngineLineDetectorCNN(object):
         baselines_img, num_detections = ndimage.measurements.label(baselines_map, structure=np.ones((3, 3)))
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
-        inds = np.stack([inds[1], inds[0]], axis=1) # go from matrix indexing to image indexing
 
         for i in range(1, num_detections+1):
             baseline_inds, = np.where(labels == i)
-            if len(baseline_inds) > 15:
-                pos = inds[baseline_inds]
-                _, indices = np.unique(pos[:, 0], return_index=True)
-                pos = pos[indices]
+            if len(baseline_inds) > 5:
+                pos_all = np.stack([inds[1][baseline_inds], inds[0][baseline_inds]], axis=1)  # go from matrix indexing to image indexing
+
+                _, indices = np.unique(pos_all[:, 0], return_index=True)
+                pos = pos_all[indices]
                 x_index = np.argsort(pos[:, 0])
                 pos = pos[x_index]
 
-                pos_step = np.amax([15, pos.shape[0]//10])
-                pos = np.concatenate([pos[::pos_step, :], pos[pos.shape[0]-1:pos.shape[0]]], axis=0)
+                target_point_count = min(10, pos.shape[0] // 10)
+                target_point_count = max(target_point_count, 2)
+                selected_pos = np.linspace(0, (pos.shape[0]) - 1, target_point_count).astype(np.int32)
+                pos = pos[selected_pos, :]
 
-                pos = pos.tolist()
-                if pos[-1] == pos[-2]:
-                    pos = pos[:-1]
-                pos = np.asarray(pos, dtype=np.int32)
+                heights_pred = heights_map[inds[0][baseline_inds], inds[1][baseline_inds], :]  #* (baselines_img == i)[:, :, np.newaxis]
 
-                heights_pred = heights_map * (baselines_img == i)[:, :, np.newaxis]
-                if np.amax(heights_pred[:, :, 0]) > 0 and np.amax(heights_pred[:, :, 1]) > 0:  # percentile will fail on zero vector, discard the baseline in such case
+                if np.all(np.amax(heights_pred, axis=0) > 0):  # percentile will fail on zero vector, discard the baseline in such case
+                    heights_pred = np.maximum(heights_pred, 0)
                     heights_pred = np.asarray([
-                        np.percentile(heights_pred[:, :, 0][heights_pred[:, :, 0] > 0], 70),
-                        np.percentile(heights_pred[:, :, 1][heights_pred[:, :, 1] > 0], 70)
+                        np.percentile(heights_pred[:, 0], 70),
+                        np.percentile(heights_pred[:, 1], 70)
                     ])
                     baselines_list.append(self.downsample * pos)
                     heights_list.append([self.downsample * heights_pred[0],

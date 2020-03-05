@@ -10,6 +10,7 @@ import re
 from typing import Set, List, Optional
 import traceback
 import sys
+import time
 
 from pero_ocr.document_ocr import PageParser, PageLayout
 
@@ -130,10 +131,8 @@ def main():
             ids_to_process = [id for id in ids_to_process if id not in already_processed_files]
 
     for index, (file_id, image_file_name) in enumerate(zip(ids_to_process, images_to_process)):
-        print("Processing {current}/{total} ({percentage:.2f} %) [id: {file_id}]".format(
-            current=index+1, total=len(ids_to_process), percentage=(index+1)/len(ids_to_process) * 100,
-            file_id=file_id))
-
+        print("Processing {file_id}".format(file_id=file_id))
+        t1 = time.time()
         try:
             if input_image_path is not None:
                 image = cv2.imread(os.path.join(input_image_path, image_file_name), 1)
@@ -177,6 +176,9 @@ def main():
             print(f'ERROR: Failed to process file {file_id}.')
             print(e)
             traceback.print_exc()
+        print("DONE {current}/{total} ({percentage:.2f} %) [id: {file_id}] Time:{time:.2f}".format(
+            current=index+1, total=len(ids_to_process), percentage=(index+1)/len(ids_to_process) * 100,
+            file_id=file_id, time=time.time() - t1))
 
 
 if __name__ == "__main__":
