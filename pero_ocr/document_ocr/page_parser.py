@@ -1,6 +1,9 @@
 import numpy as np
 from os.path import isabs, join, realpath
 
+from multiprocessing import Pool
+from functools import partial
+
 from .layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import crop_engine as cropper
 from pero_ocr.ocr_engine import line_ocr_engine
@@ -112,6 +115,14 @@ class RegionExtractorCNN(object):
         return page_layout
 
 
+def assign_lines_to_region(baseline_list, heights_list, textline_list, region):
+    for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):
+        baseline_intersection, textline_intersection = linepp.mask_textline_by_region(baseline, textline, region.polygon)
+        if baseline_intersection is not None and textline_intersection is not None:
+            new_textline = TextLine(id='{}-l{:03d}'.format(region.id, line_num+1), baseline=baseline_intersection, polygon=textline_intersection, heights=heights)
+            region.lines.append(new_textline)
+    return region
+
 class BaseTextlineExtractor(object):
     def __init__(self, config):
         self.merge_lines = config.getboolean('MERGE_LINES')
@@ -121,6 +132,7 @@ class BaseTextlineExtractor(object):
         self.resample_lines = config.getboolean('RESAMPLE_LINES')
         self.order_lines = config['ORDER_LINES']
         self.heights_from_regions = config.getboolean('HEIGHTS_FROM_REGIONS')
+        self.pool = Pool()
 
     def postprocess_region_lines(self, region):
         if region.lines:
@@ -177,16 +189,8 @@ class BaseTextlineExtractor(object):
                 height = line.heights[0] + line.heights[1]
                 scores.append((width - self.stretch_lines) / height)
             region.lines = [line for line, score in zip(region.lines, scores) if score > 0.5]
-            region = self.assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
+            region = assign_lines_to_region(region_baseline_list, region_heights_list, region_textline_list, region)
 
-        return region
-
-    def assign_lines_to_region(self, baseline_list, heights_list, textline_list, region):
-        for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):
-            baseline_intersection, textline_intersection = linepp.mask_textline_by_region(baseline, textline, region.polygon)
-            if baseline_intersection is not None and textline_intersection is not None:
-                new_textline = TextLine(id='{}-l{:03d}'.format(region.id, line_num+1), baseline=baseline_intersection, polygon=textline_intersection, heights=heights)
-                region.lines.append(new_textline)
         return region
 
     def process_page(self, img, page_layout: PageLayout):
@@ -196,8 +200,14 @@ class BaseTextlineExtractor(object):
 
         baseline_list, heights_list, textline_list = self.line_engine.detect_lines(img)
 
+        if len(page_layout.regions) > 4:
+            page_layout.regions = list(self.pool.map(partial(assign_lines_to_region, baseline_list, heights_list, textline_list),
+                             page_layout.regions))
+        else:
+            for region in page_layout.regions:
+                region = self.assign_lines_to_region(baseline_list, heights_list, textline_list, region)
+
         for region in page_layout.regions:
-            region = self.assign_lines_to_region(baseline_list, heights_list, textline_list, region)
             region = self.postprocess_region_lines(region)
 
         return page_layout
