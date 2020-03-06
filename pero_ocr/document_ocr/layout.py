@@ -24,6 +24,11 @@ class TextLine(object):
         self.crop = crop
         self.characters = characters
 
+    def get_dense_logits(self, zero_logit_value=-80):
+        dense_logits = self.logits.toarray()
+        dense_logits[dense_logits == 0] = zero_logit_value
+        return dense_logits
+
 
 class RegionLayout(object):
     def __init__(self, id, polygon):
@@ -219,16 +224,16 @@ class PageLayout(object):
             text_block = ET.SubElement(print_space, "TextBlock")
             text_block.set("ID", block.id)
 
-            text_block_height = max(block.polygon[:,1]) - min(block.polygon[:,1])
+            text_block_height = max(block.polygon[:, 1]) - min(block.polygon[:, 1])
             text_block.set("HEIGHT", str(text_block_height))
 
-            text_block_width = max(block.polygon[:,0]) - min(block.polygon[:,0])
+            text_block_width = max(block.polygon[:, 0]) - min(block.polygon[:, 0])
             text_block.set("WIDTH", str(text_block_width))
 
-            text_block_vpos = min(block.polygon[:,1])
+            text_block_vpos = min(block.polygon[:, 1])
             text_block.set("VPOS", str(text_block_vpos))
 
-            text_block_hpos = min(block.polygon[:,0])
+            text_block_hpos = min(block.polygon[:, 0])
             text_block.set("HPOS", str(text_block_hpos))
 
             print_space_height = max([print_space_vpos+print_space_height, text_block_vpos+text_block_height])
@@ -240,7 +245,7 @@ class PageLayout(object):
 
             for l, line in enumerate(block.lines):
                 text_line = ET.SubElement(text_block, "TextLine")
-                text_line_baseline = int(np.average(np.array(line.baseline)[:,1]))
+                text_line_baseline = int(np.average(np.array(line.baseline)[:, 1]))
                 text_line.set("BASELINE", str(text_line_baseline))
 
                 text_line_vpos = min(np.array(line.polygon)[:, 1])
@@ -293,7 +298,7 @@ class PageLayout(object):
                             local_letter_counter += 1
 
                     if last:
-                        string_width =  4 * len(aligned) - string_hpos
+                        string_width = 4 * len(aligned) - string_hpos
 
                     lm_const = np.shape(line_coords)[1]/(len(aligned)*4)
 
@@ -393,7 +398,6 @@ class PageLayout(object):
 
             self.regions.append(region_layout)
 
-
     def save_logits(self, file_name):
         """Save page logits as a pickled dictionary of sparse matrices.
         :param file_name: to pickle into.
@@ -442,10 +446,10 @@ class PageLayout(object):
                 [region_layout.polygon], color=(255, 0, 0), circles=(True, True, True), close=True)
             image = draw_lines(
                 image,
-                [line.baseline for line in region_layout.lines], color=(0,0,255), circles=(True, True, False))
+                [line.baseline for line in region_layout.lines], color=(0, 0, 255), circles=(True, True, False))
             image = draw_lines(
                 image,
-                [line.polygon for line in region_layout.lines], color=(0,255,0), close=True)
+                [line.polygon for line in region_layout.lines], color=(0, 255, 0), close=True)
         return image
 
     def lines_iterator(self):
@@ -454,7 +458,7 @@ class PageLayout(object):
                 yield l
 
 
-def draw_lines(img, lines, color=(255,0,0), circles=(False, False, False), close=False):
+def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False):
     """Draw a line into image.
     :param img: input image
     :param lines: list of arrays of line coords
@@ -494,6 +498,17 @@ def points_string_to_array(coords):
     return np.asarray(coords)
 
 
+def find_optimal(logit, positions, idx):
+    maximum = -100
+    highest = -1
+    for i, item in enumerate(positions):
+        if maximum < logit[item][idx]:
+            maximum = logit[item][idx]
+            highest = item
+
+    return highest
+
+
 def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
     last_char = None
     repeating = []
@@ -524,15 +539,15 @@ def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
         label[high] = last_char
 
     return label
-  
- 
+
+
 if __name__ == '__main__':
-    #test_layout = PageLayout(file='/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
-    #test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')
-    #image = cv2.imread('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624.jpg')
-    #img = test_layout.render_to_image(image)
-    #cv2.imwrite('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_RENDER.jpg', img)
-    
+    # test_layout = PageLayout(file='/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
+    # test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')
+    # image = cv2.imread('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624.jpg')
+    # img = test_layout.render_to_image(image)
+    # cv2.imwrite('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_RENDER.jpg', img)
+
     def save():
         test_layout = PageLayout()
         test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.xml')
@@ -542,13 +557,11 @@ if __name__ == '__main__':
         cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/xml_page.jpg", test_layout.render_to_image(image))
         test_layout.to_altoxml("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test_alto.xml")
 
-
     def load():
         test_layout = PageLayout()
         test_layout.from_altoxml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test_alto.xml')
         image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.jpeg")
         cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/xml_alto.jpg", test_layout.render_to_image(image))
-
 
     save()
     load()
