@@ -264,7 +264,7 @@ class PageLayout(object):
                 for item in (line.transcription):
                     label.append(char_to_num[item])
 
-                logits = np.array(line.logits.todense())
+                logits = line.get_dense_logits()
                 output = softmax(logits, axis=1)
                 aligned = force_align(-np.log(output), label, len(chars))
                 narrow_label(aligned, logits, len(chars))
