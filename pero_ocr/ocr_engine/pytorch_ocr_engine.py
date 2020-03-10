@@ -29,7 +29,7 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
 
         self.net_subsampling = 4
         self.characters = list(self.characters) + ['|']
-        self.device = torch.device('cpu') #torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.model = NET_VGG(num_classes=len(self.characters), height=self.line_px_height, subsampling=4)
         self.model.load_state_dict(torch.load(self.checkpoint, map_location=self.device))
         self.model = self.model.to(self.device)
