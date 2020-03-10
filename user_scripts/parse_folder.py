@@ -69,6 +69,25 @@ def load_already_processed_files(directories: List[Optional[str]]) -> Set[str]:
     return already_processed
 
 
+class LMDB_writer(object):
+    def __init__(self, path):
+        import lmdb
+        gb100 = 100000000000
+        self.env_out = lmdb.open(path, map_size=gb100)
+        self.data_size = 0
+
+    def __call__(self, page_layout: PageLayout, file_id):
+        with self.env_out.begin(write=True) as txn_out:
+            c_out = txn_out.cursor()
+            all_lines = list(page_layout.lines_iterator())
+            all_lines = sorted(all_lines, key=lambda x: x.id)
+            for line in all_lines:
+                key = f'{file_id}-{line.id}.jpg'
+                img = cv2.imencode('.jpg', line.crop.astype(np.uint8), [int(cv2.IMWRITE_JPEG_QUALITY), 95])[1].tobytes()
+                self.data_size += len(img)
+                c_out.put(key.encode(), img)
+
+
 def main():
     # initialize some parameters
     args = parse_arguments()
@@ -90,6 +109,11 @@ def main():
     output_line_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LINE_PATH')
     output_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_XML_PATH')
     output_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LOGIT_PATH')
+
+    if 'lmdb' in output_line_path:
+        lmdb_writer = LMDB_writer(output_line_path)
+    else:
+        lmdb_writer = None
 
     if output_render_path is not None:
         create_dir_if_not_exists(output_render_path)
@@ -156,18 +180,22 @@ def main():
 
             if output_render_path is not None:
                 page_layout.render_to_image(image)
-                cv2.imwrite(os.path.join(output_render_path, file_id + '.jpg'), image)
+                cv2.imwrite(os.path.join(output_render_path, file_id + '.jpg'), image, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
 
             if output_logit_path is not None:
                 page_layout.save_logits(os.path.join(output_logit_path, file_id + '.logits'))
 
             if output_line_path is not None:
-                for region in page_layout.regions:
-                    for line in region.lines:
-                        cv2.imwrite(
-                            os.path.join(output_line_path, f'{file_id}-{line.id}.jpg'),
-                            line.crop.astype(np.uint8),
-                            [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+                if lmdb_writer:
+                    lmdb_writer(page_layout, file_id)
+                else:
+                    for region in page_layout.regions:
+                        for line in region.lines:
+                            cv2.imwrite(
+                                os.path.join(output_line_path, f'{file_id}-{line.id}.jpg'),
+                                line.crop.astype(np.uint8),
+                                [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+
         except KeyboardInterrupt:
             traceback.print_exc()
             print('Terminated by user.')
