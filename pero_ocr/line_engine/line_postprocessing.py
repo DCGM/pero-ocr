@@ -221,18 +221,18 @@ def mask_textline_by_region(baseline, textline, region):
 
 
 def baseline_to_textline(baseline, heights):
-    """Convert lists of baselines coords and their respective heights to textline polygons.
-    :param baselines: list of baselines
-    :param heights: list of respective textline heights
+    """Convert baseline coords and its respective heights to a textline polygon.
+    :param baseline: baseline coords
+    :param heights: textline heights
     """
 
-    pos_up = np.asarray(baseline.copy()).astype(int)
-    pos_up[:,1] -= int(round(heights[0]))
-    pos_down = np.asarray(baseline.copy()).astype(int)
-    pos_down[:,1] += int(round(heights[1]))
-    pos_t = np.concatenate([pos_up, pos_down[::-1,:]], axis=0)
+    pos_up = baseline.copy()
+    pos_up[:, 1] -= heights[0]
+    pos_down = baseline.copy()
+    pos_down[:, 1] += heights[1]
+    pos_t = np.concatenate([pos_up, pos_down[::-1, :]], axis=0)
 
-    return pos_t#np.clip(pos_t, 0, None)
+    return pos_t
 
 
 def get_rotation(lines):
