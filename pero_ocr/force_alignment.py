@@ -136,7 +136,7 @@ def viterbi_align(neg_logits: np.ndarray, A: np.ndarray) -> typing.List[int]:
     A_positions = np.where(A != np.inf)
 
     act_cost = first_frame_cost
-    for i, frame in enumerate(neg_logits):
+    for i, frame in enumerate(neg_logits[1:], 1):
         act_cost, backpointers[i] = compute_update(A_positions, frame, act_cost)
 
     final_frame_cost = act_cost + final_cost(nb_states)
