@@ -40,7 +40,7 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
             batch_data = torch.from_numpy(batch_data).to(self.device).float() / 255.0
             logits = self.model(batch_data)
             decoded = greedy_decode_ctc(logits, self.characters)
-            logits = logits.cpu().numpy()
+            logits = logits.permute(0, 2, 1).cpu().numpy()
 
         return decoded, logits
 
