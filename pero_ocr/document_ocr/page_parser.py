@@ -9,6 +9,7 @@ from pero_ocr.document_ocr import crop_engine as cropper
 from pero_ocr.ocr_engine import line_ocr_engine
 from pero_ocr.line_engine import baseline_engine
 from pero_ocr.region_engine import region_engine
+from pero_ocr.region_engine import region_engine_splic
 from pero_ocr.region_engine import SimpleThresholdRegion
 import pero_ocr.line_engine.line_postprocessing as linepp
 
@@ -21,6 +22,8 @@ def layout_parser_factory(config, config_path=''):
         region_parser = RegionExtractorCNN(config, config_path=config_path)
     elif config['METHOD'] == 'SIMPLE_THRESHOLD_REGION':
         region_parser = SimpleThresholdRegion(config, config_path=config_path)
+    elif config['METHOD'] == 'SPLIC':
+        region_parser = RegionExtractorSPLIC(config, config_path=config_path)
     else:
         raise ValueError('Unknown layout parser method: {}'.format(config['METHOD']))
     return region_parser
@@ -113,6 +116,33 @@ class RegionExtractorCNN(object):
         for r_num, region in enumerate(region_list):
             new_region = RegionLayout('r{:03d}'.format(r_num), np.asarray(region))
             page_layout.regions.append(new_region)
+        return page_layout
+
+
+class RegionExtractorSPLIC(object):
+    def __init__(self, config, config_path=''):
+        model_path = compose_path(config['MODEL_PATH'], config_path)
+        downsample = config.getint('DOWNSAMPLE')
+        use_cpu = config.getboolean('USE_CPU')
+        self.keep_lines = config.getboolean('KEEP_LINES')
+        self.region_engine = region_engine_splic.EngineRegionSPLIC(
+            model_path=model_path,
+            downsample=downsample,
+            use_cpu=use_cpu
+        )
+
+    def process_page(self, img, page_layout: PageLayout):
+        polygons_list, region_baselines_list, region_heights_list, region_textlines_list = self.region_engine.detect(img)
+        for id, (polygon, baselines, heights, textlines) in enumerate(zip(polygons_list, region_baselines_list, region_heights_list, region_textlines_list)):
+            region = RegionLayout('r{:03d}'.format(id), polygon)
+
+            if self.keep_lines:
+                for line_num, (baseline, heights, textline) in enumerate(zip(baselines, heights, textlines)):
+                    new_textline = TextLine(id='{}-l{:03d}'.format(region.id, line_num+1), baseline=baseline, polygon=textline, heights=heights)
+                    region.lines.append(new_textline)
+
+            page_layout.regions.append(region)
+
         return page_layout
 
 
