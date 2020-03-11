@@ -50,13 +50,22 @@ class TestHmmTransitionCreation(unittest.TestCase):
 
 class TestSymbolSequenceCompletion(unittest.TestCase):
     def test_trivial(self):
-        self.assertEqual(complete_state_seq([1], 0), [0, 1, 0])
+        char_inds_seq = [0, 1, 0]
+        positions_seq = [-1, 0, -1]
+
+        indexes, positions = complete_state_seq([1], 0)
+
+        self.assertTrue((indexes == char_inds_seq).all())
+        self.assertTrue((positions == positions_seq).all())
 
     def test_two_letter(self):
-        self.assertEqual(
-            complete_state_seq([1, 2], 0),
-            [0, 1, 0, 2, 0]
-        )
+        char_inds_seq = [0, 1, 0, 2, 0]
+        positions_seq = [-1, 0, -1, 1, -1]
+
+        indexes, positions = complete_state_seq([1, 2], 0)
+
+        self.assertTrue((indexes == char_inds_seq).all())
+        self.assertTrue((positions == positions_seq).all())
 
     def test_checks_for_blank_in_nonblanks(self):
         self.assertRaises(ValueError, complete_state_seq, [1, 0, 2], 0)
