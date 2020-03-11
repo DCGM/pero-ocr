@@ -308,3 +308,11 @@ class TestTopLevelAlignment(unittest.TestCase):
         ])
 
         self.assertEqual(force_align(neg_logits, [2, 2], 0), [0, 2, 0, 2])
+
+    def test_skipping_first_regression(self):
+        neg_logits = np.asarray([
+            [10.0, 10.0, 0.0],
+            [0.0, 10.0, 10.0],
+        ])
+
+        self.assertEqual(force_align(neg_logits, [1, 2], 0), [1, 2])
