@@ -236,7 +236,7 @@ class BaseTextlineExtractor(object):
                              page_layout.regions))
         else:
             for region in page_layout.regions:
-                region = self.assign_lines_to_region(baseline_list, heights_list, textline_list, region)
+                region = assign_lines_to_region(baseline_list, heights_list, textline_list, region)
 
         for region in page_layout.regions:
             region = self.postprocess_region_lines(region)

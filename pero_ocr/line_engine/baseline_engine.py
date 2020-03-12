@@ -173,7 +173,7 @@ class EngineLineDetectorCNN(object):
                         np.percentile(heights_pred[:, 0], 70),
                         np.percentile(heights_pred[:, 1], 70)
                     ])
-                    baselines_list.append(self.downsample * pos)
+                    baselines_list.append(self.downsample * pos.astype(np.float32))
                     heights_list.append([self.downsample * heights_pred[0],
                                          self.downsample * heights_pred[1]])
 

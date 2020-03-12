@@ -134,7 +134,7 @@ class EngineRegionSPLIC(object):
                     embeddings = embedding_map[inds[0][baseline_inds]-int(heights_pred[0]/2), np.clip(np.amin(inds[1][baseline_inds]+20), 0, embedding_map.shape[1]-1), :]
                     embeddings = np.average(embeddings, axis=0)
 
-                    baselines_list.append(self.downsample * pos)
+                    baselines_list.append(self.downsample * pos.astype(np.float))
                     heights_list.append([self.downsample * heights_pred[0],
                                          self.downsample * heights_pred[1]])
                     embeddings_list.append(embeddings)

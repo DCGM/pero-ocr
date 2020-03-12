@@ -110,7 +110,6 @@ def main():
     output_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_XML_PATH')
     output_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LOGIT_PATH')
 
-    # if output_line_path is not None:
     if output_line_path is not None and 'lmdb' in output_line_path:
         lmdb_writer = LMDB_writer(output_line_path)
     else:
