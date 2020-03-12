@@ -7,10 +7,12 @@ from scipy import sparse, misc, ndimage, interpolate
 from scipy.ndimage.morphology import distance_transform_edt
 from scipy.sparse.csgraph import laplacian as csgraph_laplacian
 from scipy.sparse.linalg import eigsh, lobpcg
+from scipy.spatial import Delaunay
 
 from skimage.measure import block_reduce, label
 from sklearn.utils.validation import check_array
 import shapely.geometry
+from shapely.ops import cascaded_union, polygonize
 
 from pyamg import smoothed_aggregation_solver
 
@@ -18,15 +20,17 @@ from pero_ocr.document_ocr import layout
 from pero_ocr.line_engine import line_postprocessing as pp
 from pero_ocr.region_engine import spectral_clustering as sc
 
+
 class EngineRegionSPLIC(object):
 
     def __init__(self, model_path, downsample=4, use_cpu=False,
-                 reduce_factor=8, n_components=24, pad=52):
+                 reduce_factor=8, n_components=24, min_size=2, pad=52):
 
         self.downsample = downsample # downsample factor before CNN inference
         self.reduce_factor = reduce_factor # another downsample factor before spectral clustering (target shouldn't be much bigger than 256 x 256)
         self.n_components = n_components # neumber of eigenvectors for clustering
         self.pad = pad # CNN training pad
+        self.min_size = min_size # minimum cluster size
 
         saver = tf.train.import_meta_graph(model_path + '.meta')
         if use_cpu:
@@ -40,17 +44,14 @@ class EngineRegionSPLIC(object):
     def detect(self, image):
 
         polygons_list = []
-        region_baselines_list = []
-        region_heights_list = []
-        region_textlines_list = []
 
         out_map = self.get_maps(image)
         baselines_list, heights_list, embeddings_list = self.parse_maps(out_map)
         textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
+
         clusters_array = self.cluster_lines(embeddings_list)
         # check noise lines for adjacancy to previous region in reading order due to eigenvector-based clustering errors
         clusters_array = self.postprocess_noisy_lines(clusters_array, baselines_list, heights_list, out_map[:,:,3])
-
         for i in range(np.amax(clusters_array)+1):
             region_baselines = []
             region_heights = []
@@ -61,15 +62,22 @@ class EngineRegionSPLIC(object):
                     region_heights.append(heights)
                     region_textlines.append(textline)
 
-            region_baselines, region_heights, region_textlines = pp.order_lines_vertical(region_baselines, region_heights, region_textlines)
-            region_polygon = shapely.geometry.Polygon(np.concatenate(region_textlines, axis=0))
+            region_poly_points = np.concatenate(region_textlines, axis=0)
 
-            polygons_list.append(region_polygon.convex_hull.exterior.coords)
-            region_baselines_list.append(region_baselines)
-            region_heights_list.append(region_heights)
-            region_textlines_list.append(region_textlines)
+            max_poly_line = np.amax(np.array([np.amax(np.diff(baseline[:,0])) for baseline in region_baselines]))
+            max_height = np.amax(np.array(region_heights))
+            max_alpha =  1.5 * np.maximum(max_poly_line, max_height)
+            region_poly = self.alpha_shape(region_poly_points, max_alpha)
 
-        return polygons_list, region_baselines_list, region_heights_list, region_textlines_list
+            if region_poly.geom_type == 'MultiPolygon':
+                for poly in region_poly:
+                    polygons_list.append(poly.exterior.coords)
+            elif region_poly.geom_type == 'Polygon':
+                polygons_list.append(region_poly.exterior.coords)
+
+        baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list, textlines_list)
+
+        return polygons_list, baselines_list, heights_list, textlines_list
 
     def get_maps(self, img):
 
@@ -124,20 +132,20 @@ class EngineRegionSPLIC(object):
                 pos[-1,0] += 2
 
                 heights_pred = heights_map[inds[0][baseline_inds], inds[1][baseline_inds], :]
-                if np.all(np.amax(heights_pred, axis=0) > 0):  # percentile will fail on zero vector, discard the baseline in such case
-                    heights_pred = np.maximum(heights_pred, 0)
-                    heights_pred = np.asarray([
-                        np.percentile(heights_pred[:, 0], 70),
-                        np.percentile(heights_pred[:, 1], 70)
-                    ])
 
-                    embeddings = embedding_map[inds[0][baseline_inds]-int(heights_pred[0]/2), np.clip(np.amin(inds[1][baseline_inds]+20), 0, embedding_map.shape[1]-1), :]
-                    embeddings = np.average(embeddings, axis=0)
+                heights_pred = np.maximum(heights_pred, 0)
+                heights_pred = np.asarray([
+                    np.percentile(heights_pred[:, 0], 70),
+                    np.percentile(heights_pred[:, 1], 70)
+                ])
 
-                    baselines_list.append(self.downsample * pos.astype(np.float))
-                    heights_list.append([self.downsample * heights_pred[0],
-                                         self.downsample * heights_pred[1]])
-                    embeddings_list.append(embeddings)
+                embeddings = embedding_map[inds[0][baseline_inds]-int(heights_pred[0]/2), np.clip(np.amin(inds[1][baseline_inds]+20), 0, embedding_map.shape[1]-1), :]
+                embeddings = np.average(embeddings, axis=0)
+
+                baselines_list.append(self.downsample * pos.astype(np.float))
+                heights_list.append([self.downsample * heights_pred[0],
+                                     self.downsample * heights_pred[1]])
+                embeddings_list.append(embeddings)
 
         return baselines_list, heights_list, embeddings_list
 
@@ -152,7 +160,7 @@ class EngineRegionSPLIC(object):
 
     def cluster_lines(self, embeddings_list):
         if len(embeddings_list)>1:
-            line_clusterer = hdbscan.HDBSCAN(min_cluster_size=4, min_samples=1, prediction_data=True)
+            line_clusterer = hdbscan.HDBSCAN(min_cluster_size=self.min_size, min_samples=1, prediction_data=True)
             line_clusterer = line_clusterer.fit(embeddings_list)
             # clusters_probs = hdbscan.all_points_membership_vectors(line_clusterer)
             clusters_array = line_clusterer.labels_
@@ -191,3 +199,27 @@ class EngineRegionSPLIC(object):
                         clusters_array[line_num] = clusters_array[upper_index]
 
         return clusters_array
+
+    def alpha_shape(self, points, alpha):
+        if len(points) < 4:
+            # When you have a triangle, there is no sense
+            # in computing an alpha shape.
+            return shapely.geometry.MultiPoint(list(points)).convex_hull
+
+        # coords = np.array([point.coords[0] for point in points])
+        tri = Delaunay(points)
+        triangles = points[tri.vertices]
+        a = ((triangles[:,0,0] - triangles[:,1,0]) ** 2 + (triangles[:,0,1] - triangles[:,1,1]) ** 2) ** 0.5
+        b = ((triangles[:,1,0] - triangles[:,2,0]) ** 2 + (triangles[:,1,1] - triangles[:,2,1]) ** 2) ** 0.5
+        c = ((triangles[:,2,0] - triangles[:,0,0]) ** 2 + (triangles[:,2,1] - triangles[:,0,1]) ** 2) ** 0.5
+        s = ( a + b + c ) / 2.0
+        areas = (s*(s-a)*(s-b)*(s-c)) ** 0.5
+        circums = a * b * c / (4.0 * areas)
+        filtered = triangles[circums < alpha]
+        edge1 = filtered[:,(0,1)]
+        edge2 = filtered[:,(1,2)]
+        edge3 = filtered[:,(2,0)]
+        edge_points = np.unique(np.concatenate((edge1,edge2,edge3)), axis = 0).tolist()
+        m = shapely.geometry.MultiLineString(edge_points)
+        triangles = list(polygonize(m))
+        return cascaded_union(triangles)

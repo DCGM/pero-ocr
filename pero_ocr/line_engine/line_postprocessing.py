@@ -204,9 +204,13 @@ def filter_list(items_list, indices_to_remove):
 
 
 def mask_textline_by_region(baseline, textline, region):
+    region_shpl = shapely.geometry.Polygon(region)
+    rep_point = [(baseline[0][0] + baseline[-1][0]) / 2, (baseline[0][1] + baseline[-1][1]) / 2]
+    rep_point_shpl = shapely.geometry.Point(rep_point)
+    if not rep_point_shpl.within(region_shpl):
+        return None, None
     baseline_shpl = shapely.geometry.LineString(baseline)
     textline_shpl = shapely.geometry.Polygon(textline)
-    region_shpl = shapely.geometry.Polygon(region)
     if not textline_shpl.is_valid: # this can happen after merging two lines
         textline_shpl = textline_shpl.convex_hull
     if not region_shpl.is_valid:
@@ -226,10 +230,12 @@ def baseline_to_textline(baseline, heights):
     :param heights: textline heights
     """
 
+    heights = np.array(heights).astype(np.float32)
+
     pos_up = baseline.copy().astype(np.float32)
-    pos_up[:, 1] -= heights[0].astype(np.float32)
+    pos_up[:, 1] -= heights[0]
     pos_down = baseline.copy().astype(np.float32)
-    pos_down[:, 1] += heights[1].astype(np.float32)
+    pos_down[:, 1] += heights[1]
     pos_t = np.concatenate([pos_up, pos_down[::-1, :]], axis=0)
 
     return pos_t

@@ -443,13 +443,13 @@ class PageLayout(object):
         for region_layout in self.regions:
             image = draw_lines(
                 image,
-                [region_layout.polygon], color=(255, 0, 0), circles=(True, True, True), close=True)
-            image = draw_lines(
-                image,
                 [line.baseline for line in region_layout.lines], color=(0, 0, 255), circles=(True, True, False))
             image = draw_lines(
                 image,
                 [line.polygon for line in region_layout.lines], color=(0, 255, 0), close=True)
+            image = draw_lines(
+                image,
+                [region_layout.polygon], color=(255, 0, 0), circles=(True, True, True), close=True)
         return image
 
     def lines_iterator(self):

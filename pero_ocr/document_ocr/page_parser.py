@@ -126,24 +126,31 @@ class RegionExtractorSPLIC(object):
         model_path = compose_path(config['MODEL_PATH'], config_path)
         downsample = config.getint('DOWNSAMPLE')
         use_cpu = config.getboolean('USE_CPU')
+        min_size = config.getint('MIN_SIZE')
         self.keep_lines = config.getboolean('KEEP_LINES')
         self.region_engine = region_engine_splic.EngineRegionSPLIC(
             model_path=model_path,
             downsample=downsample,
-            use_cpu=use_cpu
+            use_cpu=use_cpu,
+            min_size=min_size
         )
+        self.pool = Pool()
 
     def process_page(self, img, page_layout: PageLayout):
-        polygons_list, region_baselines_list, region_heights_list, region_textlines_list = self.region_engine.detect(img)
-        for id, (polygon, baselines, heights, textlines) in enumerate(zip(polygons_list, region_baselines_list, region_heights_list, region_textlines_list)):
+        print('processing')
+        polygons_list, baselines_list, heights_list, textlines_list = self.region_engine.detect(img)
+        for id, polygon in enumerate(polygons_list):
             region = RegionLayout('r{:03d}'.format(id), polygon)
-
-            if self.keep_lines:
-                for line_num, (baseline, heights, textline) in enumerate(zip(baselines, heights, textlines)):
-                    new_textline = TextLine(id='{}-l{:03d}'.format(region.id, line_num+1), baseline=baseline, polygon=textline, heights=heights)
-                    region.lines.append(new_textline)
-
             page_layout.regions.append(region)
+
+        print('assigning lines')
+        if self.keep_lines:
+            if len(page_layout.regions) > 4:
+                page_layout.regions = list(self.pool.map(partial(assign_lines_to_region, baselines_list, heights_list, textlines_list),
+                                 page_layout.regions))
+            else:
+                for region in page_layout.regions:
+                    region = assign_lines_to_region(baselines_list, heights_list, textlines_list, region)
 
         return page_layout
 
