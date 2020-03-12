@@ -168,6 +168,8 @@ class LineRefiner(object):
             use_cpu=self.use_cpu,
             detection_threshold=1
         )
+        self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
+        self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
 
     def process_page(self, img, page_layout: PageLayout):
         if not list(page_layout.lines_iterator()):
@@ -176,17 +178,25 @@ class LineRefiner(object):
 
         baselines_map, heights_map = self.line_engine.infer_maps(img)
 
+        if self.adjust_heights:
+            for line in page_layout.lines_iterator():
+                baseline = line.baseline / self.downsample
+                sample_points = linepp.resample_baselines([baseline], num_points=40)[0]
+                heights_pred = self.line_engine.get_heights(
+                    heights_map,
+                    (np.round(sample_points[:,1]).astype(np.int), np.round(sample_points[:,0]).astype(np.int)))
+                line.heights = heights_pred * self.downsample
+
+        if self.adjust_baselines:
+            baselines = [line.baseline for line in page_layout.lines_iterator()]
+            baselines = linepp.adjust_baselines_to_intensity(baselines, img)
+            for line, baseline in zip(page_layout.lines_iterator(), baselines):
+                line.baseline = baseline
+
         for line in page_layout.lines_iterator():
-            baseline = line.baseline / self.downsample
-            sample_points = linepp.resample_baselines([baseline], num_points=40)[0]
-            heights_pred = self.line_engine.get_heights(
-                heights_map,
-                (np.round(sample_points[:,1]).astype(np.int), np.round(sample_points[:,0]).astype(np.int)))
-            line.heights = heights_pred * self.downsample
             line.polygon = linepp.baseline_to_textline(line.baseline, line.heights)
 
         return page_layout
-
 
 def assign_lines_to_region(baseline_list, heights_list, textline_list, region):
     for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):

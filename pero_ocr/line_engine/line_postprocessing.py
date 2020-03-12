@@ -9,6 +9,7 @@ import shapely.geometry
 from scipy import ndimage, interpolate
 from sklearn import cluster
 
+import matplotlib.pyplot as plt
 
 def merge_lines(baselines, heights):
     """Merge lines on similar vertical offsets. Useful as postprocessing with known regions.
@@ -285,3 +286,22 @@ def rotate_coords(coords, rotation, center):
     out_coords = [[item[0], item[1]] for item in rotated_coords]
 
     return np.asarray(out_coords)
+
+def adjust_baselines_to_intensity(baselines, img, tolerance=5):
+    grad_img = np.gradient(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float))[0]
+    grad_img = ndimage.gaussian_filter(grad_img, 3)
+    new_baselines = []
+    for baseline in baselines:
+        num_points = baseline[-1][0] - baseline[0][0]
+        baseline_pts = np.round(resample_baselines([baseline], num_points=num_points)[0]).astype(np.int)
+        best_score = -np.inf
+        for offset in range(-tolerance, tolerance):
+            score = np.sum(grad_img[
+                np.clip(baseline_pts[:,1]+offset, 0, grad_img.shape[0]-1),
+                np.clip(baseline_pts[:,0], 0, grad_img.shape[1]-1)])
+            if score > best_score:
+                best_score = score
+                best_offset = offset
+        baseline_pts[:,1] += best_offset
+        new_baselines.append(resample_baselines([baseline_pts], num_points=len(baseline))[0])
+    return new_baselines
