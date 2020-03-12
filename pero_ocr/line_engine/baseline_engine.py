@@ -138,6 +138,16 @@ class EngineLineDetectorCNN(object):
 
         return baselines_map, heights_map
 
+    def get_heights(self, heights_map, inds):
+        heights_pred = heights_map[inds]  #* (baselines_img == i)[:, :, np.newaxis]
+
+        heights_pred = np.maximum(heights_pred, 0)
+        heights_pred = np.asarray([
+            np.percentile(heights_pred[:, 0], 70),
+            np.percentile(heights_pred[:, 1], 70)
+        ])
+        return heights_pred
+
     def parse_maps(self, baselines_map, heights_map):
         """Parse input baseline and height map into list of baselines coords and heights
         :param baseline_map: array of baseline and endpoint probabilities
@@ -167,12 +177,8 @@ class EngineLineDetectorCNN(object):
 
                 heights_pred = heights_map[inds[0][baseline_inds], inds[1][baseline_inds], :]  #* (baselines_img == i)[:, :, np.newaxis]
 
-                if np.all(np.amax(heights_pred, axis=0) > 0):  # percentile will fail on zero vector, discard the baseline in such case
-                    heights_pred = np.maximum(heights_pred, 0)
-                    heights_pred = np.asarray([
-                        np.percentile(heights_pred[:, 0], 70),
-                        np.percentile(heights_pred[:, 1], 70)
-                    ])
+                heights_pred = self.get_heights(heights_map, (inds[0][baseline_inds], inds[1][baseline_inds]))
+                if np.all(heights_pred > 0):
                     baselines_list.append(self.downsample * pos.astype(np.float32))
                     heights_list.append([self.downsample * heights_pred[0],
                                          self.downsample * heights_pred[1]])

@@ -35,6 +35,8 @@ def line_parser_factory(config, config_path=''):
         line_parser = TextlineExtractorCNN(config, config_path=config_path)
     elif config['METHOD'] == 'simple':
         line_parser = TextlineExtractorSimple(config, config_path=config_path)
+    elif config['METHOD'] == 'line_refiner':
+        line_parser = LineRefiner(config, config_path=config_path)
     else:
         raise ValueError('Unknown line parser method: {}'.format(config['METHOD']))
     return line_parser
@@ -142,6 +144,39 @@ class RegionExtractorSPLIC(object):
                     region.lines.append(new_textline)
 
             page_layout.regions.append(region)
+
+        return page_layout
+
+
+class LineRefiner(object):
+    def __init__(self, config, config_path=''):
+        self.model_path = compose_path(config['MODEL_PATH'], config_path)
+        self.downsample = config.getint('DOWNSAMPLE')
+        self.pad = config.getint('PAD')
+        self.use_cpu = config.getboolean('USE_CPU')
+        self.line_engine = baseline_engine.EngineLineDetectorCNN(
+            model_path=self.model_path,
+            downsample=self.downsample,
+            pad=self.pad,
+            use_cpu=self.use_cpu,
+            detection_threshold=1
+        )
+
+    def process_page(self, img, page_layout: PageLayout):
+        if not list(page_layout.lines_iterator()):
+            print(f"Warning: Skipping line reninement for page {page_layout.id}. No text lines present.")
+            return page_layout
+
+        baselines_map, heights_map = self.line_engine.infer_maps(img)
+
+        for line in page_layout.lines_iterator():
+            baseline = line.baseline / self.downsample
+            sample_points = linepp.resample_baselines([baseline], num_points=40)[0]
+            heights_pred = self.line_engine.get_heights(
+                heights_map,
+                (np.round(sample_points[:,1]).astype(np.int), np.round(sample_points[:,0]).astype(np.int)))
+            line.heights = heights_pred * self.downsample
+            line.polygon = linepp.baseline_to_textline(line.baseline, line.heights)
 
         return page_layout
 

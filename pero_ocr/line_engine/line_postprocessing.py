@@ -166,11 +166,11 @@ def stretch_baselines_to_region(baselines, region):
     return baselines_stretched
 
 
-def resample_baselines(baselines):
+def resample_baselines(baselines, num_points=10):
     baselines_resampled = []
     for baseline in baselines:
         line_interpf = np.poly1d(np.polyfit(baseline[:,0], baseline[:,1], 2))
-        new_xs = np.linspace(int(np.amin(baseline[:,0])), int(np.amax(baseline[:,0])), 10)
+        new_xs = np.linspace(np.amin(baseline[:,0]), np.amax(baseline[:,0]), num_points)
         new_ys = line_interpf(new_xs)
         baselines_resampled.append(np.stack((new_xs, new_ys), axis=-1))
     return baselines_resampled
@@ -226,10 +226,10 @@ def baseline_to_textline(baseline, heights):
     :param heights: textline heights
     """
 
-    pos_up = baseline.copy()
-    pos_up[:, 1] -= heights[0]
-    pos_down = baseline.copy()
-    pos_down[:, 1] += heights[1]
+    pos_up = baseline.copy().astype(np.float32)
+    pos_up[:, 1] -= heights[0].astype(np.float32)
+    pos_down = baseline.copy().astype(np.float32)
+    pos_down[:, 1] += heights[1].astype(np.float32)
     pos_t = np.concatenate([pos_up, pos_down[::-1, :]], axis=0)
 
     return pos_t
