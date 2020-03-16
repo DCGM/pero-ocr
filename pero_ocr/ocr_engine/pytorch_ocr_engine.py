@@ -30,7 +30,8 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
         self.net_subsampling = 4
         self.characters = list(self.characters) + ['|']
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.model = NET_VGG(num_classes=len(self.characters), height=self.line_px_height, subsampling=4)
+        net = PYTORCH_NETS[self.net_name]
+        self.model = net[0](num_classes=len(self.characters), height=self.line_px_height, **net[1])
         self.model.load_state_dict(torch.load(self.checkpoint, map_location=self.device))
         self.model = self.model.to(self.device)
         self.model = self.model.eval()
@@ -94,9 +95,12 @@ class NET_VGG(nn.Module):
     def __init__(self, num_classes, height=32, base_channels=16, conv_blocks=4, subsampling=4, in_channels=3, layers_2d=None):
         super(NET_VGG, self).__init__()
         if layers_2d is None:
+            layers_2d = 16
+
+        if type(layers_2d) is int:
             import torchvision
-            vgg = torchvision.models.vgg16()
-            layers_2d = list(vgg.features[:26])
+            vgg = torchvision.models.vgg16(pretrained=True)
+            layers_2d = list(vgg.features[:layers_2d])
 
         start_level = 0
         self.blocks_2d = []
@@ -133,12 +137,8 @@ class NET_VGG(nn.Module):
             in_channels = out_channels
 
         self.blocks_2d = nn.Sequential(*self.blocks_2d)
-
-
-        self.block_1d = create_vgg_block_1d(in_channels, out_channels)
-
+        self.block_1d = create_vgg_block_1d(in_channels , out_channels)
         self.gru = torch.nn.LSTM(out_channels, out_channels // 2, num_layers=2, bidirectional=True)
-
         self.output_layer = nn.Conv1d(out_channels, num_classes, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
@@ -150,3 +150,7 @@ class NET_VGG(nn.Module):
         out = out.permute(1, 2, 0)
         out = self.output_layer(out)
         return out
+
+PYTORCH_NETS = {
+    "VGG_B32_L16_S4_CB4": (NET_VGG, {'in_channels': 3, 'base_channels': 32, 'conv_blocks': 4, 'subsampling': 4, 'layers_2d':16}),
+}
