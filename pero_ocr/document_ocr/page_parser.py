@@ -3,6 +3,7 @@ from os.path import isabs, join, realpath
 
 from multiprocessing import Pool
 from functools import partial
+from scipy import ndimage
 
 from .layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import crop_engine as cropper
@@ -177,6 +178,7 @@ class LineRefiner(object):
         baselines_map, heights_map = self.line_engine.infer_maps(img)
 
         if self.adjust_heights:
+            heights_map = ndimage.morphology.grey_dilation(heights_map, size=(11,1,1))
             for line in page_layout.lines_iterator():
                 baseline = line.baseline / self.downsample
                 sample_points = linepp.resample_baselines([baseline], num_points=40)[0]

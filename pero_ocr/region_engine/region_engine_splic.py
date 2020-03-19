@@ -108,7 +108,7 @@ class EngineRegionSPLIC(object):
         embeddings_list = []
 
         baselines_map = pp.nonmaxima_suppression(out_map[:,:,2] - 3 * out_map[:,:,3]) > 0.2
-        heights_map = out_map[:,:,:2]
+        heights_map = ndimage.morphology.grey_dilation(out_map[:,:,:2], size=(7,1,1))
         embedding_map = self.edges_to_embeddings(out_map[:,:,3],
                                             n_components=self.n_components,
                                             reduce_factor=self.reduce_factor)
