@@ -145,3 +145,21 @@ def viterbi_align(neg_logits: np.ndarray, A: np.ndarray) -> typing.List[int]:
         raise ValueError("It was not possible to align the states with the logits, best path has cost of np.inf")
 
     return backtrack(backpointers, np.argmin(final_frame_cost))
+
+
+def align_text(neg_logprobs, transcription, blank_symbol):
+    logit_characters = force_align(neg_logprobs, transcription, blank_symbol, return_seq_positions=True)
+
+    max_probs = (-neg_logprobs).max(axis=-1)
+
+    text_length = transcription.shape[0]
+
+    logit_characters = np.asarray(logit_characters)
+    char_positions = np.zeros(text_length, dtype=np.int32)
+
+    for i in range(text_length):
+        seq_positions = np.nonzero(logit_characters == i)[0]
+        best_pos = np.argmax(max_probs[seq_positions])
+        char_positions[i] = seq_positions[best_pos]
+
+    return char_positions
