@@ -73,9 +73,9 @@ class EngineRegionSPLIC(object):
 
             if region_poly.geom_type == 'MultiPolygon':
                 for poly in region_poly:
-                    polygons_list.append(poly.exterior.coords)
+                    polygons_list.append(poly.simplify(5).exterior.coords)
             elif region_poly.geom_type == 'Polygon':
-                polygons_list.append(region_poly.exterior.coords)
+                polygons_list.append(region_poly.simplify(5).exterior.coords)
 
         baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list, textlines_list)
 
