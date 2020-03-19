@@ -244,6 +244,8 @@ class PageLayout(object):
             print_space_width = print_space_width - print_space_hpos
 
             for l, line in enumerate(block.lines):
+                if not line.transcription:
+                    continue
                 text_line = ET.SubElement(text_block, "TextLine")
                 text_line_baseline = int(np.average(np.array(line.baseline)[:, 1]))
                 text_line.set("BASELINE", str(text_line_baseline))
