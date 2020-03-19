@@ -47,6 +47,8 @@ class EngineRegionSPLIC(object):
 
         out_map = self.get_maps(image)
         baselines_list, heights_list, embeddings_list = self.parse_maps(out_map)
+        if not baselines_list:
+            return [], [], [], []
         textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
 
         clusters_array = self.cluster_lines(embeddings_list)
