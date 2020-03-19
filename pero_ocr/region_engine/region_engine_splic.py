@@ -79,6 +79,8 @@ class EngineRegionSPLIC(object):
 
         baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list, textlines_list)
 
+        polygons_list = self.filter_polygons(polygons_list)
+
         return polygons_list, baselines_list, heights_list, textlines_list
 
     def get_maps(self, img):
@@ -216,7 +218,7 @@ class EngineRegionSPLIC(object):
         c = ((triangles[:,2,0] - triangles[:,0,0]) ** 2 + (triangles[:,2,1] - triangles[:,0,1]) ** 2) ** 0.5
         s = ( a + b + c ) / 2.0
         areas = (s*(s-a)*(s-b)*(s-c)) ** 0.5
-        circums = a * b * c / (4.0 * areas)
+        circums = a * b * c / (4.0 * (areas + 0.0001))
         filtered = triangles[circums < alpha]
         edge1 = filtered[:,(0,1)]
         edge2 = filtered[:,(1,2)]
@@ -225,3 +227,16 @@ class EngineRegionSPLIC(object):
         m = shapely.geometry.MultiLineString(edge_points)
         triangles = list(polygonize(m))
         return cascaded_union(triangles)
+
+    def filter_polygons(self, polygon_coords_list, threshold=0.9):
+        # this may potentially remove two very similar regions but those shouldnt happen in SPLIC method
+        polygons_list = [shapely.geometry.Polygon(coords) for coords in polygon_coords_list]
+        num_polys = len(polygons_list)
+        intersections = np.zeros((num_polys, num_polys))
+        for i in range(num_polys):
+            for j in range(num_polys):
+                if i != j:
+                    if polygons_list[i].intersects(polygons_list[j]):
+                        intersections[i, j] = polygons_list[i].intersection(polygons_list[j]).area / polygons_list[i].area
+        scores = np.amax(intersections, axis=1)
+        return [polygon_coords_list[i] for i in np.where(scores < threshold)[0]]

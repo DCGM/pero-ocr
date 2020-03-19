@@ -137,13 +137,11 @@ class RegionExtractorSPLIC(object):
         self.pool = Pool()
 
     def process_page(self, img, page_layout: PageLayout):
-        print('processing')
         polygons_list, baselines_list, heights_list, textlines_list = self.region_engine.detect(img)
         for id, polygon in enumerate(polygons_list):
             region = RegionLayout('r{:03d}'.format(id), polygon)
             page_layout.regions.append(region)
 
-        print('assigning lines')
         if self.keep_lines:
             if len(page_layout.regions) > 4:
                 page_layout.regions = list(self.pool.map(partial(assign_lines_to_region, baselines_list, heights_list, textlines_list),
