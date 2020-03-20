@@ -210,16 +210,19 @@ class EngineLineDetectorCNN(object):
         """
         baselines_list, heights_list, textlines_list = self.detect_lines_single_scale(img)
         temp_downsample = self.downsample
-        for scale_iteration in range(2):
+
+        height = np.median([h[0] + h[1] for h in heights_list])
+        if height / self.downsample <= 6 or height / self.downsample > 18:
+            print("ADAPT DOWNAMPLING", img.shape[0:2], self.downsample, height, height / self.downsample)
+            self.downsample = max(1, int(height / 12 + 0.5))
+            try:
+                baselines_list, heights_list, textlines_list = self.detect_lines_single_scale(img)
+            except:
+                print(f'Error: Failed to detect lines in adapted resolution. Downsample was {self.downsample}',
+                      file=sys.stderr)
             height = np.median([h[0] + h[1] for h in heights_list])
-            if height / self.downsample <= 6:
-                self.downsample = self.downsample - 1
-                try:
-                    if self.downsample >= 1:
-                        baselines_list, heights_list, textlines_list = self.detect_lines_single_scale(img)
-                except:
-                    print(f'Error: Failed to detect lines in increased resolution. Downsample was {self.downsample}',
-                          file=sys.stderr)
+            print(f"OPTIMAL DOWNAMPLING {img.shape[0]//self.downsample}:{img.shape[1]//self.downsample}", self.downsample, height, height / self.downsample)
+
         self.downsample = temp_downsample
 
         return baselines_list, heights_list, textlines_list

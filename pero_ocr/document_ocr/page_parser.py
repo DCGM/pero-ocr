@@ -177,8 +177,14 @@ class LineRefiner(object):
 
         baselines_map, heights_map = self.line_engine.infer_maps(img)
 
+        if self.adjust_baselines:
+            baselines = [line.baseline for line in page_layout.lines_iterator()]
+            baselines = linepp.adjust_baselines_to_intensity(baselines, img)
+            for line, baseline in zip(page_layout.lines_iterator(), baselines):
+                line.baseline = baseline
+
         if self.adjust_heights:
-            heights_map = ndimage.morphology.grey_dilation(heights_map, size=(11,1,1))
+            #heights_map = ndimage.morphology.grey_dilation(heights_map, size=(5, 1, 1))
             for line in page_layout.lines_iterator():
                 baseline = line.baseline / self.downsample
                 sample_points = linepp.resample_baselines([baseline], num_points=40)[0]
@@ -187,11 +193,30 @@ class LineRefiner(object):
                     (np.round(sample_points[:,1]).astype(np.int), np.round(sample_points[:,0]).astype(np.int)))
                 line.heights = heights_pred * self.downsample
 
-        if self.adjust_baselines:
-            baselines = [line.baseline for line in page_layout.lines_iterator()]
-            baselines = linepp.adjust_baselines_to_intensity(baselines, img)
-            for line, baseline in zip(page_layout.lines_iterator(), baselines):
-                line.baseline = baseline
+        height = np.median([l.heights[0] + l.heights[1] for l in page_layout.lines_iterator()])
+        if height / self.downsample <= 6 or height / self.downsample > 18:
+            temp_downsample = self.downsample
+            print("ADAPT DOWNAMPLING", img.shape[0:2], self.downsample, height, height / self.downsample)
+            self.downsample = max(1, int(height / 12 + 0.5))
+
+            self.line_engine.downsample = self.downsample
+            baselines_map, heights_map = self.line_engine.infer_maps(img)
+            self.line_engine.downsample = temp_downsample
+            if self.adjust_heights:
+                heights_map = ndimage.morphology.grey_dilation(heights_map, size=(11, 1, 1))
+                for line in page_layout.lines_iterator():
+                    baseline = line.baseline / self.downsample
+                    sample_points = linepp.resample_baselines([baseline], num_points=40)[0]
+                    heights_pred = self.line_engine.get_heights(
+                        heights_map,
+                        (np.round(sample_points[:, 1]).astype(np.int), np.round(sample_points[:, 0]).astype(np.int)))
+                    line.heights = heights_pred * self.downsample
+
+            height = np.median([l.heights[0] + l.heights[1] for l in page_layout.lines_iterator()])
+            print(f"OPTIMAL DOWNAMPLING {img.shape[0] // self.downsample}:{img.shape[1] // self.downsample}",
+                  self.downsample, height, height / self.downsample)
+            self.downsample = temp_downsample
+
 
         for line in page_layout.lines_iterator():
             line.polygon = linepp.baseline_to_textline(line.baseline, line.heights)
