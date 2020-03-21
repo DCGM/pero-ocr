@@ -73,9 +73,13 @@ class EngineLineCropper(object):
         return coords
 
     def crop(self, img, baseline, height, return_mapping=False):
-        line_coords = self.get_crop_inputs(baseline, height, self.line_height)
-        line_crop = cv2.remap(img, line_coords[:, :, 0], line_coords[:, :, 1],
-                              interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        try:
+            line_coords = self.get_crop_inputs(baseline, height, self.line_height)
+            line_crop = cv2.remap(img, line_coords[:, :, 0], line_coords[:, :, 1],
+                                  interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        except:
+            print("ERROR: line crop failed.", self.line_height, baseline)
+            line_crop = np.zeros([height, 32, 3], dtype=np.uint8)
 
         if return_mapping:
             raise Exception('Not implemented')
