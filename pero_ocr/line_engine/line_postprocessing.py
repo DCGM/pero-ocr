@@ -207,8 +207,10 @@ def filter_list(items_list, indices_to_remove):
 def mask_textline_by_region(baseline, textline, region):
     region_shpl = shapely.geometry.Polygon(region)
     baseline_shpl = shapely.geometry.LineString(baseline)
+
     if not baseline_shpl.intersects(region_shpl):
         return None, None
+
     textline_shpl = shapely.geometry.Polygon(textline)
     if not textline_shpl.is_valid: # this can happen after merging two lines
         textline_shpl = textline_shpl.convex_hull
@@ -217,7 +219,7 @@ def mask_textline_by_region(baseline, textline, region):
         region_shpl = region_shpl.convex_hull
     baseline_is = region_shpl.intersection(baseline_shpl)
     textline_is = region_shpl.intersection(textline_shpl)
-    if isinstance(baseline_is, shapely.geometry.LineString) and isinstance(textline_is, shapely.geometry.Polygon):
+    if isinstance(baseline_is, shapely.geometry.LineString) and isinstance(textline_is, shapely.geometry.Polygon) and baseline_is.length>2:
         return np.asarray(baseline_is.coords), np.asarray(textline_is.exterior.coords)
     else:
         return None, None

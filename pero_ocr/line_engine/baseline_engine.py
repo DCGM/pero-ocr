@@ -162,7 +162,7 @@ class EngineLineDetectorCNN(object):
 
         for i in range(1, num_detections+1):
             baseline_inds, = np.where(labels == i)
-            if len(baseline_inds) > 5:
+            if (np.amax(inds[1][baseline_inds]) - np.amin(inds[1][baseline_inds])) > 5:
                 pos_all = np.stack([inds[1][baseline_inds], inds[0][baseline_inds]], axis=1)  # go from matrix indexing to image indexing
 
                 _, indices = np.unique(pos_all[:, 0], return_index=True)
