@@ -11,6 +11,7 @@ from scipy.spatial import Delaunay
 
 from skimage.measure import block_reduce, label
 from sklearn.utils.validation import check_array
+from sklearn.metrics import pairwise_distances
 import shapely.geometry
 from shapely.ops import cascaded_union, polygonize
 
@@ -46,14 +47,14 @@ class EngineRegionSPLIC(object):
         polygons_list = []
 
         out_map = self.get_maps(image)
-        baselines_list, heights_list, embeddings_list = self.parse_maps(out_map)
+        baselines_list, heights_list, l_embd_list, m_embd_list, r_embd_list = self.parse_maps(out_map)
         if not baselines_list:
             return [], [], [], []
         textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
 
-        clusters_array = self.cluster_lines(embeddings_list)
+        clusters_array = self.cluster_lines(l_embd_list, m_embd_list, r_embd_list)
         # check noise lines for adjacancy to previous region in reading order due to eigenvector-based clustering errors
-        clusters_array = self.postprocess_noisy_lines(clusters_array, baselines_list, heights_list, out_map[:,:,3])
+        # clusters_array = self.postprocess_noisy_lines(clusters_array, baselines_list, heights_list, out_map[:,:,3])
         for i in range(np.amax(clusters_array)+1):
             region_baselines = []
             region_heights = []
@@ -99,17 +100,19 @@ class EngineRegionSPLIC(object):
         return out_map
 
     def parse_maps(self, out_map):
-        """Parse input baseline, height and region map into list of baselines coords, heights and embeddings
+        """Parse input baseline, height and region map into list of baselines coords, heights and embd
         :param baseline_map: array of baseline and endpoint probabilities
         :param heights_map: array of estimated heights
         """
         baselines_list = []
         heights_list = []
-        embeddings_list = []
+        l_embd_list = []
+        m_embd_list = []
+        r_embd_list = []
 
         baselines_map = pp.nonmaxima_suppression(out_map[:,:,2] - 3 * out_map[:,:,3]) > 0.2
         heights_map = ndimage.morphology.grey_dilation(out_map[:,:,:2], size=(7,1,1))
-        embedding_map = self.edges_to_embeddings(out_map[:,:,3],
+        embd_map = self.edges_to_embd(out_map[:,:,3],
                                             n_components=self.n_components,
                                             reduce_factor=self.reduce_factor)
 
@@ -118,9 +121,9 @@ class EngineRegionSPLIC(object):
         labels = baselines_img[inds[0], inds[1]]
 
         for i in range(1, num_detections+1):
-            baseline_inds, = np.where(labels == i)
-            if len(baseline_inds) > 5:
-                pos_all = np.stack([inds[1][baseline_inds], inds[0][baseline_inds]], axis=1)  # go from matrix indexing to image indexing
+            bl_inds, = np.where(labels == i)
+            if len(bl_inds) > 5:
+                pos_all = np.stack([inds[1][bl_inds], inds[0][bl_inds]], axis=1)  # go from matrix indexing to image indexing
 
                 _, indices = np.unique(pos_all[:, 0], return_index=True)
                 pos = pos_all[indices]
@@ -135,7 +138,7 @@ class EngineRegionSPLIC(object):
                 pos[0,0] -= 2 # region edge detection bites out of baseline pixels, stretch to compensate
                 pos[-1,0] += 2
 
-                heights_pred = heights_map[inds[0][baseline_inds], inds[1][baseline_inds], :]
+                heights_pred = heights_map[inds[0][bl_inds], inds[1][bl_inds], :]
 
                 heights_pred = np.maximum(heights_pred, 0)
                 heights_pred = np.asarray([
@@ -143,17 +146,25 @@ class EngineRegionSPLIC(object):
                     np.percentile(heights_pred[:, 1], 70)
                 ])
 
-                embeddings = embedding_map[inds[0][baseline_inds]-int(heights_pred[0]/2), np.clip(np.amin(inds[1][baseline_inds]+20), 0, embedding_map.shape[1]-1), :]
-                embeddings = np.average(embeddings, axis=0)
+                embd = embd_map[inds[0][bl_inds]-int(heights_pred[0]/2), np.clip(np.amin(inds[1][bl_inds]+5), 0, embd_map.shape[1]-1), :]
+                embd = np.average(embd, axis=0)
+                l_embd_list.append(embd)
+
+                embd = embd_map[inds[0][bl_inds]-int(heights_pred[0]/2), int(np.round(np.clip(np.average(inds[1][bl_inds]), 0, embd_map.shape[1]-1))), :]
+                embd = np.average(embd, axis=0)
+                m_embd_list.append(embd)
+
+                embd = embd_map[inds[0][bl_inds]-int(heights_pred[0]/2), np.clip(np.amax(inds[1][bl_inds]-5), 0, embd_map.shape[1]-1), :]
+                embd = np.average(embd, axis=0)
+                r_embd_list.append(embd)
 
                 baselines_list.append(self.downsample * pos.astype(np.float))
                 heights_list.append([self.downsample * heights_pred[0],
                                      self.downsample * heights_pred[1]])
-                embeddings_list.append(embeddings)
 
-        return baselines_list, heights_list, embeddings_list
+        return baselines_list, heights_list, l_embd_list, m_embd_list, r_embd_list
 
-    def edges_to_embeddings(self, edge_map, n_components=16, reduce_factor=4):
+    def edges_to_embd(self, edge_map, n_components=16, reduce_factor=4):
         edge_map_reduced  = block_reduce(edge_map, (reduce_factor,reduce_factor), func=np.amax).astype(np.float32)
         adjacency = sc.img_to_graph(edge_map_reduced)
         eigenvectors = sc.spectral_embedding(adjacency, n_components=n_components)
@@ -162,11 +173,19 @@ class EngineRegionSPLIC(object):
 
         return cv2.resize(eigenvectors, (edge_map.shape[1], edge_map.shape[0]))
 
-    def cluster_lines(self, embeddings_list):
-        if len(embeddings_list)>1:
-            line_clusterer = hdbscan.HDBSCAN(min_cluster_size=self.min_size, min_samples=1, prediction_data=True)
-            line_clusterer = line_clusterer.fit(embeddings_list)
-            # clusters_probs = hdbscan.all_points_membership_vectors(line_clusterer)
+    def cluster_lines(self, l_embd_list, m_embd_list, r_embd_list):
+        if len(l_embd_list)>1 and len(m_embd_list)>1 and len(r_embd_list)>1:
+
+            adjacency_l = pairwise_distances(np.asarray(l_embd_list), n_jobs=4)
+            adjacency_m = pairwise_distances(np.asarray(m_embd_list), n_jobs=4)
+            adjacency_r = pairwise_distances(np.asarray(r_embd_list), n_jobs=4)
+            adjacency = np.amin(np.stack((adjacency_l, adjacency_m, adjacency_r), axis=-1), axis=-1)
+
+            line_clusterer = hdbscan.HDBSCAN(
+                min_cluster_size=self.min_size,
+                min_samples=1,
+                metric='precomputed')
+            line_clusterer = line_clusterer.fit(adjacency)
             clusters_array = line_clusterer.labels_
 
             noise_lines = np.where(clusters_array<0)[0]
@@ -176,33 +195,6 @@ class EngineRegionSPLIC(object):
             return clusters_array
         else:
             return [0]
-
-    def postprocess_noisy_lines(self, clusters_array, baselines_list, heights_list, edge_map, threshold=0.5):
-        for line_num, (cluster, baseline, heights) in enumerate(zip(clusters_array, baselines_list, heights_list)):
-            if cluster == -1:
-
-                y1 = int(np.clip(((baseline[0][1]/self.downsample+baseline[-1][1]/self.downsample)/2)-1.5*heights[0]/self.downsample, 0, edge_map.shape[0]))
-                y2 = int(np.clip(((baseline[0][1]/self.downsample+baseline[-1][1]/self.downsample)/2)-0.5*heights[0]/self.downsample, 0, edge_map.shape[0]))
-                x1 = int(np.clip(baseline[0][0]/self.downsample, 0, edge_map.shape[1]))
-                x2 = int(np.clip(baseline[-1][0]/self.downsample, 0, edge_map.shape[1]))
-                if y1 >= y2 or x1 >= x2:
-                    continue
-                upper_severance = np.sum(np.amax(edge_map[y1:y2, x1:x2], axis=0)) / (x2-x1+0.0001)
-
-                if upper_severance < threshold:
-                    upper_index = -1
-                    smallest_vert_diff = np.inf
-                    for neighbor_num, upper_baseline in enumerate(baselines_list):
-                        if baseline[0][0] < upper_baseline[-1][0] and baseline[-1][0] > upper_baseline[0][0]:
-                            vert_diff = (baseline[0][1] + baseline[-1][1]) / 2 - (upper_baseline[0][1] + upper_baseline[-1][1]) / 2
-                            if vert_diff > 0 and vert_diff < smallest_vert_diff and vert_diff < 4 * heights[0]:
-                                smallest_vert_diff = vert_diff
-                                upper_index = neighbor_num
-
-                    if upper_index >= 0:
-                        clusters_array[line_num] = clusters_array[upper_index]
-
-        return clusters_array
 
     def alpha_shape(self, points, alpha):
         if len(points) < 4:
