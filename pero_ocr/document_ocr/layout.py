@@ -438,20 +438,20 @@ class PageLayout(object):
                 line.logits = logits_dict[line.id]
                 line.characters = characters[line.id]
 
-    def render_to_image(self, image):
+    def render_to_image(self, image, thickness=2, circles=True):
         """Render layout into image.
         :param image: image to render layout into
         """
         for region_layout in self.regions:
             image = draw_lines(
                 image,
-                [line.baseline for line in region_layout.lines], color=(0, 0, 255), circles=(True, True, False))
+                [line.baseline for line in region_layout.lines], color=(0,0,255), circles=(circles, circles, False), thickness=thickness)
             image = draw_lines(
                 image,
-                [line.polygon for line in region_layout.lines], color=(0, 255, 0), close=True)
+                [line.polygon for line in region_layout.lines], color=(0,255,0), close=True, thickness=thickness)
             image = draw_lines(
                 image,
-                [region_layout.polygon], color=(255, 0, 0), circles=(True, True, True), close=True)
+                [region_layout.polygon], color=(255, 0, 0), circles=(circles, circles, circles), close=True, thickness=thickness)
         return image
 
     def lines_iterator(self):
@@ -460,7 +460,7 @@ class PageLayout(object):
                 yield l
 
 
-def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False):
+def draw_lines(img, lines, color=(255,0,0), circles=(False, False, False), close=False, thickness=2):
     """Draw a line into image.
     :param img: input image
     :param lines: list of arrays of line coords
@@ -474,14 +474,14 @@ def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), clo
         if circles[0]:
             cv2.circle(img, (int(last[0]), int(last[1])), 3, color, 4)
         for p in line[1:]:
-            cv2.line(img, (int(last[0]), int(last[1])), (int(p[0]), int(p[1])), color, 2)
+            cv2.line(img, (int(last[0]), int(last[1])), (int(p[0]), int(p[1])), color, thickness)
             if circles[1]:
                 cv2.circle(img, (int(last[0]), int(last[1])), 3, color, 4)
             last = p
         if circles[1]:
             cv2.circle(img, (int(line[-1][0]), int(line[-1][1])), 3, color, 4)
         if close:
-            cv2.line(img, (int(last[0]), int(last[1])), (int(first[0]), int(first[1])), color, 2)
+            cv2.line(img, (int(last[0]), int(last[1])), (int(first[0]), int(first[1])), color, thickness)
     return img
 
 

@@ -70,7 +70,7 @@ class EngineRegionSPLIC(object):
             max_poly_line = np.amax(np.array([np.amax(np.diff(baseline[:,0])) for baseline in region_baselines]))
             max_height = np.amax(np.array(region_heights))
             max_alpha =  1.5 * np.maximum(max_poly_line, max_height)
-            region_poly = self.alpha_shape(region_poly_points, max_alpha)
+            region_poly = alpha_shape(region_poly_points, max_alpha)
 
             if region_poly.geom_type == 'MultiPolygon':
                 for poly in region_poly:
@@ -196,30 +196,6 @@ class EngineRegionSPLIC(object):
         else:
             return [0]
 
-    def alpha_shape(self, points, alpha):
-        if len(points) < 4:
-            # When you have a triangle, there is no sense
-            # in computing an alpha shape.
-            return shapely.geometry.MultiPoint(list(points)).convex_hull
-
-        # coords = np.array([point.coords[0] for point in points])
-        tri = Delaunay(points)
-        triangles = points[tri.vertices]
-        a = ((triangles[:,0,0] - triangles[:,1,0]) ** 2 + (triangles[:,0,1] - triangles[:,1,1]) ** 2) ** 0.5
-        b = ((triangles[:,1,0] - triangles[:,2,0]) ** 2 + (triangles[:,1,1] - triangles[:,2,1]) ** 2) ** 0.5
-        c = ((triangles[:,2,0] - triangles[:,0,0]) ** 2 + (triangles[:,2,1] - triangles[:,0,1]) ** 2) ** 0.5
-        s = ( a + b + c ) / 2.0
-        areas = (s*(s-a)*(s-b)*(s-c)) ** 0.5
-        circums = a * b * c / (4.0 * (areas + 0.0001))
-        filtered = triangles[circums < alpha]
-        edge1 = filtered[:,(0,1)]
-        edge2 = filtered[:,(1,2)]
-        edge3 = filtered[:,(2,0)]
-        edge_points = np.unique(np.concatenate((edge1,edge2,edge3)), axis = 0).tolist()
-        m = shapely.geometry.MultiLineString(edge_points)
-        triangles = list(polygonize(m))
-        return cascaded_union(triangles)
-
     def filter_polygons(self, polygon_coords_list, threshold=0.9):
         # this may potentially remove two very similar regions but those shouldnt happen in SPLIC method
         polygons_list = [shapely.geometry.Polygon(coords) for coords in polygon_coords_list]
@@ -232,3 +208,27 @@ class EngineRegionSPLIC(object):
                         intersections[i, j] = polygons_list[i].intersection(polygons_list[j]).area / polygons_list[i].area
         scores = np.amax(intersections, axis=1)
         return [polygon_coords_list[i] for i in np.where(scores < threshold)[0]]
+
+def alpha_shape(points, alpha):
+    if len(points) < 4:
+        # When you have a triangle, there is no sense
+        # in computing an alpha shape.
+        return shapely.geometry.MultiPoint(list(points)).convex_hull
+
+    # coords = np.array([point.coords[0] for point in points])
+    tri = Delaunay(points)
+    triangles = points[tri.vertices]
+    a = ((triangles[:,0,0] - triangles[:,1,0]) ** 2 + (triangles[:,0,1] - triangles[:,1,1]) ** 2) ** 0.5
+    b = ((triangles[:,1,0] - triangles[:,2,0]) ** 2 + (triangles[:,1,1] - triangles[:,2,1]) ** 2) ** 0.5
+    c = ((triangles[:,2,0] - triangles[:,0,0]) ** 2 + (triangles[:,2,1] - triangles[:,0,1]) ** 2) ** 0.5
+    s = ( a + b + c ) / 2.0
+    areas = (s*(s-a)*(s-b)*(s-c)) ** 0.5
+    circums = a * b * c / (4.0 * (areas + 0.0001))
+    filtered = triangles[circums < alpha]
+    edge1 = filtered[:,(0,1)]
+    edge2 = filtered[:,(1,2)]
+    edge3 = filtered[:,(2,0)]
+    edge_points = np.unique(np.concatenate((edge1,edge2,edge3)), axis = 0).tolist()
+    m = shapely.geometry.MultiLineString(edge_points)
+    triangles = list(polygonize(m))
+    return cascaded_union(triangles)
