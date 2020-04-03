@@ -44,15 +44,15 @@ def get_region_by_point(regions_coords, point):
 
     return None
 
-def sync_heights(heights, selected_lines):
-    heights_selection = list()
-    for h_num, height in enumerate(heights):
-        if h_num in selected_lines:
-            heights_selection.append(height)
-    heights_med = np.median(np.asarray(heights_selection), axis=0).astype(np.uint16).tolist()
-    for h_num, height in enumerate(heights):
-        if h_num in selected_lines: heights[h_num] = heights_med
-    return heights
+# def sync_heights(heights, selected_lines):
+#     heights_selection = list()
+#     for h_num, height in enumerate(heights):
+#         if h_num in selected_lines:
+#             heights_selection.append(height)
+#     heights_med = np.median(np.asarray(heights_selection), axis=0).astype(np.uint16).tolist()
+#     for h_num, height in enumerate(heights):
+#         if h_num in selected_lines: heights[h_num] = heights_med
+#     return heights
 
 def resample_layout(page_layout, ds):
     for line in page_layout.lines_iterator():
@@ -149,11 +149,14 @@ class PageEditor(object):
         self.lines_to_select.clear()
         self.selected_regions.clear()
 
-    def update_selected_lines(self, bs=0, asc=0, dsc=0):
+    def update_selected_lines(self, bs=0, asc=0, dsc=0, start=0, end=0):
         for l_num in self.selected_lines:
             self.lines[l_num].heights = [self.lines[l_num].heights[0]+float(asc), self.lines[l_num].heights[1]+float(dsc)]
             self.lines[l_num].baseline[:,1] += float(bs)
+            self.lines[l_num].baseline[0,0] += float(start)
+            self.lines[l_num].baseline[-1,0] += float(end)
             self.lines[l_num].polygon = linepp.baseline_to_textline(self.lines[l_num].baseline, self.lines[l_num].heights)
+
         self.render()
 
     def create_line(self):
@@ -218,6 +221,7 @@ class PageEditor(object):
             self.render()
 
     def update_layout(self):
+        # assign lines to regions
         for region in self.page_layout.regions:
             region.lines = []
             region_geometry = Polygon(region.polygon)
@@ -231,6 +235,7 @@ class PageEditor(object):
                         line.id = '{}-l{:03d}'.format(region.id, l_num)
                         region.lines.append(line)
         self.lines = [line for line in self.page_layout.lines_iterator()]
+        # delete dummy regions
         for region in self.page_layout.regions:
             if region.id == 'dummy':
                 self.page_layout.regions.remove(region)
@@ -290,6 +295,14 @@ class PageEditor(object):
                 self.update_selected_lines(dsc=-1)
             elif key == ord('h'):
                 self.update_selected_lines(dsc=1)
+            elif key == ord('i'):
+                self.update_selected_lines(start=-1)
+            elif key == ord('o'):
+                self.update_selected_lines(start=1)
+            elif key == ord('k'):
+                self.update_selected_lines(end=-1)
+            elif key == ord('l'):
+                self.update_selected_lines(end=1)
 
             # line adding/deleting
             elif key == ord('y'):
@@ -321,7 +334,7 @@ def main():
     img_path = '/home/olda/Documents/test_lidovky/51e48dc1-435f-11dd-b505-00145e5790ea.jpg'
     page_path = '/home/olda/Documents/test_lidovky/page/51e48dc1-435f-11dd-b505-00145e5790ea.xml'
 
-    editor = PageEditor(downsample=1, line_thickness=2, show_hint=True)
+    editor = PageEditor(downsample=2, line_thickness=1, show_hint=True)
     edited_layout = editor.annotate(cv2.imread(img_path), layout.PageLayout(file=page_path))
 
 if __name__=='__main__':
