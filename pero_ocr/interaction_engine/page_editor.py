@@ -70,7 +70,7 @@ class MouseEditorCallback(object):
         self.down_time = 0
         self.down_pos = None
         self.click_time = 0.2
-
+        self.double_clicked = False
 
     def del_point(self):
         self.points = self.points[:-1]
@@ -96,17 +96,21 @@ class MouseEditorCallback(object):
     def callback(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDBLCLK:
             self.clear()
-            self.points.append(self.down_pos)
+            # dont start drawing again right after clearing points
+            self.double_clicked = True
 
         elif event == cv2.EVENT_LBUTTONDOWN:
             self.down_pos = (x, y)
             self.down_time = time.time()
 
         elif event == cv2.EVENT_LBUTTONUP and time.time() - self.down_time < self.click_time:
-            if not self.drawing:
+            if not self.double_clicked:
+                if not self.drawing:
+                    self.points.append(self.down_pos)
                 self.points.append(self.down_pos)
-            self.points.append(self.down_pos)
-            self.drawing = True
+                self.drawing = True
+            else:
+                self.double_clicked = False
 
         elif event == cv2.EVENT_MOUSEMOVE and self.drawing and self.points:
             self.points[-1] = (x, y)
