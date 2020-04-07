@@ -187,7 +187,7 @@ class PageLayout(object):
 
     def to_pagexml(self, file_name):
         xml_string = self.to_pagexml_string()
-        with open(file_name, 'w') as out_f:
+        with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
     def to_altoxml_string(self):
