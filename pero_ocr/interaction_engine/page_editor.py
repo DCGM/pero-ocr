@@ -3,6 +3,7 @@ import time
 import argparse
 import random
 import numpy as np
+import copy
 
 import cv2
 import skimage.draw
@@ -174,10 +175,15 @@ class PageEditor(object):
 
     def create_line(self):
         if len(self.clicker.points) > 2:
+            if self.lines:
+                heights = np.median(np.array([[line.heights[0], line.heights[1]] for line in self.lines]), axis=0)
+            else:
+                heights = [5, 5]
+
             new_line = layout.TextLine(
                 id = None,
                 baseline = np.array(self.clicker.points[:-1], dtype=np.float),
-                heights = [self.height_template[0], self.height_template[1]]
+                heights = heights
             )
             new_line.polygon = linepp.baseline_to_textline(new_line.baseline, new_line.heights)
             dummy_region = layout.RegionLayout(id='dummy', polygon=[[-1.0, -1.0], [-1.0, -1.0], [-1.0, -1.0]])
@@ -239,6 +245,7 @@ class PageEditor(object):
             region.lines = []
             region_geometry = Polygon(region.polygon)
             for l_num, line in enumerate(self.lines):
+                line = copy.deepcopy(line)
                 line_geometry = LineString(line.baseline)
                 if line_geometry.intersects(region_geometry):
                     bs_is, tl_is = linepp.mask_textline_by_region(line.baseline, line.polygon, region.polygon)
@@ -271,7 +278,6 @@ class PageEditor(object):
         # self.page_layout = page_layout
 
         self.lines = [line for line in self.page_layout.lines_iterator()]
-        self.height_template = np.median(np.array([[line.heights[0], line.heights[1]] for line in self.lines]), axis=0)
 
         self.selected_lines = []
         self.selected_regions = []
@@ -366,7 +372,7 @@ def main():
             os.makedirs(args.output_dir)
 
     filename_list = [x for x in os.listdir(args.image_dir)]
-    editor = PageEditor(downsample=2, line_thickness=1, show_hint=True, cursor=0)
+    editor = PageEditor(downsample=2, line_thickness=2, show_hint=True, cursor=0)
 
     while editor.cursor > -1 and editor.cursor < len(filename_list):
 
