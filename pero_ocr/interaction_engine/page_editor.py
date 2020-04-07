@@ -14,6 +14,14 @@ import pero_ocr.document_ocr.layout as layout
 import pero_ocr.line_engine.line_postprocessing as linepp
 import pero_ocr.region_engine.region_engine_splic as region_engine
 
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', '--image-dir', help='Path to input image folder', required=True)
+    parser.add_argument('-p', '--page-dir', help='Path to input PAGE XML folder (optional)', required=False)
+    parser.add_argument('-o', '--output-dir', help='Path to output PAGE XML folder (optional, overwrites input page files if left blank)', required=False)
+    args = parser.parse_args()
+    return args
+
 def select_polygons(polygon_coords, points):
     selected = []
     if len(points) > 1:
@@ -116,10 +124,11 @@ class MouseEditorCallback(object):
             self.points[-1] = (x, y)
 
 class PageEditor(object):
-    def __init__(self, line_thickness=2, downsample=1, show_hint=False):
+    def __init__(self, line_thickness=2, downsample=1, show_hint=False, cursor=0):
         self.line_thickness = line_thickness
         self.ds = downsample
         self.hint = show_hint
+        self.cursor = cursor
 
     def select_layout_elements(self):
         if self.clicker.points:
@@ -327,19 +336,57 @@ class PageEditor(object):
                 self.clicker.del_point()
             elif key == ord('p'):
                 self.update_layout()
+            elif key == ord('a'):
+                self.update_layout()
+                self.cursor = -1
+                print('SAVE AND EXIT')
+                break
             elif key == ord('q'):
                 self.update_layout()
+                self.cursor -= 1
+                print('SAVE AND MOVE TO PREVIOUS')
                 break
-
+            elif key == ord('w'):
+                self.update_layout()
+                self.cursor += 1
+                print('SAVE AND MOVE TO NEXT')
+                break
 
         return resample_layout(self.page_layout, self.ds)
 
 def main():
-    img_path = '/home/olda/Documents/test_lidovky/51e48dc1-435f-11dd-b505-00145e5790ea.jpg'
-    page_path = '/home/olda/Documents/test_lidovky/page/51e48dc1-435f-11dd-b505-00145e5790ea.xml'
+    args = parse_arguments()
 
-    editor = PageEditor(downsample=2, line_thickness=1, show_hint=True)
-    edited_layout = editor.annotate(cv2.imread(img_path), layout.PageLayout(file=page_path))
+    assert args.page_dir is not None or args.output_dir is not None, "Specify input page folder and/or output page folder"
+    assert os.path.exists(args.image_dir), "Can't find input image folder"
+    if args.page_dir is not None:
+        assert os.path.exists(args.page_dir), "Can't find input page folder"
+    if args.output_dir is not None:
+        if not os.path.exists(args.output_dir):
+            os.makedirs(args.output_dir)
+
+    filename_list = [x for x in os.listdir(args.image_dir)]
+    editor = PageEditor(downsample=2, line_thickness=1, show_hint=True, cursor=0)
+
+    while editor.cursor > -1 and editor.cursor < len(filename_list):
+
+        page_filename = os.path.splitext(filename_list[editor.cursor])[0]+'.xml'
+        cur_image = cv2.imread(os.path.join(args.image_dir, filename_list[editor.cursor]))
+
+        if args.output_dir is not None and os.path.exists(os.path.join(args.output_dir, page_filename)):
+            cur_layout = layout.PageLayout(file=os.path.join(args.output_dir, page_filename))
+        elif args.page_dir is not None and os.path.exists(os.path.join(args.page_dir, page_filename)):
+            cur_layout = layout.PageLayout(file=os.path.join(args.page_dir, page_filename))
+        else:
+            cur_layout = layout.PageLayout(
+                id=os.path.splitext(filename_list[editor.cursor])[0],
+                page_size=(cur_image.shape[1], cur_image.shape[0]))
+
+        edited_layout = editor.annotate(cur_image, cur_layout)
+        if args.output_dir is not None:
+            cur_layout.to_pagexml(os.path.join(args.output_dir, page_filename))
+        else:
+            cur_layout.to_pagexml(os.path.join(args.page_dir, page_filename))
 
 if __name__=='__main__':
     main()
