@@ -75,44 +75,35 @@ class EngineLineCropper(object):
     def crop(self, img, baseline, heights, return_mapping=False):
         try:
             line_coords = self.get_crop_inputs(baseline, heights, self.line_height)
+
             line_crop = cv2.remap(img, line_coords[:, :, 0], line_coords[:, :, 1],
-                                  interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+                                      interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         except:
             print("ERROR: line crop failed.", heights, baseline)
             line_crop = np.zeros([self.line_height, 32, 3], dtype=np.uint8)
 
         if return_mapping:
-            raise Exception('Not implemented')
-            line_mapping = self.reverse_mapping(coords, img_crop.shape)
-            return line_crop_out, line_mapping*fy, offset
+            line_mapping = self.reverse_mapping_fast(line_coords, img.shape)
+            return line_crop, line_mapping
         else:
             return line_crop
 
-    def blend_in(self, img, line_crop, mapping, offset):
+    def blend_in(self, img, line_crop, mapping):
 
-        y1, x1 = offset
         mapping = np.nan_to_num(mapping).astype(np.float32)
 
-        line_rewarped = cv2.remap(line_crop, mapping[:, :, 1], mapping[:, :, 0], interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_TRANSPARENT)
-        img_crop = img[y1:y1+line_rewarped.shape[0], x1:x1+line_rewarped.shape[1]]
+        blended_img = img.copy()
+        cv2.remap(line_crop, mapping[:, :, 0], mapping[:, :, 1],
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_TRANSPARENT,
+            dst=blended_img)
+        mask = (mapping[:,:,1] > -1).astype(np.float)
+        if self.blend_sigma > 0:
+            mask = cv2.GaussianBlur(mask, (0,0),
+                sigmaX=self.blend_sigma, sigmaY=self.blend_sigma)
+        mask = mask[:, :, np.newaxis]
+        blended_img = (1 - mask) * img + mask * blended_img
 
-        blend_weights_x = np.zeros((mapping.shape[0], mapping.shape[1]))
-        blend_weights_y = np.zeros((mapping.shape[0], mapping.shape[1]))
-        mapping = np.round(mapping)
-        blend_weights_x[mapping[:, :, 0]>self.blend_border] = self.blend_border
-        blend_weights_y[mapping[:, :, 1]>self.blend_border] = self.blend_border
-        for i in range(self.blend_border+1):
-            blend_weights_x[mapping[:, :, 0]==i] = i
-            blend_weights_x[mapping[:, :, 0]==(np.amax(mapping[:, :, 0])-i)] = i
-            blend_weights_y[mapping[:, :, 1]==i] = i
-            blend_weights_y[mapping[:, :, 1]==(np.amax(mapping[:, :, 1])-i)] = i
-        blend_weights = np.minimum(blend_weights_x, blend_weights_y) / self.blend_border
-        blend_weights = blend_weights[:, :, np.newaxis]
-
-        img_crop = blend_weights * line_rewarped + (1-blend_weights) * img_crop
-        img[y1:y1+line_rewarped.shape[0], x1:x1+line_rewarped.shape[1], :] = img_crop.astype(np.uint8)
-
-        return img
+        return np.round(blended_img).astype(np.uint8)
 
     def rigid_crop(self, img, baseline, height):
         line_height = height[1] + height[0]
@@ -149,10 +140,12 @@ class EngineLineCropper(object):
 
     @jit
     def reverse_mapping_fast(self, forward_mapping, shape):
-        y_mapping = forward_mapping[:,:,0]
-        y_mapping = np.clip(cv2.resize(y_mapping, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR), 0, shape[0]-1)
-        x_mapping = forward_mapping[:,:,1]
-        x_mapping = np.clip(cv2.resize(x_mapping, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR), 0, shape[1]-1)
+        y_mapping = forward_mapping[:,:,1]
+        y_mapping = np.clip(cv2.resize(y_mapping, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR), 0, shape[1]-1)
+        y_mapping = np.round(y_mapping).astype(np.int)
+        x_mapping = forward_mapping[:,:,0]
+        x_mapping = np.clip(cv2.resize(x_mapping, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR), 0, shape[0]-1)
+        x_mapping = np.round(x_mapping).astype(np.int)
 
         y_map = np.tile(np.arange(0, forward_mapping.shape[0]), (forward_mapping.shape[1], 1)).T.astype(np.float32)
         y_map = cv2.resize(y_map, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR)
@@ -161,29 +154,8 @@ class EngineLineCropper(object):
 
         reverse_mapping = np.ones((shape[0], shape[1], 2), dtype=np.float32) * -1
 
-        for sx, sy, dx, dy in zip(x_map.flatten(), y_map.flatten(), x_mapping.astype(np.int32).flatten(), y_mapping.astype(np.int32).flatten()):
+        for sx, sy, dx, dy in zip(x_map.flatten(), y_map.flatten(), x_mapping.flatten(), y_mapping.flatten()):
             reverse_mapping[dy, dx, 0] = sx
             reverse_mapping[dy, dx, 1] = sy
 
         return reverse_mapping
-
-    @jit
-    def reverse_mapping(self, forward_mapping, shape, interpolator_step=8):
-        x_map = np.tile(np.arange(0, forward_mapping.shape[0]), (forward_mapping.shape[1], 1)).T.astype(np.float32)
-        y_map = np.tile(np.arange(0, forward_mapping.shape[1]), (forward_mapping.shape[0], 1)).astype(np.float32)
-        points = list(zip(forward_mapping[:, :, 1].flatten(), forward_mapping[:, :, 0].flatten()))
-
-        values_x = x_map.flatten().tolist()
-        values_y = y_map.flatten().tolist()
-        reverse_mapper_x = interpolate.LinearNDInterpolator(points[::interpolator_step], values_x[::interpolator_step])
-        reverse_mapper_y = interpolate.LinearNDInterpolator(points[::interpolator_step], values_y[::interpolator_step])
-
-        x_map_reverse = np.tile(np.arange(0, shape[0]), (shape[1], 1)).T
-        y_map_reverse = np.tile(np.arange(0, shape[1]), (shape[0], 1))
-
-        line_mapping = np.zeros((shape[0], shape[1], 2))
-        new_points = list(zip(x_map_reverse.flatten(), y_map_reverse.flatten()))
-        line_mapping[x_map_reverse.flatten(), y_map_reverse.flatten(), 0] = reverse_mapper_x(new_points)
-        line_mapping[x_map_reverse.flatten(), y_map_reverse.flatten(), 1] = reverse_mapper_y(new_points)
-
-        return line_mapping
