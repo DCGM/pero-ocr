@@ -6,7 +6,7 @@ from numba import jit
 
 class EngineLineCropper(object):
 
-    def __init__(self, correct_slant=False, line_height=32, poly=0, scale=1, blend_border=5):
+    def __init__(self, correct_slant=False, line_height=32, poly=0, scale=1, blend_border=4):
         self.correct_slant = correct_slant
         self.line_height = line_height
         self.poly = poly
@@ -96,10 +96,10 @@ class EngineLineCropper(object):
         cv2.remap(line_crop, mapping[:, :, 0], mapping[:, :, 1],
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_TRANSPARENT,
             dst=blended_img)
-        mask = (mapping[:,:,1] > -1).astype(np.float)
-        if self.blend_sigma > 0:
-            mask = cv2.GaussianBlur(mask, (0,0),
-                sigmaX=self.blend_sigma, sigmaY=self.blend_sigma)
+        mask = (mapping[:,:,1] > -1)
+        mask = ndimage.morphology.binary_erosion(mask, iterations=self.blend_border).astype(np.float)
+        blur_kernel = np.ones((self.blend_border+1, self.blend_border+1)) / (self.blend_border+1) ** 2
+        mask = ndimage.convolve(mask, blur_kernel)
         mask = mask[:, :, np.newaxis]
         blended_img = (1 - mask) * img + mask * blended_img
 
