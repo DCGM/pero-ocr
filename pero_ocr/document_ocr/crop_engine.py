@@ -3,8 +3,8 @@ import cv2
 from scipy import interpolate, ndimage
 from numba import jit
 
-class EngineLineCropper(object):
 
+class EngineLineCropper(object):
     def __init__(self, correct_slant=False, line_height=32, poly=0, scale=1, blend_border=4):
         self.correct_slant = correct_slant
         self.line_height = line_height
@@ -51,7 +51,7 @@ class EngineLineCropper(object):
         return img
 
     def get_crop_inputs(self, baseline, line_heights, target_height):
-        line_heights = [line_heights[0], line_heights[1]]
+        line_heights = [line_heights[0] * self.scale, line_heights[1] * self.scale]
         coords = np.asarray(baseline).copy().astype(int)
         if self.poly:
             if coords.shape[0] > 2:
@@ -145,8 +145,8 @@ class EngineLineCropper(object):
         mask = 2 * np.clip(mask-0.5, 0, 1)
         return mask[:, :, np.newaxis]
 
-def main():
 
+def main():
     from pero_ocr.document_ocr import layout
     import matplotlib.pyplot as plt
 
@@ -164,6 +164,7 @@ def main():
     plt.subplot(133)
     plt.imshow(np.concatenate((mapping, mapping[:,:,:1]), axis=2).astype(np.int)[410:420, 1200:1240])
     plt.show()
+
 
 if __name__ == '__main__':
     main()
