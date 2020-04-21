@@ -3,21 +3,14 @@ import numpy as np
 import cv2
 import hdbscan
 
-from scipy import sparse, misc, ndimage, interpolate
-from scipy.ndimage.morphology import distance_transform_edt
-from scipy.sparse.csgraph import laplacian as csgraph_laplacian
-from scipy.sparse.linalg import eigsh, lobpcg
+from scipy import ndimage
 from scipy.spatial import Delaunay
 
-from skimage.measure import block_reduce, label
-from sklearn.utils.validation import check_array
+from skimage.measure import block_reduce
 from sklearn.metrics import pairwise_distances
 import shapely.geometry
 from shapely.ops import cascaded_union, polygonize
 
-from pyamg import smoothed_aggregation_solver
-
-from pero_ocr.document_ocr import layout
 from pero_ocr.line_engine import line_postprocessing as pp
 from pero_ocr.region_engine import spectral_clustering as sc
 
