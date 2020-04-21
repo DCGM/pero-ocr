@@ -53,7 +53,6 @@ class EngineLineCropper(object):
     def get_crop_inputs(self, baseline, line_heights, target_height):
         line_heights = [line_heights[0], line_heights[1]]
         coords = np.asarray(baseline).copy().astype(int)
-        coords = np.stack((coords[:,1], coords[:,0]), axis=1) # OLD PERO_OCR MESSED COORDS, REMOVE WITH NEXT VERSION
         if self.poly:
             if coords.shape[0] > 2:
                 line_interpf = np.poly1d(np.polyfit(coords[:,0], coords[:,1], self.poly))
