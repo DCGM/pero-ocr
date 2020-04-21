@@ -454,10 +454,10 @@ class PageLayout(object):
         for region_layout in self.regions:
             image = draw_lines(
                 image,
-                [line.baseline for line in region_layout.lines], color=(0,0,255), circles=(circles, circles, False), thickness=thickness)
+                [line.baseline for line in region_layout.lines if line.baseline is not None], color=(0,0,255), circles=(circles, circles, False), thickness=thickness)
             image = draw_lines(
                 image,
-                [line.polygon for line in region_layout.lines], color=(0,255,0), close=True, thickness=thickness)
+                [line.polygon for line in region_layout.lines if line.polygon is not None], color=(0,255,0), close=True, thickness=thickness)
             image = draw_lines(
                 image,
                 [region_layout.polygon], color=(255, 0, 0), circles=(circles, circles, circles), close=True, thickness=thickness)
