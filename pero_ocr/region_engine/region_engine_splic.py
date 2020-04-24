@@ -40,6 +40,10 @@ class EngineRegionSPLIC(object):
         polygons_list = []
 
         out_map = self.get_maps(image)
+        recompute = self.update_ds(out_map)
+        if recompute:
+            out_map = self.get_maps(image)
+
         baselines_list, heights_list, l_embd_list, m_embd_list, r_embd_list = self.parse_maps(out_map)
         if not baselines_list:
             return [], [], [], []
@@ -92,6 +96,17 @@ class EngineRegionSPLIC(object):
 
         return out_map
 
+    def update_ds(self, out_map):
+        recompute = False
+        heights = (out_map[:,:,2] > 0.2).astype(np.float) * (out_map[:,:,0] + out_map[:,:,1])
+        med_height = np.median(heights[heights>0])
+        if med_height <= 6 or med_height > 18:
+            self.downsample = max(1, self.downsample * (med_height / 12))
+            recompute = True
+        print('med height: {}, ds: {}, recomp   ute?, {}'.format(med_height, self.downsample, recompute))
+        return recompute
+
+
     def parse_maps(self, out_map):
         """Parse input baseline, height and region map into list of baselines coords, heights and embd
         :param baseline_map: array of baseline and endpoint probabilities
@@ -103,6 +118,7 @@ class EngineRegionSPLIC(object):
         m_embd_list = []
         r_embd_list = []
 
+        out_map[:,:,3][out_map[:,:,3]<0] = 0
         baselines_map = pp.nonmaxima_suppression(out_map[:,:,2] - 3 * out_map[:,:,3]) > 0.2
         heights_map = ndimage.morphology.grey_dilation(out_map[:,:,:2], size=(7,1,1))
         embd_map = self.edges_to_embd(out_map[:,:,3],
