@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import cv2
 import shapely
+import sys
 from scipy import ndimage
 from scipy import signal
 from scipy.ndimage.morphology import binary_erosion
@@ -91,7 +92,7 @@ class EngineLineDetectorSimple(object):
                 intersection = region.intersection(line)
                 if not intersection.is_empty:
                     if valid_baseline:
-                        baselines_list.append(np.round(np.asarray(list(region.intersection(line).coords[:]))).astype(np.int16))
+                        baselines_list.append(np.flip(np.round(np.asarray(list(region.intersection(line).coords[:]))).astype(np.int16), axis=1))
                         heights_list.append([baseline_coord-yb1, yb2-baseline_coord])
 
         textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
@@ -100,15 +101,11 @@ class EngineLineDetectorSimple(object):
 
 
 class EngineLineDetectorCNN(object):
-    def __init__(self, model_path, downsample=4, pad=50, use_cpu=False,
-                 order_lines='reading_order', detection_threshold=0.5,
-                 stretch_lines=0):
+    def __init__(self, model_path, downsample=4, pad=50, use_cpu=False, detection_threshold=0.5):
 
         self.downsample = downsample
         self.pad = pad
-        self.order_lines = order_lines
         self.detection_threshold = detection_threshold
-        self.stretch_lines = stretch_lines
 
         tf.reset_default_graph()
         saver = tf.train.import_meta_graph(model_path + '.meta')
@@ -125,25 +122,31 @@ class EngineLineDetectorCNN(object):
         :param img: input image array
         """
 
-        img = cv2.resize(img, (0,0), fx=1/self.downsample, fy=1/self.downsample)
+        img = cv2.resize(img, (0,0), fx=1/self.downsample, fy=1/self.downsample, interpolation=cv2.INTER_AREA)
         img = np.pad(img, [(self.pad, self.pad), (self.pad, self.pad), (0,0)], 'constant')
 
-        new_shape_x = img.shape[0]
-        new_shape_y = img.shape[1]
-        while not new_shape_x % 64 == 0:
-            new_shape_x += 1
-        while not new_shape_y % 64 == 0:
-            new_shape_y += 1
+        new_shape_x = int(np.ceil(img.shape[0] / 64) * 64)
+        new_shape_y = int(np.ceil(img.shape[1] / 64) * 64)
         test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3))
         test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
 
         out_map = self.session.run('test_probs:0', feed_dict={'test_dataset:0' : test_img_canvas/256.})
         out_map = out_map[0, :img.shape[0], :img.shape[1], :]
         out_map = out_map[self.pad:-self.pad,self.pad:-self.pad,:]
-        heights_map = out_map[:,:,:2].astype(np.uint16)
+        heights_map = out_map[:,:,:2].astype(np.float32)
         baselines_map = pp.nonmaxima_suppression(out_map[:,:,2]-out_map[:,:,3]) > self.detection_threshold
 
         return baselines_map, heights_map
+
+    def get_heights(self, heights_map, inds):
+        heights_pred = heights_map[inds]  #* (baselines_img == i)[:, :, np.newaxis]
+
+        heights_pred = np.maximum(heights_pred, 0)
+        heights_pred = np.asarray([
+            np.percentile(heights_pred[:, 0], 70),
+            np.percentile(heights_pred[:, 1], 70)
+        ])
+        return heights_pred
 
     def parse_maps(self, baselines_map, heights_map):
         """Parse input baseline and height map into list of baselines coords and heights
@@ -156,46 +159,38 @@ class EngineLineDetectorCNN(object):
         baselines_img, num_detections = ndimage.measurements.label(baselines_map, structure=np.ones((3, 3)))
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
-        inds = np.stack([inds[0], inds[1]], axis=1)
 
         for i in range(1, num_detections+1):
             baseline_inds, = np.where(labels == i)
-            if len(baseline_inds) > 15:
-                pos = inds[baseline_inds]
-                _, indices = np.unique(pos[:, 1], return_index=True)
-                pos = pos[indices]
-                x_index = np.argsort(pos[:, 1])
+            if (np.amax(inds[1][baseline_inds]) - np.amin(inds[1][baseline_inds])) > 5:
+                pos_all = np.stack([inds[1][baseline_inds], inds[0][baseline_inds]], axis=1)  # go from matrix indexing to image indexing
+
+                _, indices = np.unique(pos_all[:, 0], return_index=True)
+                pos = pos_all[indices]
+                x_index = np.argsort(pos[:, 0])
                 pos = pos[x_index]
 
-                pos_step = np.amax([15, pos.shape[0]//10])
-                pos = np.concatenate([pos[::pos_step, :], pos[pos.shape[0]-1:pos.shape[0]]], axis=0)
+                target_point_count = min(10, pos.shape[0] // 10)
+                target_point_count = max(target_point_count, 2)
+                selected_pos = np.linspace(0, (pos.shape[0]) - 1, target_point_count).astype(np.int32)
+                pos = pos[selected_pos, :]
 
-                pos = pos.tolist()
-                if pos[-1] == pos[-2]:
-                    pos = pos[:-1]
-                pos = np.asarray(pos, dtype=np.int32)
+                heights_pred = heights_map[inds[0][baseline_inds], inds[1][baseline_inds], :]  #* (baselines_img == i)[:, :, np.newaxis]
 
-                heights_pred = heights_map * (baselines_img == i)[:, :, np.newaxis]
-                if np.amax(heights_pred[:, :, 0]) > 0 and np.amax(heights_pred[:, :, 1]) > 0:  # percentile will fail on zero vector, discard the baseline in such case
-                    heights_pred = np.asarray([
-                        np.percentile(heights_pred[:, :, 0][heights_pred[:, :, 0] > 0], 90),
-                        np.percentile(heights_pred[:, :, 1][heights_pred[:, :, 1] > 0], 90)
-                    ])
-                    baselines_list.append(self.downsample * pos)
-                    heights_list.append([int(self.downsample * round(heights_pred[0])),
-                                         int(self.downsample * round(heights_pred[1]))])
+                heights_pred = self.get_heights(heights_map, (inds[0][baseline_inds], inds[1][baseline_inds]))
+                if np.all(heights_pred > 0):
+                    baselines_list.append(self.downsample * pos.astype(np.float32))
+                    heights_list.append([self.downsample * heights_pred[0],
+                                         self.downsample * heights_pred[1]])
 
         return baselines_list, heights_list
 
-    def detect_lines(self, img):
+    def detect_lines_single_scale(self, img):
         """Detect lines in document image.
         :param img: input image array
         """
         baselines_map, heights_map = self.infer_maps(img)
         baselines_list, heights_list = self.parse_maps(baselines_map, heights_map)
-
-        if self.stretch_lines > 0:
-            baselines_list = pp.stretch_baselines(baselines_list, self.stretch_lines)
 
         rotation = pp.get_rotation(baselines_list)
         baselines_list = [pp.rotate_coords(baseline, rotation, (0, 0)) for baseline in baselines_list]
@@ -204,15 +199,31 @@ class EngineLineDetectorCNN(object):
         for baseline, height in zip(baselines_list, heights_list):
             textlines_list.append(pp.baseline_to_textline(baseline, height))
 
-        if self.order_lines == 'vertical':
-            baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list, textlines_list)
-        elif self.order_lines == 'reading_order':
-            baselines_list, heights_list, textlines_list = pp.order_lines_general(baselines_list, heights_list, textlines_list)
-        else:
-            raise ValueError("Argument order_lines must be either 'vertical' or 'reading_order'.")
-
         textlines_list = [pp.rotate_coords(textline, -rotation, (0, 0)) for textline in textlines_list]
         baselines_list = [pp.rotate_coords(baseline, -rotation, (0, 0)) for baseline in baselines_list]
+
+        return baselines_list, heights_list, textlines_list
+
+    def detect_lines(self, img):
+        """Detect lines in document image.
+        :param img: input image array
+        """
+        baselines_list, heights_list, textlines_list = self.detect_lines_single_scale(img)
+        temp_downsample = self.downsample
+
+        height = np.median([h[0] + h[1] for h in heights_list])
+        if height / self.downsample <= 6 or height / self.downsample > 18:
+            print("ADAPT DOWNAMPLING", img.shape[0:2], self.downsample, height, height / self.downsample)
+            self.downsample = max(1, int(height / 12 + 0.5))
+            try:
+                baselines_list, heights_list, textlines_list = self.detect_lines_single_scale(img)
+            except:
+                print(f'Error: Failed to detect lines in adapted resolution. Downsample was {self.downsample}',
+                      file=sys.stderr)
+            height = np.median([h[0] + h[1] for h in heights_list])
+            print(f"OPTIMAL DOWNAMPLING {img.shape[0]//self.downsample}:{img.shape[1]//self.downsample}", self.downsample, height, height / self.downsample)
+
+        self.downsample = temp_downsample
 
         return baselines_list, heights_list, textlines_list
 

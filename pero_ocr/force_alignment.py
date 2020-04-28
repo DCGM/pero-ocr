@@ -9,7 +9,8 @@ import numpy as np
 import typing
 from numba import jit
 
-def force_align(neg_logprobs: np.ndarray, symbols_seq: typing.List[int], blank_symbol: int) -> typing.List[int]:
+
+def force_align(neg_logprobs: np.ndarray, symbols_seq: typing.List[int], blank_symbol: int, return_seq_positions=False) -> typing.List[int]:
     """Function which force aligns a sequence of symbols to output of a CTC model.
 
     Args:
@@ -23,12 +24,16 @@ def force_align(neg_logprobs: np.ndarray, symbols_seq: typing.List[int], blank_s
     Raises:
         ValueError: On various occassions :-)
     """
-    complete_seq = complete_state_seq(symbols_seq, blank_symbol)
+    complete_seq, char_sequence = complete_state_seq(symbols_seq, blank_symbol)
     A = hmm_trans_from_string(symbols_seq)
     expanded_logits = expand_logits(neg_logprobs, complete_seq)
 
     original_align = viterbi_align(expanded_logits, A)
-    return [complete_seq[s] for s in original_align]
+
+    if return_seq_positions:
+        return [char_sequence[s] for s in original_align]
+    else:
+        return [complete_seq[s] for s in original_align]
 
 
 def hmm_trans_from_string(elements: typing.List[int]) -> np.ndarray:
@@ -56,18 +61,18 @@ def hmm_trans_from_string(elements: typing.List[int]) -> np.ndarray:
 
 
 def complete_state_seq(non_blanks: typing.List[int], blank_symbol: int) -> typing.List[int]:
-    all_states = [blank_symbol]
-
     if blank_symbol in non_blanks:
         raise ValueError(
             "The blank symbol {} is present in the non blank seq {}"
             .format(blank_symbol, non_blanks)
         )
 
-    for s in non_blanks:
-        all_states.extend([s, blank_symbol])
+    all_states = np.full(1 + len(non_blanks) * 2, blank_symbol, dtype=int)
+    all_states[1::2] = non_blanks
+    char_sequence = np.full(1 + len(non_blanks) * 2, -1, dtype=int)
+    char_sequence[1::2] = np.arange(len(non_blanks))
 
-    return all_states
+    return all_states, char_sequence
 
 
 def initial_cost(nb_states: int) -> np.ndarray:
@@ -131,7 +136,7 @@ def viterbi_align(neg_logits: np.ndarray, A: np.ndarray) -> typing.List[int]:
     A_positions = np.where(A != np.inf)
 
     act_cost = first_frame_cost
-    for i, frame in enumerate(neg_logits):
+    for i, frame in enumerate(neg_logits[1:], 1):
         act_cost, backpointers[i] = compute_update(A_positions, frame, act_cost)
 
     final_frame_cost = act_cost + final_cost(nb_states)
@@ -140,3 +145,21 @@ def viterbi_align(neg_logits: np.ndarray, A: np.ndarray) -> typing.List[int]:
         raise ValueError("It was not possible to align the states with the logits, best path has cost of np.inf")
 
     return backtrack(backpointers, np.argmin(final_frame_cost))
+
+
+def align_text(neg_logprobs, transcription, blank_symbol):
+    logit_characters = force_align(neg_logprobs, transcription, blank_symbol, return_seq_positions=True)
+
+    max_probs = (-neg_logprobs).max(axis=-1)
+
+    text_length = transcription.shape[0]
+
+    logit_characters = np.asarray(logit_characters)
+    char_positions = np.zeros(text_length, dtype=np.int32)
+
+    for i in range(text_length):
+        seq_positions = np.nonzero(logit_characters == i)[0]
+        best_pos = np.argmax(max_probs[seq_positions])
+        char_positions[i] = seq_positions[best_pos]
+
+    return char_positions

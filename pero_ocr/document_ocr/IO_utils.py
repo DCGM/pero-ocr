@@ -44,11 +44,11 @@ def load_and_preprocess(input_path, img_path, pad, downsample):
 def draw_baselines(img, baselines, upsample=1, color=(255,0,0)):
     for baseline in baselines:
         last = baseline[0]
-        cv2.circle(img, (upsample*int(last[1]), upsample*int(last[0])), 3, color, 4)
+        cv2.circle(img, (upsample*int(last[0]), upsample*int(last[1])), 3, color, 4)
         for p in baseline[1:]:
-            cv2.line(img, (upsample*int(last[1]), upsample*int(last[0])), (upsample*int(p[1]), upsample*int(p[0])), color, 2)
+            cv2.line(img, (upsample*int(last[0]), upsample*int(last[1])), (upsample*int(p[0]), upsample*int(p[1])), color, 2)
             last = p
-        cv2.circle(img, (upsample*int(baseline[-1][1]), upsample*int(baseline[-1][0])), 3, color, 4)
+        cv2.circle(img, (upsample*int(baseline[-1][0]), upsample*int(baseline[-1][1])), 3, color, 4)
 
     return img
 
@@ -67,7 +67,7 @@ def save_render(page_layout, output_path, name, loaded_img_fullsize):
     for paragraph_layout in page_layout:
         loaded_img_fullsize = draw_baselines(loaded_img_fullsize, paragraph_layout.baselines, color=(0,0,255))
         loaded_img_fullsize = draw_baselines(loaded_img_fullsize, paragraph_layout.textlines, color=(0,255,0))
-        loaded_img_fullsize = draw_baselines(loaded_img_fullsize, [np.asarray(paragraph_layout.coords)[:,::-1].tolist()], color=(255,0,0))
+        loaded_img_fullsize = draw_baselines(loaded_img_fullsize, paragraph_layout.coords, color=(255,0,0))
     imageio.imwrite(output_path + '/output_renders/' + name + '.jpg', loaded_img_fullsize)
 
 
@@ -110,7 +110,7 @@ def layout_to_xml(file_name, page_layout, shape):
         text_region = ET.SubElement(page, "TextRegion")
         coords = ET.SubElement(text_region, "Coords")
         text_region.set("id", paragraph_layout.r_id)
-        points = ["{},{}".format(int(x[1]), int(x[0])) for x in paragraph_layout.coords]
+        points = ["{},{}".format(int(x[0]), int(x[1])) for x in paragraph_layout.coords]
         points = " ".join(points)
         coords.set("points", points)
 
@@ -121,12 +121,12 @@ def layout_to_xml(file_name, page_layout, shape):
             coords = ET.SubElement(text_line, "Coords")
 
             points = np.nan_to_num(textline)
-            points = ["{},{}".format(int(x[1]), int(x[0])) for x in points]
+            points = ["{},{}".format(int(x[0]), int(x[1])) for x in points]
             points = " ".join(points)
             coords.set("points", points)
 
             baseline_element = ET.SubElement(text_line, "Baseline")
-            points = ["{},{}".format(int(x[1]), int(x[0])) for x in baseline]
+            points = ["{},{}".format(int(x[0]), int(x[1])) for x in baseline]
             points = " ".join(points)
             baseline_element.set("points", points)
 
@@ -151,11 +151,11 @@ def xml_to_paragraphs(path_to_xml):
             if 'points' in coords.attrib:
                 points_string = coords.attrib['points'].split(' ')
                 for points in points_string:
-                    y, x = points.split(',')
+                    x, y = points.split(',')
                     region_coords.append([int(round(float(x))), int(round(float(y)))])
             else:
                 for point in coords.findall(schema + 'Point'):
-                    y, x = point.attrib['x'], point.attrib['y']
+                    x, y = point.attrib['x'], point.attrib['y']
                     region_coords.append([int(round(float(x))), int(round(float(y)))])
         regions_coords.append(region_coords)
     return regions_coords, region_names
@@ -173,11 +173,11 @@ def xml_to_layout(path_to_xml, downsample=1):
             if 'points' in coords.attrib:
                 points_string = coords.attrib['points'].split(' ')
                 for points in points_string:
-                    y, x = points.split(',')
+                    x, y = points.split(',')
                     region_coords.append([int(round(float(x)/downsample)), int(round(float(y)/downsample))])
             else:
                 for point in coords.findall(schema + 'Point'):
-                    y, x = point.attrib['x'], point.attrib['y']
+                    x, y = point.attrib['x'], point.attrib['y']
                     region_coords.append([int(round(float(x)/downsample)), int(round(float(y)/downsample))])
 
         paragraph_layout = layout.RegionLayout(paragraph.attrib['id'], np.asarray(region_coords))
@@ -201,7 +201,7 @@ def xml_to_layout(path_to_xml, downsample=1):
                 baseline = list()
                 for point in points_string:
                     x, y = point.split(',')
-                    baseline.append([int(round(float(y)/downsample)), int(round(float(x)/downsample))])
+                    baseline.append([int(round(float(x)/downsample)), int(round(float(y)/downsample))])
             paragraph_layout.baselines.append(baseline)
 
             for textline in line.findall(schema + 'Coords'):
@@ -209,7 +209,7 @@ def xml_to_layout(path_to_xml, downsample=1):
                 textline = list()
                 for point in points_string:
                     x, y = point.split(',')
-                    textline.append([int(round(float(y)/downsample)), int(round(float(x)/downsample))])
+                    textline.append([int(round(float(x)/downsample)), int(round(float(y)/downsample))])
             paragraph_layout.textlines.append(textline)
 
         page_layout.append(paragraph_layout)
