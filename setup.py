@@ -4,6 +4,6 @@ from setuptools import setup
 
 setup(
     name='pero-ocr',
-    version='0.1',
+    version='0.2',
     packages=['pero_ocr'],
 )
