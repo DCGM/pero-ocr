@@ -1,15 +1,16 @@
-import tensorflow as tf
 import numpy as np
-import cv2
-import hdbscan
+import matplotlib.pyplot as plt
+from copy import deepcopy
 
+import cv2
+import tensorflow as tf
 from scipy import ndimage
 from scipy.spatial import Delaunay
-
 from skimage.measure import block_reduce
 from sklearn.metrics import pairwise_distances
 import shapely.geometry
 from shapely.ops import cascaded_union, polygonize
+import hdbscan
 
 from pero_ocr.line_engine import line_postprocessing as pp
 from pero_ocr.region_engine import spectral_clustering as sc
@@ -37,8 +38,6 @@ class EngineRegionSPLIC(object):
 
     def detect(self, image):
 
-        polygons_list = []
-
         out_map = self.get_maps(image)
         recompute = self.update_ds(out_map)
         if recompute:
@@ -52,6 +51,8 @@ class EngineRegionSPLIC(object):
         clusters_array = self.cluster_lines(l_embd_list, m_embd_list, r_embd_list)
         # check noise lines for adjacancy to previous region in reading order due to eigenvector-based clustering errors
         # clusters_array = self.postprocess_noisy_lines(clusters_array, baselines_list, heights_list, out_map[:,:,3])
+        regions_textlines_tmp = []
+        polygons_tmp = []
         for i in range(np.amax(clusters_array)+1):
             region_baselines = []
             region_heights = []
@@ -69,15 +70,23 @@ class EngineRegionSPLIC(object):
             max_alpha =  1.5 * np.maximum(max_poly_line, max_height)
             region_poly = alpha_shape(region_poly_points, max_alpha)
 
+            regions_textlines_tmp.append(region_textlines)
+            polygons_tmp.append(region_poly)
+
+        #remove overlaps
+        self.filter_polygons(polygons_tmp, regions_textlines_tmp)
+
+        #up to this point, polygons can be any geometry that comes from alpha_shape
+        polygons_list = []
+        for region_poly in polygons_tmp:
             if region_poly.geom_type == 'MultiPolygon':
                 for poly in region_poly:
-                    polygons_list.append(poly.simplify(5).exterior.coords)
+                    polygons_list.append(poly.simplify(5))
             elif region_poly.geom_type == 'Polygon':
-                polygons_list.append(region_poly.simplify(5).exterior.coords)
+                polygons_list.append(region_poly.simplify(5))
 
         baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list, textlines_list)
-
-        polygons_list = self.filter_polygons(polygons_list)
+        polygons_list = [poly.exterior.coords for poly in polygons_list]
 
         return polygons_list, baselines_list, heights_list, textlines_list
 
@@ -103,7 +112,6 @@ class EngineRegionSPLIC(object):
         if med_height <= 6 or med_height > 18:
             self.downsample = max(1, self.downsample * (med_height / 12))
             recompute = True
-        print('med height: {}, ds: {}, recomp   ute?, {}'.format(med_height, self.downsample, recompute))
         return recompute
 
 
@@ -205,18 +213,26 @@ class EngineRegionSPLIC(object):
         else:
             return [0]
 
-    def filter_polygons(self, polygon_coords_list, threshold=0.9):
-        # this may potentially remove two very similar regions but those shouldnt happen in SPLIC method
-        polygons_list = [shapely.geometry.Polygon(coords) for coords in polygon_coords_list]
-        num_polys = len(polygons_list)
-        intersections = np.zeros((num_polys, num_polys))
-        for i in range(num_polys):
-            for j in range(num_polys):
-                if i != j:
-                    if polygons_list[i].intersects(polygons_list[j]):
-                        intersections[i, j] = polygons_list[i].intersection(polygons_list[j]).area / polygons_list[i].area
-        scores = np.amax(intersections, axis=1)
-        return [polygon_coords_list[i] for i in np.where(scores < threshold)[0]]
+    def filter_polygons(self, polygons, region_textlines):
+        for i in range(len(polygons)):
+            for j in range(i+1, len(polygons)):
+                if polygons[i].intersects(polygons[j]):
+                    poly_intersection = polygons[i].intersection(polygons[j])
+                    # remove the overlap from both regions
+                    poly_tmp = deepcopy(polygons[i])
+                    polygons[i] = polygons[i].difference(polygons[j])
+                    polygons[j] = polygons[j].difference(poly_tmp)
+                    # append the overlap to the one with more textlines in the overlap area
+                    score_i = 0
+                    for line in region_textlines[i]:
+                        score_i += shapely.geometry.Polygon(line).intersection(poly_intersection).area
+                    score_j = 0
+                    for line in region_textlines[j]:
+                        score_j += shapely.geometry.Polygon(line).intersection(poly_intersection).area
+                    if score_i > score_j:
+                        polygons[i] = polygons[i].union(poly_intersection)
+                    else:
+                        polygons[j] = polygons[j].union(poly_intersection)
 
 def alpha_shape(points, alpha):
     if len(points) < 4:
