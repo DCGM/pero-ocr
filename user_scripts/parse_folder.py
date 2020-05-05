@@ -12,7 +12,9 @@ import traceback
 import sys
 import time
 
-from pero_ocr.document_ocr import PageParser, PageLayout
+from pero_ocr.document_ocr.layout import PageLayout
+from pero_ocr.document_ocr.page_parser import PageParser
+
 
 
 def parse_arguments():
@@ -75,6 +77,7 @@ class LMDB_writer(object):
         gb100 = 100000000000
         self.env_out = lmdb.open(path, map_size=gb100)
         self.data_size = 0
+        self.file = open('dataset.ann', 'w')
 
     def __call__(self, page_layout: PageLayout, file_id):
         with self.env_out.begin(write=True) as txn_out:
@@ -82,10 +85,12 @@ class LMDB_writer(object):
             all_lines = list(page_layout.lines_iterator())
             all_lines = sorted(all_lines, key=lambda x: x.id)
             for line in all_lines:
-                key = f'{file_id}-{line.id}.jpg'
-                img = cv2.imencode('.jpg', line.crop.astype(np.uint8), [int(cv2.IMWRITE_JPEG_QUALITY), 95])[1].tobytes()
-                self.data_size += len(img)
-                c_out.put(key.encode(), img)
+                if line.transcription:
+                    key = f'{file_id}-{line.id}.jpg'
+                    img = cv2.imencode('.jpg', line.crop.astype(np.uint8), [int(cv2.IMWRITE_JPEG_QUALITY), 95])[1].tobytes()
+                    print(key, line.transcription, file=self.file)
+                    self.data_size += len(img)
+                    c_out.put(key.encode(), img)
 
 
 def main():

@@ -13,6 +13,11 @@ from pero_ocr.document_ocr.crop_engine import EngineLineCropper
 from pero_ocr.force_alignment import force_align
 
 
+def log_softmax(x):
+    a = np.logaddexp.reduce(x, axis=1)[:, np.newaxis]
+    return x - a
+
+
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None, characters=None):
         self.id = id
@@ -28,6 +33,10 @@ class TextLine(object):
         dense_logits = self.logits.toarray()
         dense_logits[dense_logits == 0] = zero_logit_value
         return dense_logits
+
+    def get_full_logprobs(self, zero_logit_value=-80):
+        dense_logits = self.get_dense_logits(zero_logit_value)
+        return log_softmax(dense_logits)
 
 
 class RegionLayout(object):
@@ -178,7 +187,7 @@ class PageLayout(object):
 
     def to_pagexml(self, file_name):
         xml_string = self.to_pagexml_string()
-        with open(file_name, 'w') as out_f:
+        with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
     def to_altoxml_string(self):
@@ -445,10 +454,10 @@ class PageLayout(object):
         for region_layout in self.regions:
             image = draw_lines(
                 image,
-                [line.baseline for line in region_layout.lines], color=(0,0,255), circles=(circles, circles, False), thickness=thickness)
+                [line.baseline for line in region_layout.lines if line.baseline is not None], color=(0,0,255), circles=(circles, circles, False), thickness=thickness)
             image = draw_lines(
                 image,
-                [line.polygon for line in region_layout.lines], color=(0,255,0), close=True, thickness=thickness)
+                [line.polygon for line in region_layout.lines if line.polygon is not None], color=(0,255,0), close=True, thickness=thickness)
             image = draw_lines(
                 image,
                 [region_layout.polygon], color=(255, 0, 0), circles=(circles, circles, circles), close=True, thickness=thickness)
