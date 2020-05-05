@@ -207,6 +207,7 @@ class PageEditor(object):
             poly_points = []
             max_alpha = 0
             for l_num in self.selected_lines:
+                self.lines[l_num].polygon = linepp.baseline_to_textline(self.lines[l_num].baseline, self.lines[l_num].heights)
                 poly_points += self.lines[l_num].polygon.tolist()
                 # heuristic to estimate appropriate alpha for region polygon
                 x_dist = np.amax(np.diff(self.lines[l_num].baseline[:,0]))
@@ -372,7 +373,7 @@ def main():
             os.makedirs(args.output_dir)
 
     filename_list = [x for x in os.listdir(args.image_dir)]
-    editor = PageEditor(downsample=2, line_thickness=2, show_hint=True, cursor=0)
+    editor = PageEditor(downsample=2, line_thickness=2, show_hint=True, cursor=114)
 
     while editor.cursor > -1 and editor.cursor < len(filename_list):
 
