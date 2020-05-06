@@ -257,9 +257,12 @@ class PageEditor(object):
                         region.lines.append(line)
         self.lines = [line for line in self.page_layout.lines_iterator()]
         # delete dummy regions
+        new_regions = []
         for region in self.page_layout.regions:
-            if region.id == 'dummy':
-                self.page_layout.regions.remove(region)
+            if region.id != 'dummy':
+                new_regions.append(region)
+        self.page_layout.regions = new_regions
+        
         self.render()
 
     def render(self):
