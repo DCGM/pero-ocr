@@ -27,14 +27,15 @@ class EngineRegionSPLIC(object):
         self.pad = pad # CNN training pad
         self.min_size = min_size # minimum cluster size
 
-        saver = tf.train.import_meta_graph(model_path + '.meta')
-        if use_cpu:
-            tf_config = tf.ConfigProto(device_count={'GPU': 0})
-        else:
-            tf_config = tf.ConfigProto(device_count={'GPU': 1})
-            tf_config.gpu_options.allow_growth = True
-        self.session = tf.Session(config=tf_config)
-        saver.restore(self.session, model_path)
+        if model_path is not None:
+            saver = tf.train.import_meta_graph(model_path + '.meta')
+            if use_cpu:
+                tf_config = tf.ConfigProto(device_count={'GPU': 0})
+            else:
+                tf_config = tf.ConfigProto(device_count={'GPU': 1})
+                tf_config.gpu_options.allow_growth = True
+            self.session = tf.Session(config=tf_config)
+            saver.restore(self.session, model_path)
 
     def detect(self, image):
 
