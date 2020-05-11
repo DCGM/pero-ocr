@@ -273,65 +273,88 @@ class PageLayout(object):
 
                 label = []
                 for item in (line.transcription):
-                    label.append(char_to_num[item])
+                    if item in char_to_num.keys():
+                        if char_to_num[item] > (np.shape(line.logits)[1] - 2):
+                            label.append(0)
+                        else:
+                            label.append(char_to_num[item])
+                    else:
+                        label.append(0)
 
                 logits = line.get_dense_logits()
-                output = softmax(logits, axis=1)
-                aligned = force_align(-np.log(output), label, len(chars))
-                narrow_label(aligned, logits, len(chars))
+                logprobs = line.get_full_logprobs()
+                try:
+                    aligned = force_align(-logprobs, label, len(chars))
+                except ValueError as error:
+                    average_word_width = (text_line_hpos + text_line_width)/len(line.transcription.split())
+                    for w, word in enumerate(line.transcription.split()):
+                        string = ET.SubElement(text_line, "String")
+                        string.set("CONTENT", word)
 
-                crop_engine = EngineLineCropper(poly=2)
-                line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
+                        string.set("HEIGHT", str(text_line_height))
+                        string.set("WIDTH", str(average_word_width))
+                        string.set("VPOS", str(text_line_vpos))
+                        string.set("HPOS", str(text_line_hpos+(w*average_word_width)))
+                        if w != (len(line.transcription.split())-1):
+                            space = ET.SubElement(text_line, "SP")
 
-                global_letter_counter = 0
-                for w, word in enumerate(line.transcription.split()):
-                    local_letter_counter = 0
-                    word_lenght = len(word)
-                    string_width = 0
-                    string_hpos = 0
-                    end_of_space = 0
-                    final = False
-                    last = True
+                            space.set("WIDTH", str(4))
+                            space.set("VPOS", str(text_line_vpos))
+                            space.set("HPOS", str(text_line_hpos+(w*average_word_width)+average_word_width))
+                else:
+                    narrow_label(aligned, logits, len(chars))
+                    crop_engine = EngineLineCropper(poly=2)
+                    line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
 
-                    for a, ali in enumerate(aligned):
-                        if ali != len(chars):
-                            if local_letter_counter > global_letter_counter:
-                                if final:
-                                    end_of_space = 4*a
-                                    global_letter_counter = local_letter_counter
-                                    last = False
-                                    break
-                                if local_letter_counter - global_letter_counter == word_lenght:
-                                    string_width = 4*a - string_hpos
-                                    final = True
-                            elif local_letter_counter - global_letter_counter == 0:
-                                string_hpos = 4*a
-                            local_letter_counter += 1
+                    global_letter_counter = 0
+                    for w, word in enumerate(line.transcription.split()):
+                        local_letter_counter = 0
+                        word_lenght = len(word)
+                        string_width = 0
+                        string_hpos = 0
+                        end_of_space = 0
+                        final = False
+                        last = True
 
-                    if last:
-                        string_width = 4 * len(aligned) - string_hpos
+                        for a, ali in enumerate(aligned):
+                            if ali != len(chars):
+                                if local_letter_counter > global_letter_counter:
+                                    if final:
+                                        end_of_space = 4*a
+                                        global_letter_counter = local_letter_counter
+                                        last = False
+                                        break
+                                    if local_letter_counter - global_letter_counter == word_lenght:
+                                        string_width = 4*a - string_hpos
+                                        final = True
+                                elif local_letter_counter - global_letter_counter == 0:
+                                    string_hpos = 4*a
+                                local_letter_counter += 1
 
-                    lm_const = np.shape(line_coords)[1]/(len(aligned)*4)
+                        if last:
+                            string_width = 4 * len(aligned) - string_hpos
 
-                    string = ET.SubElement(text_line, "String")
-                    string.set("CONTENT", word)
+                        lm_const = np.shape(line_coords)[1]/(len(aligned)*4)
 
-                    string_hpos -= 1
-                    all_x = line_coords[:, int(string_hpos*lm_const):int(string_hpos*lm_const)+int(string_width*lm_const), 0]
-                    all_y = line_coords[:, int(string_hpos*lm_const):int(string_hpos*lm_const)+int(string_width*lm_const), 1]
+                        string = ET.SubElement(text_line, "String")
+                        string.set("CONTENT", word)
 
-                    string.set("HEIGHT", str(int(np.max(all_y)-np.min(all_y))))
-                    string.set("WIDTH", str(int(np.max(all_x)-np.min(all_x))))
-                    string.set("VPOS", str(int(np.min(all_y))))
-                    string.set("HPOS", str(int(np.min(all_x))))
-                    if w != (len(line.transcription.split())-1):
-                        space = ET.SubElement(text_line, "SP")
-                        all_x = line_coords[:, int((string_hpos+string_width) * lm_const):int((string_hpos+string_width) * lm_const) + int((end_of_space-(string_hpos+string_width)) * lm_const), 0]
-                        all_y = line_coords[:, int((string_hpos+string_width) * lm_const):int((string_hpos+string_width) * lm_const) + int((end_of_space-(string_hpos+string_width)) * lm_const), 1]
+                        string_hpos -= 1
+                        all_x = line_coords[:, int(string_hpos*lm_const):int(string_hpos*lm_const)+int(string_width*lm_const), 0]
+                        all_y = line_coords[:, int(string_hpos*lm_const):int(string_hpos*lm_const)+int(string_width*lm_const), 1]
 
-                        space.set("WIDTH", str(int(np.max(all_x)-np.min(all_x))))
-                        space.set("VPOS", str(int(np.min(all_y))))
-                        space.set("HPOS", str(int(np.min(all_x))))
+                        string.set("HEIGHT", str(int(np.max(all_y)-np.min(all_y))))
+                        string.set("WIDTH", str(int(np.max(all_x)-np.min(all_x))))
+                        string.set("VPOS", str(int(np.min(all_y))))
+                        string.set("HPOS", str(int(np.min(all_x))))
+                        if w != (len(line.transcription.split())-1):
+                            space = ET.SubElement(text_line, "SP")
+                            all_x = line_coords[:, int((string_hpos+string_width) * lm_const):int((string_hpos+string_width) * lm_const) + int((end_of_space-(string_hpos+string_width)) * lm_const), 0]
+                            all_y = line_coords[:, int((string_hpos+string_width) * lm_const):int((string_hpos+string_width) * lm_const) + int((end_of_space-(string_hpos+string_width)) * lm_const), 1]
+
+                            space.set("WIDTH", str(int(np.max(all_x)-np.min(all_x))))
+                            space.set("VPOS", str(int(np.min(all_y))))
+                            space.set("HPOS", str(int(np.min(all_x))))
 
         top_margin.set("HEIGHT", "{}" .format(print_space_vpos))
         top_margin.set("WIDTH", "{}" .format(self.page_size[1]))
