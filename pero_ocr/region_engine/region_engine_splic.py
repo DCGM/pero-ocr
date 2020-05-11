@@ -19,13 +19,15 @@ from pero_ocr.region_engine import spectral_clustering as sc
 class EngineRegionSPLIC(object):
 
     def __init__(self, model_path, downsample=4, use_cpu=False,
-                 reduce_factor=8, n_components=24, min_size=2, pad=52):
+                 reduce_factor=8, n_components=24, min_size=2, pad=52,
+                 max_mp=6):
 
         self.downsample = downsample # downsample factor before CNN inference
         self.reduce_factor = reduce_factor # another downsample factor before spectral clustering (target shouldn't be much bigger than 256 x 256)
         self.n_components = n_components # neumber of eigenvectors for clustering
         self.pad = pad # CNN training pad
         self.min_size = min_size # minimum cluster size
+        self.max_mp = max_mp # maximum megapixels when processing image to avoid OOM
 
         if model_path is not None:
             saver = tf.train.import_meta_graph(model_path + '.meta')
@@ -39,10 +41,13 @@ class EngineRegionSPLIC(object):
 
     def detect(self, image):
 
-        out_map = self.get_maps(image)
-        recompute = self.update_ds(out_map)
+        downsample = self.downsample
+        out_map = self.get_maps(image, downsample)
+        recompute, downsample = self.update_ds(out_map)
+        ds_threshold = (image.shape[0] * image.shape[1])/(self.max_mp*10e5)
+        downsample = np.maximum(downsample, ds_threshold)
         if recompute:
-            out_map = self.get_maps(image)
+            out_map = self.get_maps(image, downsample)
 
         baselines_list, heights_list, l_embd_list, m_embd_list, r_embd_list = self.parse_maps(out_map)
         if not baselines_list:
@@ -91,9 +96,9 @@ class EngineRegionSPLIC(object):
 
         return polygons_list, baselines_list, heights_list, textlines_list
 
-    def get_maps(self, img):
+    def get_maps(self, img, downsample):
 
-        img = cv2.resize(img, (0,0), fx=1/self.downsample, fy=1/self.downsample, interpolation=cv2.INTER_AREA)
+        img = cv2.resize(img, (0,0), fx=1/downsample, fy=1/downsample, interpolation=cv2.INTER_AREA)
         img = np.pad(img, [(self.pad, self.pad), (self.pad, self.pad), (0,0)], 'constant')
 
         new_shape_x = int(np.ceil(img.shape[0] / 64) * 64)
@@ -107,13 +112,15 @@ class EngineRegionSPLIC(object):
         return out_map
 
     def update_ds(self, out_map):
-        recompute = False
         heights = (out_map[:,:,2] > 0.2).astype(np.float) * (out_map[:,:,0] + out_map[:,:,1])
         med_height = np.median(heights[heights>0])
         if med_height <= 6 or med_height > 18:
-            self.downsample = max(1, self.downsample * (med_height / 12))
+            downsample = max(1, self.downsample * (med_height / 12))
             recompute = True
-        return recompute
+        else:
+            downsample = self.downsample
+            recompute = False
+        return recompute, downsample
 
 
     def parse_maps(self, out_map):
