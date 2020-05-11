@@ -45,7 +45,9 @@ class EngineRegionSPLIC(object):
         out_map = self.get_maps(image, downsample)
         recompute, downsample = self.update_ds(out_map)
         ds_threshold = (image.shape[0] * image.shape[1])/(self.max_mp*10e5)
-        downsample = np.maximum(downsample, ds_threshold)
+        if downsample < ds_threshold:
+            downsample = ds_threshold
+            recompute = True
         if recompute:
             out_map = self.get_maps(image, downsample)
 
