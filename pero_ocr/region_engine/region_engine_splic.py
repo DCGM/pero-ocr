@@ -49,7 +49,7 @@ class EngineRegionSPLIC(object):
         if recompute:
             out_map = self.get_maps(image, downsample)
 
-        baselines_list, heights_list, l_embd_list, m_embd_list, r_embd_list = self.parse_maps(out_map)
+        baselines_list, heights_list, l_embd_list, m_embd_list, r_embd_list = self.parse_maps(out_map, downsample)
         if not baselines_list:
             return [], [], [], []
         textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
@@ -123,7 +123,7 @@ class EngineRegionSPLIC(object):
         return recompute, downsample
 
 
-    def parse_maps(self, out_map):
+    def parse_maps(self, out_map, downsample):
         """Parse input baseline, height and region map into list of baselines coords, heights and embd
         :param baseline_map: array of baseline and endpoint probabilities
         :param heights_map: array of estimated heights
@@ -183,9 +183,9 @@ class EngineRegionSPLIC(object):
                 embd = np.average(embd, axis=0)
                 r_embd_list.append(embd)
 
-                baselines_list.append(self.downsample * pos.astype(np.float))
-                heights_list.append([self.downsample * heights_pred[0],
-                                     self.downsample * heights_pred[1]])
+                baselines_list.append(downsample * pos.astype(np.float))
+                heights_list.append([downsample * heights_pred[0],
+                                     downsample * heights_pred[1]])
 
         return baselines_list, heights_list, l_embd_list, m_embd_list, r_embd_list
 
