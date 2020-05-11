@@ -82,7 +82,7 @@ class EngineRegionSPLIC(object):
             polygons_tmp.append(region_poly)
 
         #remove overlaps
-        self.filter_polygons(polygons_tmp, regions_textlines_tmp)
+        polygons_tmp = self.filter_polygons(polygons_tmp, regions_textlines_tmp)
 
         #up to this point, polygons can be any geometry that comes from alpha_shape
         polygons_list = []
@@ -224,9 +224,15 @@ class EngineRegionSPLIC(object):
             return [0]
 
     def filter_polygons(self, polygons, region_textlines):
+        inds_to_remove = []
         for i in range(len(polygons)):
             for j in range(i+1, len(polygons)):
                 if polygons[i].intersects(polygons[j]):
+                    # first check if a polygon is completely inside another
+                    if polygons[i].contains(polygons[j]):
+                        inds_to_remove.append(j)
+                    elif polygons[j].contains(polygons[i]):
+                        inds_to_remove.append(i)
                     poly_intersection = polygons[i].intersection(polygons[j])
                     # remove the overlap from both regions
                     poly_tmp = deepcopy(polygons[i])
@@ -243,6 +249,7 @@ class EngineRegionSPLIC(object):
                         polygons[i] = polygons[i].union(poly_intersection)
                     else:
                         polygons[j] = polygons[j].union(poly_intersection)
+        return [polygon for i, polygon in enumerate(polygons) if i not in inds_to_remove]
 
 def alpha_shape(points, alpha):
     if len(points) < 4:
