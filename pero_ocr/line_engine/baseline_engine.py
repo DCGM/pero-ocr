@@ -227,6 +227,126 @@ class EngineLineDetectorCNN(object):
 
         return baselines_list, heights_list, textlines_list
 
+class EngineLineDetectorCNNReg(object):
+
+    def __init__(self, model_path, downsample=4, use_cpu=False,
+                 pad=52, max_mp=6, detection_threshold=0.2):
+
+        self.detection_threshold = detection_threshold
+        self.downsample = downsample # downsample factor before CNN inference
+        self.pad = pad # CNN training pad
+        self.max_mp = max_mp # maximum megapixels when processing image to avoid OOM
+
+        if model_path is not None:
+            saver = tf.train.import_meta_graph(model_path + '.meta')
+            if use_cpu:
+                tf_config = tf.ConfigProto(device_count={'GPU': 0})
+            else:
+                tf_config = tf.ConfigProto(device_count={'GPU': 1})
+                tf_config.gpu_options.allow_growth = True
+            self.session = tf.Session(config=tf_config)
+            saver.restore(self.session, model_path)
+
+    def detect_lines(self, image):
+
+        downsample = self.downsample
+        out_map = self.get_maps(image, downsample)
+        recompute, downsample = self.update_ds(out_map)
+        ds_threshold = (image.shape[0] * image.shape[1]) / (self.max_mp * 10e5)
+        if downsample < ds_threshold:
+            downsample = ds_threshold
+            recompute = True
+        if recompute:
+            out_map = self.get_maps(image, downsample)
+
+        baselines_list, heights_list = self.parse_maps(out_map, downsample)
+        if not baselines_list:
+            return [], [], [], []
+
+        textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
+
+        return baselines_list, heights_list, textlines_list
+
+    def get_maps(self, img, downsample):
+
+        img = cv2.resize(img, (0,0), fx=1/downsample, fy=1/downsample, interpolation=cv2.INTER_AREA)
+        img = np.pad(img, [(self.pad, self.pad), (self.pad, self.pad), (0,0)], 'constant')
+
+        new_shape_x = int(np.ceil(img.shape[0] / 64) * 64)
+        new_shape_y = int(np.ceil(img.shape[1] / 64) * 64)
+        test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3))
+        test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
+
+        out_map = self.session.run('test_probs:0', feed_dict={'test_dataset:0': test_img_canvas[:,:,:]/256.})
+        out_map = out_map[0, self.pad:img.shape[0]-self.pad, self.pad:img.shape[1]-self.pad, :]
+
+        return out_map
+
+    def update_ds(self, out_map):
+        heights = (out_map[:,:,2] > 0.2).astype(np.float) * (out_map[:,:,0] + out_map[:,:,1])
+        med_height = np.median(heights[heights>0])
+        if med_height < 10 or med_height > 14:
+            downsample = max(1, self.downsample * (med_height / 12))
+            recompute = True
+        else:
+            downsample = self.downsample
+            recompute = False
+        return recompute, downsample
+
+
+    def parse_maps(self, out_map, downsample):
+        """Parse input baseline, height and region map into list of baselines coords, heights and embd
+        :param baseline_map: array of baseline and endpoint probabilities
+        :param heights_map: array of estimated heights
+        """
+        baselines_list = []
+        heights_list = []
+        l_embd_list = []
+        m_embd_list = []
+        r_embd_list = []
+
+        out_map[:,:,3][out_map[:,:,3]<0] = 0
+        baselines_map = ndimage.convolve(out_map[:,:,2], np.ones((3,3)))
+        baselines_map = pp.nonmaxima_suppression(baselines_map, element_size=(7,1))
+        baselines_map /= 9 # revert signal amplification from convolution
+        baselines_map = (baselines_map - out_map[:,:,3]) > 0.2
+        heights_map = ndimage.morphology.grey_dilation(out_map[:,:,:2], size=(7,1,1))
+
+        baselines_img, num_detections = ndimage.measurements.label(baselines_map, structure=np.ones((3, 3)))
+        inds = np.where(baselines_img > 0)
+        labels = baselines_img[inds[0], inds[1]]
+
+        for i in range(1, num_detections+1):
+            bl_inds, = np.where(labels == i)
+            if len(bl_inds) > 5:
+                pos_all = np.stack([inds[1][bl_inds], inds[0][bl_inds]], axis=1)  # go from matrix indexing to image indexing
+
+                _, indices = np.unique(pos_all[:, 0], return_index=True)
+                pos = pos_all[indices]
+                x_index = np.argsort(pos[:, 0])
+                pos = pos[x_index]
+
+                target_point_count = min(10, pos.shape[0] // 10)
+                target_point_count = max(target_point_count, 2)
+                selected_pos = np.linspace(0, (pos.shape[0]) - 1, target_point_count).astype(np.int32)
+
+                pos = pos[selected_pos, :]
+                pos[0,0] -= 2 # region edge detection bites out of baseline pixels, stretch to compensate
+                pos[-1,0] += 2
+
+                heights_pred = heights_map[inds[0][bl_inds], inds[1][bl_inds], :]
+
+                heights_pred = np.maximum(heights_pred, 0)
+                heights_pred = np.asarray([
+                    np.percentile(heights_pred[:, 0], 70),
+                    np.percentile(heights_pred[:, 1], 70)
+                ])
+
+                baselines_list.append(downsample * pos.astype(np.float))
+                heights_list.append([downsample * heights_pred[0],
+                                     downsample * heights_pred[1]])
+
+        return baselines_list, heights_list
 
 if __name__ == '__main__':
     from pero_ocr.document_ocr import layout

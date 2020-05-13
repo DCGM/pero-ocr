@@ -11,6 +11,7 @@ from pero_ocr.ocr_engine import line_ocr_engine
 from pero_ocr.line_engine import baseline_engine
 from pero_ocr.region_engine import region_engine
 from pero_ocr.region_engine import region_engine_splic
+from pero_ocr.region_engine import region_engine_simple
 from pero_ocr.region_engine import SimpleThresholdRegion
 import pero_ocr.line_engine.line_postprocessing as linepp
 
@@ -25,6 +26,8 @@ def layout_parser_factory(config, config_path=''):
         region_parser = SimpleThresholdRegion(config, config_path=config_path)
     elif config['METHOD'] == 'SPLIC':
         region_parser = RegionExtractorSPLIC(config, config_path=config_path)
+    elif config['METHOD'] == 'SIMPLE':
+        region_parser = RegionExtractorSimple(config, config_path=config_path)
     else:
         raise ValueError('Unknown layout parser method: {}'.format(config['METHOD']))
     return region_parser
@@ -34,6 +37,8 @@ def line_parser_factory(config, config_path=''):
     config = config['LINE_PARSER']
     if config['METHOD'] == 'cnn':
         line_parser = TextlineExtractorCNN(config, config_path=config_path)
+    elif config['METHOD'] == 'cnn_reg':
+        line_parser = TextlineExtractorCNNReg(config, config_path=config_path)
     elif config['METHOD'] == 'simple':
         line_parser = TextlineExtractorSimple(config, config_path=config_path)
     elif config['METHOD'] == 'line_refiner':
@@ -134,6 +139,35 @@ class RegionExtractorSPLIC(object):
             downsample=downsample,
             use_cpu=use_cpu,
             min_size=min_size
+        )
+        self.pool = Pool()
+
+    def process_page(self, img, page_layout: PageLayout):
+        polygons_list, baselines_list, heights_list, textlines_list = self.region_engine.detect(img)
+        for id, polygon in enumerate(polygons_list):
+            region = RegionLayout('r{:03d}'.format(id), polygon)
+            page_layout.regions.append(region)
+
+        if self.keep_lines:
+            if len(page_layout.regions) > 4:
+                page_layout.regions = list(self.pool.map(partial(assign_lines_to_region, baselines_list, heights_list, textlines_list),
+                                 page_layout.regions))
+            else:
+                for region in page_layout.regions:
+                    region = assign_lines_to_region(baselines_list, heights_list, textlines_list, region)
+
+        return page_layout
+
+class RegionExtractorSimple(object):
+    def __init__(self, config, config_path=''):
+        model_path = compose_path(config['MODEL_PATH'], config_path)
+        downsample = config.getint('DOWNSAMPLE')
+        use_cpu = config.getboolean('USE_CPU')
+        self.keep_lines = config.getboolean('KEEP_LINES')
+        self.region_engine = region_engine_simple.EngineRegionSimple(
+            model_path=model_path,
+            downsample=downsample,
+            use_cpu=use_cpu
         )
         self.pool = Pool()
 
@@ -330,6 +364,22 @@ class TextlineExtractorCNN(BaseTextlineExtractor):
         use_cpu = config.getboolean('USE_CPU')
         detection_threshold = config.getfloat('DETECTION_THRESHOLD')
         self.line_engine = baseline_engine.EngineLineDetectorCNN(
+            model_path=model_path,
+            downsample=downsample,
+            pad=pad,
+            use_cpu=use_cpu,
+            detection_threshold=detection_threshold,
+        )
+
+class TextlineExtractorCNNReg(BaseTextlineExtractor):
+    def __init__(self, config, config_path=''):
+        super(TextlineExtractorCNNReg, self).__init__(config)
+        model_path = compose_path(config['MODEL_PATH'], config_path)
+        downsample = config.getint('DOWNSAMPLE')
+        pad = config.getint('PAD')
+        use_cpu = config.getboolean('USE_CPU')
+        detection_threshold = config.getfloat('DETECTION_THRESHOLD')
+        self.line_engine = baseline_engine.EngineLineDetectorCNNReg(
             model_path=model_path,
             downsample=downsample,
             pad=pad,

@@ -6,27 +6,26 @@ import cv2
 import tensorflow as tf
 from scipy import ndimage
 from scipy.spatial import Delaunay
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components
 from skimage.measure import block_reduce
 from sklearn.metrics import pairwise_distances
-import shapely.geometry
+import shapely.geometry as sg
 from shapely.ops import cascaded_union, polygonize
 import hdbscan
 
 from pero_ocr.line_engine import line_postprocessing as pp
 from pero_ocr.region_engine import spectral_clustering as sc
 
-
-class EngineRegionSPLIC(object):
+class EngineRegionSimple(object):
 
     def __init__(self, model_path, downsample=4, use_cpu=False,
-                 reduce_factor=8, n_components=24, min_size=2, pad=52,
-                 max_mp=6):
+                 reduce_factor=8, n_components=24, pad=52, max_mp=6):
 
         self.downsample = downsample # downsample factor before CNN inference
         self.reduce_factor = reduce_factor # another downsample factor before spectral clustering (target shouldn't be much bigger than 256 x 256)
         self.n_components = n_components # neumber of eigenvectors for clustering
         self.pad = pad # CNN training pad
-        self.min_size = min_size # minimum cluster size
         self.max_mp = max_mp # maximum megapixels when processing image to avoid OOM
 
         if model_path is not None:
@@ -44,21 +43,21 @@ class EngineRegionSPLIC(object):
         downsample = self.downsample
         out_map = self.get_maps(image, downsample)
         recompute, downsample = self.update_ds(out_map)
-        ds_threshold = (image.shape[0] * image.shape[1])/(self.max_mp*10e5)
+        ds_threshold = (image.shape[0] * image.shape[1]) / (self.max_mp * 10e5)
         if downsample < ds_threshold:
             downsample = ds_threshold
             recompute = True
         if recompute:
             out_map = self.get_maps(image, downsample)
 
-        baselines_list, heights_list, l_embd_list, m_embd_list, r_embd_list = self.parse_maps(out_map, downsample)
+        baselines_list, heights_list, layout_separator_map = self.parse_maps(out_map, downsample)
         if not baselines_list:
             return [], [], [], []
+
         textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
 
-        clusters_array = self.cluster_lines(l_embd_list, m_embd_list, r_embd_list)
-        # check noise lines for adjacancy to previous region in reading order due to eigenvector-based clustering errors
-        # clusters_array = self.postprocess_noisy_lines(clusters_array, baselines_list, heights_list, out_map[:,:,3])
+        clusters_array = self.cluster_lines(textlines_list, layout_separator_map, downsample)
+
         regions_textlines_tmp = []
         polygons_tmp = []
         for i in range(np.amax(clusters_array)+1):
@@ -90,7 +89,7 @@ class EngineRegionSPLIC(object):
             if region_poly.geom_type == 'MultiPolygon':
                 for poly in region_poly:
                     polygons_list.append(poly.simplify(5))
-            elif region_poly.geom_type == 'Polygon':
+            if region_poly.geom_type == 'Polygon':
                 polygons_list.append(region_poly.simplify(5))
 
         baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list, textlines_list)
@@ -142,9 +141,6 @@ class EngineRegionSPLIC(object):
         baselines_map /= 9 # revert signal amplification from convolution
         baselines_map = (baselines_map - 3 * out_map[:,:,3]) > 0.2
         heights_map = ndimage.morphology.grey_dilation(out_map[:,:,:2], size=(7,1,1))
-        embd_map = self.edges_to_embd(out_map[:,:,3],
-                                            n_components=self.n_components,
-                                            reduce_factor=self.reduce_factor)
 
         baselines_img, num_detections = ndimage.measurements.label(baselines_map, structure=np.ones((3, 3)))
         inds = np.where(baselines_img > 0)
@@ -176,53 +172,74 @@ class EngineRegionSPLIC(object):
                     np.percentile(heights_pred[:, 1], 70)
                 ])
 
-                embd = embd_map[inds[0][bl_inds]-int(heights_pred[0]/2), np.clip(np.amin(inds[1][bl_inds]+5), 0, embd_map.shape[1]-1), :]
-                embd = np.average(embd, axis=0)
-                l_embd_list.append(embd)
-
-                embd = embd_map[inds[0][bl_inds]-int(heights_pred[0]/2), int(np.round(np.clip(np.average(inds[1][bl_inds]), 0, embd_map.shape[1]-1))), :]
-                embd = np.average(embd, axis=0)
-                m_embd_list.append(embd)
-
-                embd = embd_map[inds[0][bl_inds]-int(heights_pred[0]/2), np.clip(np.amax(inds[1][bl_inds]-5), 0, embd_map.shape[1]-1), :]
-                embd = np.average(embd, axis=0)
-                r_embd_list.append(embd)
-
                 baselines_list.append(downsample * pos.astype(np.float))
                 heights_list.append([downsample * heights_pred[0],
                                      downsample * heights_pred[1]])
 
-        return baselines_list, heights_list, l_embd_list, m_embd_list, r_embd_list
+        return baselines_list, heights_list, out_map[:,:,3]
 
-    def edges_to_embd(self, edge_map, n_components=16, reduce_factor=4):
-        edge_map_reduced  = block_reduce(edge_map, (reduce_factor,reduce_factor), func=np.amax).astype(np.float32)
-        adjacency = sc.img_to_graph(edge_map_reduced)
-        eigenvectors = sc.spectral_embedding(adjacency, n_components=n_components)
+    def get_penalty(self, textline1, textline2, map):
+        x_overlap = max(0, min(np.amax(textline1[:,0]), np.amax(textline2[:,0])) - max(np.amin(textline1[:,0]), np.amin(textline2[:,0])))
+        smaller_len = min(np.amax(textline1[:,0])-np.amin(textline1[:,0]), np.amax(textline2[:,0])-np.amin(textline2[:,0]))
+        if x_overlap > smaller_len / 4:
+            x_1 = int(max(np.amin(textline1[:,0]), np.amin(textline2[:,0])))
+            x_2 = int(min(np.amax(textline1[:,0]), np.amax(textline2[:,0])))
+            if np.average(textline1[:,1]) > np.average(textline2[:,1]):
+                y_pos_1 = np.average(textline1[:textline1.shape[0]//2,1]).astype(np.int)
+                penalty_1 = np.sum(map[
+                    np.clip(y_pos_1-3, 0, map.shape[0]):np.clip(y_pos_1+3, 0, map.shape[0]),
+                    np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
+                    ])
+                penalty_1 /= x_overlap
 
-        eigenvectors = np.reshape(eigenvectors, (edge_map_reduced.shape[0],edge_map_reduced.shape[1], n_components))
+                y_pos_2 = np.average(textline2[textline1.shape[0]//2:,1]).astype(np.int)
+                penalty_2 = np.sum(map[
+                    np.clip(y_pos_2-3, 0, map.shape[0]):np.clip(y_pos_2+3, 0, map.shape[0]),
+                    np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
+                    ])
+                penalty_2 /= x_overlap
+            else:
+                y_pos_1 = np.average(textline1[textline1.shape[0]//2:,1]).astype(np.int)
+                penalty_1 = np.sum(map[
+                    np.clip(y_pos_1-3, 0, map.shape[0]):np.clip(y_pos_1+3, 0, map.shape[0]),
+                    np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
+                    ])
+                penalty_1 /= x_overlap
 
-        return cv2.resize(eigenvectors, (edge_map.shape[1], edge_map.shape[0]))
+                y_pos_2 = np.average(textline2[:textline1.shape[0]//2,1]).astype(np.int)
+                penalty_2 = np.sum(map[
+                    np.clip(y_pos_2-3, 0, map.shape[0]):np.clip(y_pos_2+3, 0, map.shape[0]),
+                    np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
+                    ])
+                penalty_2 /= x_overlap
+            penalty = np.abs(max(penalty_1, penalty_2))
+        else:
+            penalty = 999
+        return penalty
 
-    def cluster_lines(self, l_embd_list, m_embd_list, r_embd_list):
-        if len(l_embd_list)>1 and len(m_embd_list)>1 and len(r_embd_list)>1:
+    def cluster_lines(self, textlines, layout_separator_map, downsample, threshold=0.3):
+        if len(textlines) > 1:
 
-            adjacency_l = pairwise_distances(np.asarray(l_embd_list), n_jobs=4)
-            adjacency_m = pairwise_distances(np.asarray(m_embd_list), n_jobs=4)
-            adjacency_r = pairwise_distances(np.asarray(r_embd_list), n_jobs=4)
-            adjacency = np.amin(np.stack((adjacency_l, adjacency_m, adjacency_r), axis=-1), axis=-1)
+            textlines_dilated = []
+            for textline in textlines:
+                textline_poly = sg.Polygon(textline)
+                tot_height = np.abs(textline[0,1] - textline[-1,1])
+                textlines_dilated.append(textline_poly.buffer(tot_height))
 
-            line_clusterer = hdbscan.HDBSCAN(
-                min_cluster_size=self.min_size,
-                min_samples=1,
-                metric='precomputed')
-            line_clusterer = line_clusterer.fit(adjacency)
-            clusters_array = line_clusterer.labels_
+            distances = np.ones((len(textlines), len(textlines)))
+            for i in range(len(textlines)):
+                for j in range(i+1, len(textlines)):
+                    if textlines_dilated[i].intersects(textlines_dilated[j]):
+                        penalty = self.get_penalty(textlines[i]/downsample, textlines[j]/downsample, layout_separator_map)
+                        distances[i, j] = penalty
+                        distances[j, i] = penalty
 
-            noise_lines = np.where(clusters_array<0)[0]
-            for noise_line in noise_lines:
-                clusters_array[noise_line] = np.amax(clusters_array) + 1
+            adjacency = distances < threshold
+            graph = csr_matrix(adjacency)
+            _, clusters_array = connected_components(csgraph=graph, directed=False, return_labels=True)
 
             return clusters_array
+
         else:
             return [0]
 
@@ -231,7 +248,7 @@ class EngineRegionSPLIC(object):
         for i in range(len(polygons)):
             for j in range(i+1, len(polygons)):
                 if polygons[i].intersects(polygons[j]):
-                    # first check if a polygon is completely inside another
+                    # first check if a polygon is completely inside another, remove the smaller in that case
                     if polygons[i].contains(polygons[j]):
                         inds_to_remove.append(j)
                     elif polygons[j].contains(polygons[i]):
@@ -244,10 +261,10 @@ class EngineRegionSPLIC(object):
                     # append the overlap to the one with more textlines in the overlap area
                     score_i = 0
                     for line in region_textlines[i]:
-                        score_i += shapely.geometry.Polygon(line).intersection(poly_intersection).area
+                        score_i += sg.Polygon(line).intersection(poly_intersection).area
                     score_j = 0
                     for line in region_textlines[j]:
-                        score_j += shapely.geometry.Polygon(line).intersection(poly_intersection).area
+                        score_j += sg.Polygon(line).intersection(poly_intersection).area
                     if score_i > score_j:
                         polygons[i] = polygons[i].union(poly_intersection)
                     else:
@@ -258,7 +275,7 @@ def alpha_shape(points, alpha):
     if len(points) < 4:
         # When you have a triangle, there is no sense
         # in computing an alpha shape.
-        return shapely.geometry.MultiPoint(list(points)).convex_hull
+        return sg.MultiPoint(list(points)).convex_hull
 
     # coords = np.array([point.coords[0] for point in points])
     tri = Delaunay(points)
@@ -274,6 +291,6 @@ def alpha_shape(points, alpha):
     edge2 = filtered[:,(1,2)]
     edge3 = filtered[:,(2,0)]
     edge_points = np.unique(np.concatenate((edge1,edge2,edge3)), axis = 0).tolist()
-    m = shapely.geometry.MultiLineString(edge_points)
+    m = sg.MultiLineString(edge_points)
     triangles = list(polygonize(m))
     return cascaded_union(triangles)
