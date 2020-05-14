@@ -247,12 +247,12 @@ class EngineRegionSimple(object):
         inds_to_remove = []
         for i in range(len(polygons)):
             for j in range(i+1, len(polygons)):
-                if polygons[i].intersects(polygons[j]):
+                if polygons[i].contains(polygons[j]):
+                    inds_to_remove.append(j)
+                elif polygons[j].contains(polygons[i]):
+                    inds_to_remove.append(i)
+                elif polygons[i].intersects(polygons[j]):
                     # first check if a polygon is completely inside another, remove the smaller in that case
-                    if polygons[i].contains(polygons[j]):
-                        inds_to_remove.append(j)
-                    elif polygons[j].contains(polygons[i]):
-                        inds_to_remove.append(i)
                     poly_intersection = polygons[i].intersection(polygons[j])
                     # remove the overlap from both regions
                     poly_tmp = deepcopy(polygons[i])
