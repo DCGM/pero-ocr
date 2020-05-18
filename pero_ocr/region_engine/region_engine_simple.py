@@ -135,11 +135,11 @@ class EngineRegionSimple(object):
         m_embd_list = []
         r_embd_list = []
 
-        out_map[:,:,3][out_map[:,:,3]<0] = 0
+        out_map[:,:,4][out_map[:,:,4]<0] = 0
         baselines_map = ndimage.convolve(out_map[:,:,2], np.ones((3,3)))
         baselines_map = pp.nonmaxima_suppression(baselines_map, element_size=(7,1))
         baselines_map /= 9 # revert signal amplification from convolution
-        baselines_map = (baselines_map - 3 * out_map[:,:,3]) > 0.2
+        baselines_map = (baselines_map - out_map[:,:,3]) > 0.2
         heights_map = ndimage.morphology.grey_dilation(out_map[:,:,:2], size=(7,1,1))
 
         baselines_img, num_detections = ndimage.measurements.label(baselines_map, structure=np.ones((3, 3)))
@@ -176,7 +176,7 @@ class EngineRegionSimple(object):
                 heights_list.append([downsample * heights_pred[0],
                                      downsample * heights_pred[1]])
 
-        return baselines_list, heights_list, out_map[:,:,3]
+        return baselines_list, heights_list, out_map[:,:,4]
 
     def get_penalty(self, textline1, textline2, map):
         x_overlap = max(0, min(np.amax(textline1[:,0]), np.amax(textline2[:,0])) - max(np.amin(textline1[:,0]), np.amin(textline2[:,0])))

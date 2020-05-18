@@ -305,7 +305,6 @@ class EngineLineDetectorCNNReg(object):
         m_embd_list = []
         r_embd_list = []
 
-        out_map[:,:,3][out_map[:,:,3]<0] = 0
         baselines_map = ndimage.convolve(out_map[:,:,2], np.ones((3,3)))
         baselines_map = pp.nonmaxima_suppression(baselines_map, element_size=(7,1))
         baselines_map /= 9 # revert signal amplification from convolution
