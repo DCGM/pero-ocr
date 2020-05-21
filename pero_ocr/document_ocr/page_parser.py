@@ -71,6 +71,19 @@ def compose_path(file_path, reference_path):
     return file_path
 
 
+def region_sorter_factory(config, config_path=''):
+    class_name = config['REGION_SORTER']['METHOD']
+    imported = __import__('pero_ocr.region_sorter', fromlist=[class_name])
+
+    try:
+        object_class = getattr(imported, class_name)
+    except AttributeError:
+        raise ValueError(f"Region sorter method not found. Ensure \"{class_name}\" is valid region sorter"
+                         " class name imported in \"__init__.py\".")
+
+    return object_class(config['REGION_SORTER'], config_path)
+
+
 class MissingLogits(Exception):
     pass
 
@@ -450,21 +463,27 @@ class PageOCR(object):
         return page_layout
 
 
-class PageParser (object):
+class PageParser(object):
     def __init__(self, config, config_path=''):
-        self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER')
-        self.run_line_parser = config['PAGE_PARSER'].getboolean('RUN_LINE_PARSER')
-        self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER')
-        self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR')
-        self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER')
+        self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER', fallback=False)
+        self.run_line_parser = config['PAGE_PARSER'].getboolean('RUN_LINE_PARSER', fallback=False)
+        self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
+        self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
+        self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER', fallback=False)
+        self.run_region_sorter = config['PAGE_PARSER'].getboolean('RUN_REGION_SORTER', fallback=False)
 
         self.layout_parser = None
         self.line_parser = None
         self.line_cropper = None
         self.ocr = None
         self.decoder = None
+        self.region_sorter = None
+
         if self.run_layout_parser:
             self.layout_parser = layout_parser_factory(config, config_path=config_path)
+        if self.run_region_sorter:
+            self.region_sorter = region_sorter_factory(config, config_path=config_path)
+
         if self.run_line_parser:
             self.line_parser = line_parser_factory(config, config_path=config_path)
         if self.run_line_cropper:
@@ -477,6 +496,8 @@ class PageParser (object):
     def process_page(self, image, page_layout):
         if self.run_layout_parser:
             page_layout = self.layout_parser.process_page(image, page_layout)
+        if self.run_region_sorter:
+            page_layout = self.region_sorter.process_page(image, page_layout)
         if self.run_line_parser:
             page_layout = self.line_parser.process_page(image, page_layout)
         if self.run_line_cropper:
