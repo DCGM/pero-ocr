@@ -495,7 +495,7 @@ class PageLayout(object):
 
                 text_w, text_h = cv2.getTextSize(f"{idx}", font, font_scale, font_thickness)[0]
 
-                mid_coords = ((min[0] + max[0]) // 2 - text_w // 2, (min[1] + max[1]) // 2 + text_h // 2)
+                mid_coords = (int((min[0] + max[0]) // 2 - text_w // 2), int((min[1] + max[1]) // 2 + text_h // 2))
 
                 cv2.putText(image, f"{idx}", mid_coords, font, font_scale,
                             (0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)

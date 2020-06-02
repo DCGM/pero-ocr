@@ -285,7 +285,6 @@ class SmartRegionSorter:
         from sys import stderr
 
         if len(page_layout.regions) < 2:
-            print(f"DEBUG: skipping page with {len(page_layout.regions)} regions", file=stderr)
             return page_layout
 
         for region in page_layout.regions:

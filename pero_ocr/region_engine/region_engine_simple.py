@@ -93,7 +93,7 @@ class EngineRegionSimple(object):
                 polygons_list.append(region_poly.simplify(5))
 
         baselines_list, heights_list, textlines_list = pp.order_lines_vertical(baselines_list, heights_list, textlines_list)
-        polygons_list = [poly.exterior.coords for poly in polygons_list]
+        polygons_list = [np.array(poly.exterior.coords) for poly in polygons_list]
 
         return polygons_list, baselines_list, heights_list, textlines_list
 
