@@ -61,8 +61,8 @@ def ocr_factory(config, config_path=''):
 def page_decoder_factory(config, config_path=''):
     from pero_ocr.decoding import decoding_itf
     ocr_chars = decoding_itf.get_ocr_charset(config['OCR']['OCR_JSON'])
-    decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False)
-    return PageDecoder(decoder, config_path=config_path)
+    decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True)
+    return PageDecoder(decoder)
 
 
 def compose_path(file_path, reference_path):
