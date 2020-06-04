@@ -30,7 +30,7 @@ def lm_factory(config):
     return construct_lm(config[lm_key])
 
 
-def decoder_factory(config, characters, allow_no_decoder=True):
+def decoder_factory(config, characters, allow_no_decoder=True, use_gpu=False):
     full_characters = characters + [BLANK_SYMBOL]
 
     decoder_type = config['TYPE']
@@ -42,7 +42,7 @@ def decoder_factory(config, characters, allow_no_decoder=True):
             raise ValueError("Missing LM_SCALE key in the config")
         lm = lm_factory(config)
         sys.stderr.write("Constructing CTCPrefixLogRawNumpyDecoder({}, {}, {})\n".format(full_characters, k, lm))
-        return CTCPrefixLogRawNumpyDecoder(full_characters, k, lm, lm_scale)
+        return CTCPrefixLogRawNumpyDecoder(full_characters, k, lm, lm_scale, use_gpu=use_gpu)
     elif decoder_type == 'GREEDY':
         sys.stderr.write("Constructing GreedyDecoder({})\n".format(full_characters))
         return GreedyDecoder(full_characters)
