@@ -37,6 +37,7 @@ class MasterData(Enum):
 
 def match_lines(transcriptions, ground_truths, master_data=MasterData.ground_truth, verbose=True):
     lines = []
+    all_matched = True
 
     if master_data == MasterData.ground_truth:
         master = ground_truths
@@ -53,6 +54,8 @@ def match_lines(transcriptions, ground_truths, master_data=MasterData.ground_tru
         except KeyError:
             if verbose:
                 print("Missing transcription for '{id}'.".format(id=image_id))
+                all_matched = False
+                continue
             slave_item = ""
 
         if master_data == MasterData.ground_truth:
@@ -62,7 +65,7 @@ def match_lines(transcriptions, ground_truths, master_data=MasterData.ground_tru
 
         lines.append(line)
 
-    return lines
+    return lines, all_matched
 
 
 def sort(lines):
@@ -137,12 +140,12 @@ def main():
     ground_truths = load_transcriptions(args.ground_truth)
     transcriptions = load_transcriptions(args.transcriptions)
 
-    lines = match_lines(transcriptions, ground_truths)
+    lines, all_matched = match_lines(transcriptions, ground_truths)
     char_summary = ErrorsSummary.aggregate([line.char_errors for line in lines])
     word_summary = ErrorsSummary.aggregate([line.word_error for line in lines])
 
-    print("CER:", char_summary)
-    print("WER:", word_summary)
+    print("CER:", char_summary, '' if all_matched else "[PARTIAL]")
+    print("WER:", word_summary, '' if all_matched else "[PARTIAL]")
 
     if args.output is not None:
         save(sort(lines), args.output, args.human_readable)
