@@ -4,8 +4,10 @@ import argparse
 import os
 import pickle
 
-from pero_ocr.ocr_engine import line_ocr_engine as ocr
 from pero_ocr.line_images_io import read_images
+
+# from pero_ocr.ocr_engine import line_ocr_engine as ocr
+from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 
 
 def parse_arguments():
@@ -25,7 +27,8 @@ def main():
     ocr_json = args.ocr_json
 
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # suppress tensorflow warnings on loading models
-    ocr_engine = ocr.EngineLineOCR(ocr_json, gpu_id=0)
+    ocr_engine = PytorchEngineLineOCR(ocr_json, gpu_id=0)
+    # ocr_engine = ocr.EngineLineOCR(ocr_json, gpu_id=0)
 
     lines, names = read_images(args.input)
     _, logits = ocr_engine.process_lines(lines)

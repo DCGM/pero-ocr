@@ -204,7 +204,7 @@ class VGG_conv_module(nn.Module):
         self.out_channels = out_channels
 
     def forward(self, x):
-        return self.blocks_2d(x)
+        return self.blocks_2d(x.contiguous())
 
 
 class MultiscaleRecurrentBlock(nn.Module):
