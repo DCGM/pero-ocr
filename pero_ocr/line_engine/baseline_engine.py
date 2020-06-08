@@ -347,6 +347,16 @@ class EngineLineDetectorCNNReg(object):
 
         return baselines_list, heights_list
 
+    def get_heights(self, heights_map, inds):
+        heights_pred = heights_map[inds]  #* (baselines_img == i)[:, :, np.newaxis]
+
+        heights_pred = np.maximum(heights_pred, 0)
+        heights_pred = np.asarray([
+            np.percentile(heights_pred[:, 0], 70),
+            np.percentile(heights_pred[:, 1], 70)
+        ])
+        return heights_pred
+
 if __name__ == '__main__':
     from pero_ocr.document_ocr import layout
 

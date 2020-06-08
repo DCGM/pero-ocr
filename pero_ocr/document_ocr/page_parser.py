@@ -207,7 +207,7 @@ class LineRefiner(object):
         self.downsample = config.getint('DOWNSAMPLE')
         self.pad = config.getint('PAD')
         self.use_cpu = config.getboolean('USE_CPU')
-        self.line_engine = baseline_engine.EngineLineDetectorCNN(
+        self.line_engine = baseline_engine.EngineLineDetectorCNNReg(
             model_path=self.model_path,
             downsample=self.downsample,
             pad=self.pad,
@@ -222,7 +222,8 @@ class LineRefiner(object):
             print(f"Warning: Skipping line reninement for page {page_layout.id}. No text lines present.")
             return page_layout
 
-        baselines_map, heights_map = self.line_engine.infer_maps(img)
+        out_map = self.line_engine.get_maps(img, self.downsample)
+        baseline_map, heights_map = out_map[:,:,2], out_map[:,:,:2]
 
         if self.adjust_baselines:
             baselines = [line.baseline for line in page_layout.lines_iterator()]
@@ -247,7 +248,8 @@ class LineRefiner(object):
             self.downsample = max(1, int(height / 12 + 0.5))
 
             self.line_engine.downsample = self.downsample
-            baselines_map, heights_map = self.line_engine.infer_maps(img)
+            out_map = self.line_engine.get_maps(img, self.downsample)
+            baseline_map, heights_map = out_map[:,:,2], out_map[:,:,:2]
             self.line_engine.downsample = temp_downsample
             if self.adjust_heights:
                 heights_map = ndimage.morphology.grey_dilation(heights_map, size=(11, 1, 1))
