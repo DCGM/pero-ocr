@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import cv2
+import math
 import numpy as np
 
 from configparser import SectionProxy
 from copy import deepcopy
 from itertools import tee
+from shapely import geometry, affinity
 from typing import List, Dict, Union, Optional
 
 from pero_ocr.document_ocr.layout import PageLayout, RegionLayout
@@ -282,10 +285,11 @@ class SmartRegionSorter:
     def process_page(self, image, page_layout: PageLayout):
         regions = []
 
-        from sys import stderr
-
         if len(page_layout.regions) < 2:
             return page_layout
+
+        rotation = SmartRegionSorter.get_rotation(max(*page_layout.regions, key=lambda reg: len(reg.lines)).lines)
+        page_layout = SmartRegionSorter.rotate_page_layout(page_layout, -rotation)
 
         for region in page_layout.regions:
             regions.append(Region(region))
@@ -300,8 +304,88 @@ class SmartRegionSorter:
         region_idxs = [next((idx for idx, region in enumerate(page_layout.regions) if region.id == region_id)) for region_id in ordered_ids]
 
         page_layout.regions = [page_layout.regions[idx] for idx in region_idxs]
+        page_layout = SmartRegionSorter.rotate_page_layout(page_layout, rotation)
 
         return page_layout
+
+    @staticmethod
+    def rotate_page_layout(page: PageLayout, angle, origin=(0, 0)):
+        if angle == 0:
+            return page
+
+        rot_matrix = cv2.getRotationMatrix2D(origin, angle, 1)
+
+        for reg_idx, region in enumerate(page.regions):
+            region.polygon = SmartRegionSorter.rotate_polygon(region.polygon, angle)
+            # region.polygon = SmartRegionSorter.rotate_coords(region.polygon, rot_matrix)
+
+            for line_idx, line in enumerate(region.lines):
+                line.polygon = SmartRegionSorter.rotate_polygon(line.polygon, angle)
+                # line.polygon = SmartRegionSorter.rotate_coords(line.polygon, rot_matrix)
+                line.baseline = SmartRegionSorter.rotate_line(line.baseline, angle)
+                # line.baseline = SmartRegionSorter.rotate_coords(line.baseline, rot_matrix)
+
+        return page
+
+    @staticmethod
+    def rotate_coords(coords, rot_matrix):
+        """Rotate coords around given center point
+        :param coords: points to rotate
+        :param rot_matrix: rotation matrix
+        """
+        change_coords = [[item[0], item[1]] for item in coords]
+        coords = np.array([change_coords])
+        rotated_coords = cv2.transform(coords, rot_matrix)[0]
+        out_coords = [[item[0], item[1]] for item in rotated_coords]
+
+        return np.asarray(out_coords)
+
+    @staticmethod
+    def rotate_polygon(polygon, angle):
+        line_poly = geometry.Polygon(polygon)
+        line_poly = affinity.rotate(line_poly, angle, origin=(0, 0))
+        return np.stack(line_poly.exterior.coords.xy, axis=1)
+
+    @staticmethod
+    def rotate_line(baseline, angle):
+        baseline_obj = geometry.LineString(baseline)
+        baseline_obj = affinity.rotate(baseline_obj, angle, origin=(0, 0))
+        return np.array(baseline_obj)
+
+    @staticmethod
+    def get_rotation(lines):
+        """Get mean baseline tilt as angle.
+        :param baselines: list of baselines
+        """
+        lines_info = []
+
+        if len(lines) == 0:
+            return 0
+
+        for line in lines:
+            first_line_point = line.baseline[0].astype(np.float64)
+            last_line_point = line.baseline[-1].astype(np.float64)
+
+            if last_line_point[1] != first_line_point[1]:
+                # rotation = math.degrees(
+                #     math.atan((last_line_point[1] - first_line_point[1]) / (last_line_point[0] - first_line_point[0])))
+                length = math.sqrt(
+                    math.pow(last_line_point[0] - first_line_point[0], 2)
+                    + math.pow(last_line_point[1] - first_line_point[1], 2))
+                rotation = math.degrees(math.sin((last_line_point[1] - first_line_point[1]) / length))
+                lines_info.append((length, rotation))
+            else:
+                lines_info.append((0, 0))
+
+        lines_info = sorted(lines_info, key = lambda x: x[0], reverse = True)
+        lines_info = lines_info[0: int(len(lines_info) / 2)]
+        rotation_sum = sum(item[1] for item in lines_info)
+        rotation = 0
+
+        if len(lines_info) > 0:
+            rotation = rotation_sum/len(lines_info)
+
+        return rotation
 
 
 def test():
