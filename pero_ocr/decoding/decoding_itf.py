@@ -4,6 +4,7 @@ import time
 import sys
 import json
 from .decoders import GreedyDecoder, CTCPrefixLogRawNumpyDecoder, BLANK_SYMBOL
+from pero_ocr.document_ocr.page_parser import compose_path
 
 ZERO_LOGITS = -80.0
 
@@ -15,22 +16,22 @@ def get_ocr_charset(fn):
     return chars
 
 
-def construct_lm(path):
-    lm = torch.load(path, map_location=torch.device('cpu'))
+def construct_lm(path, config_path=''):
+    lm = torch.load(compose_path(path, config_path), map_location=torch.device('cpu'))
     lm._unused_prefix_len = 2
 
     return lm
 
 
-def lm_factory(config):
+def lm_factory(config, config_path=''):
     lm_key = 'LM'
     if lm_key not in config:
         return None
 
-    return construct_lm(config[lm_key])
+    return construct_lm(config[lm_key], config_path=config_path)
 
 
-def decoder_factory(config, characters, allow_no_decoder=True, use_gpu=False):
+def decoder_factory(config, characters, allow_no_decoder=True, use_gpu=False, config_path=''):
     full_characters = characters + [BLANK_SYMBOL]
 
     decoder_type = config['TYPE']
@@ -40,7 +41,7 @@ def decoder_factory(config, characters, allow_no_decoder=True, use_gpu=False):
         lm_scale = config.getfloat('LM_SCALE')
         if lm_scale is None:
             raise ValueError("Missing LM_SCALE key in the config")
-        lm = lm_factory(config)
+        lm = lm_factory(config, config_path=config_path)
         sys.stderr.write("Constructing CTCPrefixLogRawNumpyDecoder({}, {}, {})\n".format(full_characters, k, lm))
         return CTCPrefixLogRawNumpyDecoder(full_characters, k, lm, lm_scale, use_gpu=use_gpu)
     elif decoder_type == 'GREEDY':
