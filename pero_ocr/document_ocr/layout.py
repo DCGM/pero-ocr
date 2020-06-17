@@ -271,10 +271,12 @@ class PageLayout(object):
                 chars = [i for i in range(len(line.characters))]
                 char_to_num = dict(zip(line.characters, chars))
 
+                blank_idx = line.logits.shape[1] - 1
+
                 label = []
-                for item in (line.transcription):
+                for item in line.transcription:
                     if item in char_to_num.keys():
-                        if char_to_num[item] > (np.shape(line.logits)[1] - 2):
+                        if char_to_num[item] >= blank_idx:
                             label.append(0)
                         else:
                             label.append(char_to_num[item])
@@ -284,7 +286,7 @@ class PageLayout(object):
                 logits = line.get_dense_logits()
                 logprobs = line.get_full_logprobs()
                 try:
-                    aligned = force_align(-logprobs, label, len(chars))
+                    aligned = force_align(-logprobs, label, blank_idx)
                 except ValueError as error:
                     average_word_width = (text_line_hpos + text_line_width)/len(line.transcription.split())
                     for w, word in enumerate(line.transcription.split()):
@@ -302,7 +304,7 @@ class PageLayout(object):
                             space.set("VPOS", str(text_line_vpos))
                             space.set("HPOS", str(text_line_hpos+(w*average_word_width)+average_word_width))
                 else:
-                    narrow_label(aligned, logits, len(chars))
+                    narrow_label(aligned, logits, blank_idx)
                     crop_engine = EngineLineCropper(poly=2)
                     line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
 
@@ -317,7 +319,7 @@ class PageLayout(object):
                         last = True
 
                         for a, ali in enumerate(aligned):
-                            if ali != len(chars):
+                            if ali != blank_idx:
                                 if local_letter_counter > global_letter_counter:
                                     if final:
                                         end_of_space = 4*a
@@ -592,6 +594,10 @@ def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
 
 
 if __name__ == '__main__':
+    l = PageLayout(file='/home/ikohut/data/pero_ocr_web_data/ocr_client/0fb06b7c-92b3-41cd-9523-5a869dccd7dc/output/page/9baa3b0d-3a6c-41b9-86b3-a012ea0ed378.xml')
+    l.load_logits('/home/ikohut/data/pero_ocr_web_data/ocr_client/0fb06b7c-92b3-41cd-9523-5a869dccd7dc/output/logits/9baa3b0d-3a6c-41b9-86b3-a012ea0ed378.logits')
+    print(l.to_altoxml_string())
+
     # test_layout = PageLayout(file='/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
     # test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')
     # image = cv2.imread('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624.jpg')
@@ -615,3 +621,5 @@ if __name__ == '__main__':
 
     save()
     load()
+
+
