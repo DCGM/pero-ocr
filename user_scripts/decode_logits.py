@@ -17,6 +17,7 @@ def parse_arguments():
     parser.add_argument('-l', '--lm', help='File with a language model')
     parser.add_argument('--lm-scale', type=float, default=1.0, help='File with a language model')
     parser.add_argument('-g', '--greedy', action='store_true', help='Decode with a greedy decoder')
+    parser.add_argument('--eval', action='store_true', help='Turn dropouts and batchnorms to eval mode')
     parser.add_argument('--use-gpu', action='store_true', help='Make the decoder utilize a GPU')
     parser.add_argument('--model-eos', action='store_true', help='Make the decoder model end of sentences')
     parser.add_argument('-i', '--input', help='Pickled dictionary with names and sparse logits', required=True)
@@ -43,6 +44,9 @@ def main():
         else:
             lm = None
         decoder = decoders.CTCPrefixLogRawNumpyDecoder(ocr_engine_chars + [BLANK_SYMBOL], k=args.beam_size, lm=lm, lm_scale=args.lm_scale, use_gpu=args.use_gpu)
+
+    if lm and args.eval:
+        lm.eval()
 
     with open(args.input, 'rb') as f:
         complete_input = pickle.load(f)
