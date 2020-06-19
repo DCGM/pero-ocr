@@ -88,52 +88,45 @@ def get_continuation_mask(nb_prefixes, nb_chars, last_chars, one=1.0, zero=0.0):
 
 def update_lm_things(lm, h_prev, lm_preds, best_inds_l, blank_ind):
     if not lm:
-        pass
-    elif len(get_new_prefixes_positions(best_inds_l, blank_ind)) == 0:
-        old_prefix_l_inds = best_inds_l[0][get_old_prefixes_positions(best_inds_l, blank_ind)]
-        h_prev = h_prev[old_prefix_l_inds]
-        lm_preds = lm_preds[old_prefix_l_inds]
-    else:
-        new_prefix_positions = get_new_prefixes_positions(best_inds_l, blank_ind)
+        return h_prev, lm_preds
+
+    h_prev = h_prev[best_inds_l[0]]
+    lm_preds = lm_preds[best_inds_l[0]]
+
+    new_prefix_positions = get_new_prefixes_positions(best_inds_l, blank_ind)
+    if new_prefix_positions:
         new_prefix_l_inds = best_inds_l[0][new_prefix_positions]
         new_prefix_c_inds = best_inds_l[1][new_prefix_positions]
         h_new = lm.advance_h0(new_prefix_c_inds, h_prev[new_prefix_l_inds])
-        lm_preds_new = lm.log_probs(h_new)
-
-        old_prefix_l_inds = best_inds_l[0][get_old_prefixes_positions(best_inds_l, blank_ind)]
-        h_retained = h_prev[old_prefix_l_inds]
-        lm_preds_retained = lm_preds[old_prefix_l_inds]
-
-        h_prev = h_new + h_retained
-        lm_preds = np.concatenate([lm_preds_new, lm_preds_retained])
+        lm_preds[new_prefix_positions] = lm.log_probs(h_new)
+        h_prev.update(h_new, new_prefix_l_inds)
 
     return h_prev, lm_preds
 
 
 def find_new_prefixes(prev_l_last, best_inds, A_prev, letters, blank_ind):
-    new_l_last = np.ones_like(prev_l_last) * -1
-    A_new = []
-    new_l_last = []
+    new_l_last = np.ones((len(best_inds[0]),)) * -1
+    A_new = [None] * len(best_inds[0])
 
     for i in get_new_prefixes_positions(best_inds, blank_ind):
         l_ind = best_inds[0][i]
         c_ind = best_inds[1][i]
-        new_l_last.append(best_inds[1][i])
-        A_new.append(A_prev[l_ind] + letters[c_ind])
+        new_l_last[i] = c_ind
+        A_new[i] = A_prev[l_ind] + letters[c_ind]
 
     for i in get_old_prefixes_positions(best_inds, blank_ind):
         l_ind = best_inds[0][i]
-        new_l_last.append(prev_l_last[l_ind])
-        A_new.append(A_prev[l_ind])
+        new_l_last[i] = prev_l_last[l_ind]
+        A_new[i] = A_prev[l_ind]
 
-    return A_new, np.asarray(new_l_last)
+    return A_new, new_l_last
 
 
 def find_matching(elems, pattern):
     return [i for i, p in enumerate(elems) if p == pattern]
 
 
-def adjust_for_prefix_joining(P_visual, A_prev, l_lasts, blank_ind):
+def adjust_for_prefix_joining(P_visual, A_prev, l_lasts):
     for p_ind, prefix in enumerate(A_prev):
         if prefix == '':
             continue
@@ -145,11 +138,11 @@ def adjust_for_prefix_joining(P_visual, A_prev, l_lasts, blank_ind):
         assert(len(joinable_prefix_inds) == 1)
         joinable_prefix_ind = joinable_prefix_inds[0]
 
-        original_P = P_visual[p_ind, blank_ind]
+        original_P = P_visual[p_ind, -1]
         joining_P = P_visual[joinable_prefix_ind, l_lasts[p_ind]]
         resulting_P = np.logaddexp(original_P, joining_P)
 
-        P_visual[p_ind, blank_ind] = resulting_P
+        P_visual[p_ind, -1] = resulting_P
         P_visual[joinable_prefix_ind, l_lasts[p_ind]] = -np.inf
 
 
@@ -159,19 +152,6 @@ def assert_beam_size_valid(k):
 
     if k < 1:
         raise ValueError("Beam size 'k' has to be positive, got {} instead.".format(k))
-
-
-class Timer:
-    def __init__(self, name):
-        self.name = name
-
-    def __enter__(self):
-        self.t0 = time.time()
-        return self
-
-    def __exit__(self):
-        t1 = time.time()
-        print(f'{self.name}, {(t1-self.t0)*1000:.2f} ms')
 
 
 class CTCPrefixLogRawNumpyDecoder:
@@ -191,16 +171,15 @@ class CTCPrefixLogRawNumpyDecoder:
         else:
             self._lm = None
 
-        self.LOG_ZERO_PROBABILITY = -1000000  # infinities would not properly compare, leading to NaNs and problems
+        self.LOG_ZERO_PROBABILITY = -np.inf  # infinities would not properly compare, leading to NaNs and problems
         self._zero_probs = lambda shape: np.full(shape, self.LOG_ZERO_PROBABILITY, dtype=np.float32)
 
     def compute_Pnb(self, Pnb_old, Pb_old, Pc, l_lasts):
-        P_letter_from_blank = np.add.outer(Pb_old, Pc[:-1])
-
         P_continued_letter = Pnb_old + Pc[l_lasts]  # multiplication of probabilities
 
-        delta = get_continuation_mask(Pb_old.shape[0], Pc[:-1].shape[0], l_lasts, one=0.0, zero=-np.inf)
-        P_switching_letter = np.add.outer(Pnb_old, Pc[:-1]) + delta  # delta does masking, so anything cancelled is -inf
+        P_letter_from_blank = np.add.outer(Pb_old, Pc)
+        delta = get_continuation_mask(Pb_old.shape[0], Pc.shape[0], l_lasts, one=0.0, zero=-np.inf)
+        P_switching_letter = np.add.outer(Pnb_old, Pc) + delta  # delta does masking, so anything cancelled is -inf
         Pnb_new_prefixes = np.logaddexp(P_letter_from_blank, P_switching_letter)  # summation of probabilities
 
         return np.concatenate([Pnb_new_prefixes, P_continued_letter[:, np.newaxis]], axis=1)
@@ -209,8 +188,11 @@ class CTCPrefixLogRawNumpyDecoder:
         new = Plm_old[:, np.newaxis] + lm_preds
         return np.concatenate([new, Plm_old[:, np.newaxis]], axis=1)
 
-    def compute_Pb(self, Pb_old, Pnb_old, Pc):
-        return np.logaddexp(Pb_old, Pnb_old) + Pc[-1]  # (Pb_old + Pnb_old) * Pc[-1]
+    def compute_Pb(self, Pb_old, Pnb_old, P_blank):
+        return np.logaddexp(Pb_old, Pnb_old) + P_blank  # (Pb_old + Pnb_old) * Pc[-1]
+
+    def select_relevant_logits(self, logits):
+        return np.nonzero(logits > -10)
 
     def __call__(self, logits, model_eos=False):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
@@ -226,12 +208,12 @@ class CTCPrefixLogRawNumpyDecoder:
             h_prev = None
             lm_preds = 0
 
-        Pb_old = self._zero_probs((self._k,))
-        Pnb_old = self._zero_probs((self._k,))
+        Pb_old = self._zero_probs((1,))
+        Pnb_old = self._zero_probs((1,))
         Pb_old[0] = 0.0
 
         if self._lm:
-            Plm_old = self._zero_probs((self._k,))
+            Plm_old = self._zero_probs((1,))
             Plm_old[0] = 0.0
         else:
             Plm_old = None
@@ -239,31 +221,52 @@ class CTCPrefixLogRawNumpyDecoder:
         l_lasts = np.zeros(Pb_old.shape, dtype=np.int32)
 
         for t, Pc in enumerate(logits):
+            P_blank = Pc[-1]
+
+            selected_chars = self.select_relevant_logits(Pc[:-1])[0]
+            if selected_chars.shape[0] == 0:
+                Pb_old = self.compute_Pb(Pb_old, Pnb_old, P_blank)
+                Pnb_old[...] = self.LOG_ZERO_PROBABILITY
+                continue
+
+            Pc = Pc[selected_chars]
+            neginf = np.asarray([self.LOG_ZERO_PROBABILITY]).reshape(1)
+            Pc = np.concatenate([Pc, neginf])
+
+            l_lasts_backup = l_lasts.copy()
+            inv_sel = dict([(v, i) for i, v in enumerate(selected_chars)])
+            l_lasts = np.asarray([(inv_sel[l] if l in inv_sel else (Pc.shape[0]-1)) for l in l_lasts])
+
             total_Pnb = self.compute_Pnb(Pnb_old, Pb_old, Pc, l_lasts)
-            adjust_for_prefix_joining(total_Pnb, A_prev, l_lasts, self._blank_ind)
-            total_Pb = self.compute_Pb(Pb_old, Pnb_old, Pc)
-            if self._lm:
-                total_Plm = self.compute_Plm(Plm_old, lm_preds)
+            adjust_for_prefix_joining(total_Pnb, A_prev, l_lasts)
+
+            total_Pb = self.compute_Pb(Pb_old, Pnb_old, P_blank)
 
             visual_P = total_Pnb.copy()
             visual_P[:, -1] = np.logaddexp(total_Pb, visual_P[:, -1])
-            visual_P[:, :-1] = np.logaddexp(visual_P[:, :-1], self._zero_probs(visual_P[:, :-1].shape))
+            visual_P[:, :-1] = np.logaddexp(visual_P[:, :-1], self._zero_probs(visual_P[:, :-1].shape))  # TODO remove
+
+            randchar = np.asarray([-2, self._blank_ind])
+            selected_chars = np.concatenate([selected_chars, randchar])
             if self._lm:
+                total_Plm = self.compute_Plm(Plm_old, lm_preds)[:, selected_chars]
                 total_P = visual_P + total_Plm * self._lm_scale
             else:
                 total_P = visual_P
 
-            best_inds_l = top_k(total_P, k=self._k, reverse=True)
+            best_inds_l = top_k(total_P, k=min([self._k, np.sum(np.isfinite(total_P))]), reverse=True)
+
+            Pb_old = total_Pb[best_inds_l[0]]
+            Pb_old[best_inds_l[1] != total_P.shape[1]-1] = self.LOG_ZERO_PROBABILITY
+            Pnb_old = total_Pnb[best_inds_l]
+            if self._lm:
+                Plm_old = total_Plm[best_inds_l]
+
+            l_lasts = l_lasts_backup
+            best_inds_l = best_inds_l[0], np.asarray([selected_chars[x] for x in best_inds_l[1]])
 
             A_prev, l_lasts = find_new_prefixes(l_lasts, best_inds_l, A_prev, self._letters, self._blank_ind)
             h_prev, lm_preds = update_lm_things(self._lm, h_prev, lm_preds, best_inds_l, self._blank_ind)
-
-            new_order = reorder_best_inds(best_inds_l, self._blank_ind)
-            Pb_old = total_Pb[new_order[0]]
-            Pb_old[new_order[1] != (Pc.shape[0]-1)] = self.LOG_ZERO_PROBABILITY
-            Pnb_old = total_Pnb[new_order]
-            if self._lm:
-                Plm_old = total_Plm[new_order]
 
         if model_eos:
             eos_scores = self._lm.eos_scores(h_prev)
