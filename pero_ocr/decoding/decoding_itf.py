@@ -4,7 +4,7 @@ import time
 import sys
 import json
 from .decoders import GreedyDecoder, CTCPrefixLogRawNumpyDecoder, BLANK_SYMBOL
-from pero_ocr.document_ocr.page_parser import compose_path
+from pero_ocr.utils import compose_path
 
 ZERO_LOGITS = -80.0
 

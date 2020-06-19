@@ -1,9 +1,10 @@
 import numpy as np
-from os.path import isabs, join, realpath
 
 from multiprocessing import Pool
 from functools import partial
 from scipy import ndimage
+
+from pero_ocr.utils import compose_path
 
 from .layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import crop_engine as cropper
@@ -64,12 +65,6 @@ def page_decoder_factory(config, config_path=''):
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True,
                                            config_path=config_path)
     return PageDecoder(decoder)
-
-
-def compose_path(file_path, reference_path):
-    if reference_path and not isabs(file_path):
-        file_path = join(reference_path, file_path)
-    return file_path
 
 
 def region_sorter_factory(config, config_path=''):
