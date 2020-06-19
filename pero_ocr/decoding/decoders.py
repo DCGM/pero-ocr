@@ -1,5 +1,6 @@
 import itertools
 import numpy as np
+import time
 
 from .bag_of_hypotheses import BagOfHypotheses
 from .multisort import top_k
@@ -160,6 +161,19 @@ def assert_beam_size_valid(k):
         raise ValueError("Beam size 'k' has to be positive, got {} instead.".format(k))
 
 
+class Timer:
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        self.t0 = time.time()
+        return self
+
+    def __exit__(self):
+        t1 = time.time()
+        print(f'{self.name}, {(t1-self.t0)*1000:.2f} ms')
+
+
 class CTCPrefixLogRawNumpyDecoder:
     def __init__(self, letters, k, lm=None, lm_scale=1.0, use_gpu=False):
         assert_letters_valid(letters, BLANK_SYMBOL)
@@ -177,13 +191,14 @@ class CTCPrefixLogRawNumpyDecoder:
         else:
             self._lm = None
 
-        LOG_ZERO_PROBABILITY = -1000000  # infinities would not properly compare, leading to NaNs and problems
-        self._zero_probs = lambda shape: np.full(shape, LOG_ZERO_PROBABILITY, dtype=np.float32)
+        self.LOG_ZERO_PROBABILITY = -1000000  # infinities would not properly compare, leading to NaNs and problems
+        self._zero_probs = lambda shape: np.full(shape, self.LOG_ZERO_PROBABILITY, dtype=np.float32)
 
     def compute_Pnb(self, Pnb_old, Pb_old, Pc, l_lasts):
+        P_letter_from_blank = np.add.outer(Pb_old, Pc[:-1])
+
         P_continued_letter = Pnb_old + Pc[l_lasts]  # multiplication of probabilities
 
-        P_letter_from_blank = np.add.outer(Pb_old, Pc[:-1])
         delta = get_continuation_mask(Pb_old.shape[0], Pc[:-1].shape[0], l_lasts, one=0.0, zero=-np.inf)
         P_switching_letter = np.add.outer(Pnb_old, Pc[:-1]) + delta  # delta does masking, so anything cancelled is -inf
         Pnb_new_prefixes = np.logaddexp(P_letter_from_blank, P_switching_letter)  # summation of probabilities
@@ -195,10 +210,7 @@ class CTCPrefixLogRawNumpyDecoder:
         return np.concatenate([new, Plm_old[:, np.newaxis]], axis=1)
 
     def compute_Pb(self, Pb_old, Pnb_old, Pc):
-        l_Pb = np.logaddexp(Pb_old, Pnb_old) + Pc[-1]  # (Pb_old + Pnb_old) * Pc[-1]
-        lc_Pb = self._zero_probs((Pb_old.shape[0], Pc.shape[0]-1))
-
-        return np.concatenate([lc_Pb, l_Pb[:, np.newaxis]], axis=1)
+        return np.logaddexp(Pb_old, Pnb_old) + Pc[-1]  # (Pb_old + Pnb_old) * Pc[-1]
 
     def __call__(self, logits, model_eos=False):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
@@ -233,7 +245,9 @@ class CTCPrefixLogRawNumpyDecoder:
             if self._lm:
                 total_Plm = self.compute_Plm(Plm_old, lm_preds)
 
-            visual_P = np.logaddexp(total_Pb, total_Pnb)
+            visual_P = total_Pnb.copy()
+            visual_P[:, -1] = np.logaddexp(total_Pb, visual_P[:, -1])
+            visual_P[:, :-1] = np.logaddexp(visual_P[:, :-1], self._zero_probs(visual_P[:, :-1].shape))
             if self._lm:
                 total_P = visual_P + total_Plm * self._lm_scale
             else:
@@ -245,7 +259,8 @@ class CTCPrefixLogRawNumpyDecoder:
             h_prev, lm_preds = update_lm_things(self._lm, h_prev, lm_preds, best_inds_l, self._blank_ind)
 
             new_order = reorder_best_inds(best_inds_l, self._blank_ind)
-            Pb_old = total_Pb[new_order]
+            Pb_old = total_Pb[new_order[0]]
+            Pb_old[new_order[1] != (Pc.shape[0]-1)] = self.LOG_ZERO_PROBABILITY
             Pnb_old = total_Pnb[new_order]
             if self._lm:
                 Plm_old = total_Plm[new_order]
