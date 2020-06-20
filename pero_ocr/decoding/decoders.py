@@ -193,6 +193,16 @@ class CTCPrefixLogRawNumpyDecoder:
     def select_relevant_logits(self, logits):
         return np.nonzero(logits > -10)
 
+    def get_reduced_Pc(self, Pc, selected_chars):
+        reduced_Pc = Pc[selected_chars]
+        neginf = np.asarray([self.LOG_ZERO_PROBABILITY]).reshape(1)
+        return np.concatenate([reduced_Pc, neginf])
+
+    def get_reduced_last_chars(self, last_chars, selected_chars, impossible_index):
+        reduced_last_chars = last_chars.copy()
+        inv_sel = dict([(v, i) for i, v in enumerate(selected_chars)])
+        return np.asarray([(inv_sel[l] if l in inv_sel else impossible_index) for l in reduced_last_chars])
+
     def __call__(self, logits, model_eos=False):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
         '''
@@ -228,16 +238,11 @@ class CTCPrefixLogRawNumpyDecoder:
                 Pnb[...] = self.LOG_ZERO_PROBABILITY
                 continue
 
-            Pc = Pc[selected_chars]
-            neginf = np.asarray([self.LOG_ZERO_PROBABILITY]).reshape(1)
-            Pc = np.concatenate([Pc, neginf])
+            reduced_Pc = self.get_reduced_Pc(Pc, selected_chars)
+            reduced_last_chars = self.get_reduced_last_chars(last_chars, selected_chars, reduced_Pc.shape[0]-1)
 
-            l_lasts_backup = last_chars.copy()
-            inv_sel = dict([(v, i) for i, v in enumerate(selected_chars)])
-            last_chars = np.asarray([(inv_sel[l] if l in inv_sel else (Pc.shape[0]-1)) for l in last_chars])
-
-            total_Pnb = self.compute_Pnb(Pnb, Pb, Pc, last_chars)
-            adjust_for_prefix_joining(total_Pnb, prefixes, last_chars)
+            total_Pnb = self.compute_Pnb(Pnb, Pb, reduced_Pc, reduced_last_chars)
+            adjust_for_prefix_joining(total_Pnb, prefixes, reduced_last_chars)
 
             total_Pb = self.compute_Pb(Pb, Pnb, P_blank)
 
@@ -261,7 +266,6 @@ class CTCPrefixLogRawNumpyDecoder:
             if self._lm:
                 Plm_old = total_Plm[best_inds]
 
-            last_chars = l_lasts_backup
             best_inds = best_inds[0], np.asarray([selected_chars[x] for x in best_inds[1]])
 
             prefixes, last_chars = find_new_prefixes(last_chars, best_inds, prefixes, self._letters, self._blank_ind)
