@@ -60,6 +60,7 @@ class LMWrapper:
         self._start_symbol = '</s>'
         self._lm_device = torch.device('cuda:0') if lm_on_gpu else torch.device('cpu')
 
+        self._lm.eval()
         self._lm.to(self._lm_device)
 
         self._dict = {}
@@ -67,24 +68,27 @@ class LMWrapper:
             self._dict[i] = self._lm.vocab[c]
 
     def advance_h0(self, x, h0):
-        pyth_h = h0.prepare_for_torch()
-        pyth_x = torch.from_numpy(x).to(dtype=torch.long, device=self._lm_device).unsqueeze(1) + self._lm._unused_prefix_len
-        _, h_new = self._lm.model(pyth_x, pyth_h)
+        with torch.no_grad():
+            pyth_h = h0.prepare_for_torch()
+            pyth_x = torch.from_numpy(x).to(dtype=torch.long, device=self._lm_device).unsqueeze(1) + self._lm._unused_prefix_len
+            _, h_new = self._lm.model(pyth_x, pyth_h)
         return HiddenState(h_new)
 
     def log_probs(self, h):
-        pyth_h = h.output()
-        y = self._lm.decoder(pyth_h)
+        with torch.no_grad():
+            pyth_h = h.output()
+            y = self._lm.decoder(pyth_h)
 
-        if len(y.shape) == 3:
-            assert(y.shape[1] == 1)
-            y = y[0]
+            if len(y.shape) == 3:
+                assert(y.shape[1] == 1)
+                y = y[0]
 
         return y.detach().to('cpu').numpy()[:, self._lm._unused_prefix_len:]
 
     def eos_scores(self, h):
-        pyth_h = h.output()
-        y = self._lm.decoder(pyth_h)
+        with torch.no_grad():
+            pyth_h = h.output()
+            y = self._lm.decoder(pyth_h)
 
         if len(y.shape) == 3:
             assert(y.shape[1] == 1)
@@ -93,10 +97,11 @@ class LMWrapper:
         return y.detach().to('cpu').numpy()[:, self._lm.vocab['</s>']]
 
     def initial_h(self, batch_size):
-        h0 = self._lm.model.init_hidden(batch_size)
-        start_input = self._lm.vocab[self._start_symbol]
-        x1 = torch.tensor([[start_input]]).to(self._lm_device)
-        _, h1 = self._lm.model(x1, h0)
+        with torch.no_grad():
+            h0 = self._lm.model.init_hidden(batch_size)
+            start_input = self._lm.vocab[self._start_symbol]
+            x1 = torch.tensor([[start_input]]).to(self._lm_device)
+            _, h1 = self._lm.model(x1, h0)
         return HiddenState(h1)
 
     def translate(self, symbols):
