@@ -248,7 +248,6 @@ class CTCPrefixLogRawNumpyDecoder:
 
             visual_P = total_Pnb.copy()
             visual_P[:, -1] = np.logaddexp(total_Pb, visual_P[:, -1])
-            visual_P[:, :-1] = np.logaddexp(visual_P[:, :-1], self._zero_probs(visual_P[:, :-1].shape))  # TODO remove
 
             randchar = np.asarray([-2, self._blank_ind])
             selected_chars = np.concatenate([selected_chars, randchar])
