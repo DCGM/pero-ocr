@@ -153,8 +153,12 @@ def assert_beam_size_valid(k):
         raise ValueError("Beam size 'k' has to be positive, got {} instead.".format(k))
 
 
+def select_relevant_logits(logits):
+    return np.nonzero(logits > -10)
+
+
 class CTCPrefixLogRawNumpyDecoder:
-    def __init__(self, letters, k, lm=None, lm_scale=1.0, use_gpu=False):
+    def __init__(self, letters, k, lm=None, lm_scale=1.0, use_gpu=False, relevant_logits_selector=select_relevant_logits):
         assert_letters_valid(letters, BLANK_SYMBOL)
 
         self._letters = letters
@@ -164,14 +168,14 @@ class CTCPrefixLogRawNumpyDecoder:
         self._lm_scale = lm_scale
 
         self._blank_ind = self._letters.index(BLANK_SYMBOL)
+        self.select_relevant_logits = relevant_logits_selector
 
         if lm:
             self._lm = LMWrapper(lm, letters[:-1], lm_on_gpu=use_gpu)
         else:
             self._lm = None
 
-        self.LOG_ZERO_PROBABILITY = -np.inf  # infinities would not properly compare, leading to NaNs and problems
-        self._zero_probs = lambda shape: np.full(shape, self.LOG_ZERO_PROBABILITY, dtype=np.float32)
+        self.LOG_ZERO_PROBABILITY = -np.inf
 
     def compute_Pnb(self, Pnb_old, Pb_old, Pc, last_chars):
         P_continued_letter = Pnb_old + Pc[last_chars]  # multiplication of probabilities
@@ -188,19 +192,16 @@ class CTCPrefixLogRawNumpyDecoder:
         return np.concatenate([new, Plm_old[:, np.newaxis]], axis=1)
 
     def compute_Pb(self, Pb_old, Pnb_old, P_blank):
-        return np.logaddexp(Pb_old, Pnb_old) + P_blank  # (Pb_old + Pnb_old) * Pc[-1]
-
-    def select_relevant_logits(self, logits):
-        return np.nonzero(logits > -10)
+        return np.logaddexp(Pb_old, Pnb_old) + P_blank  # (Pb_old + Pnb_old) * P_blank
 
     def get_reduced_Pc(self, Pc, selected_chars):
         reduced_Pc = Pc[selected_chars]
-        neginf = np.asarray([self.LOG_ZERO_PROBABILITY]).reshape(1)
+        neginf = np.asarray([self.LOG_ZERO_PROBABILITY])
         return np.concatenate([reduced_Pc, neginf])
 
     def get_reduced_last_chars(self, last_chars, selected_chars, impossible_index):
         reduced_last_chars = last_chars.copy()
-        inv_sel = dict([(v, i) for i, v in enumerate(selected_chars)])
+        inv_sel = {v: i for i, v in enumerate(selected_chars)}
         return np.asarray([(inv_sel[l] if l in inv_sel else impossible_index) for l in reduced_last_chars])
 
     def __call__(self, logits, model_eos=False):
@@ -217,15 +218,13 @@ class CTCPrefixLogRawNumpyDecoder:
             h_prev = None
             lm_preds = 0
 
-        Pb = self._zero_probs((1,))
-        Pnb = self._zero_probs((1,))
-        Pb[0] = 0.0
+        Pb = np.asarray([0.0])
+        Pnb = np.asarray([self.LOG_ZERO_PROBABILITY])
 
         if self._lm:
-            Plm_old = self._zero_probs((1,))
-            Plm_old[0] = 0.0
+            Plm = np.asarray([0.0])
         else:
-            Plm_old = None
+            Plm = None
 
         last_chars = np.zeros(Pb.shape, dtype=np.int32)
 
@@ -252,7 +251,7 @@ class CTCPrefixLogRawNumpyDecoder:
             randchar = np.asarray([-2, self._blank_ind])
             selected_chars = np.concatenate([selected_chars, randchar])
             if self._lm:
-                total_Plm = self.compute_Plm(Plm_old, lm_preds)[:, selected_chars]
+                total_Plm = self.compute_Plm(Plm, lm_preds)[:, selected_chars]
                 total_P = visual_P + total_Plm * self._lm_scale
             else:
                 total_P = visual_P
@@ -263,7 +262,7 @@ class CTCPrefixLogRawNumpyDecoder:
             Pb[best_inds[1] != total_P.shape[1]-1] = self.LOG_ZERO_PROBABILITY
             Pnb = total_Pnb[best_inds]
             if self._lm:
-                Plm_old = total_Plm[best_inds]
+                Plm = total_Plm[best_inds]
 
             best_inds = best_inds[0], np.asarray([selected_chars[x] for x in best_inds[1]])
 
@@ -272,6 +271,6 @@ class CTCPrefixLogRawNumpyDecoder:
 
         if model_eos:
             eos_scores = self._lm.eos_scores(h_prev)
-            Plm_old += eos_scores
+            Plm += eos_scores
 
-        return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm_old)
+        return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm)
