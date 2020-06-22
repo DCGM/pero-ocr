@@ -8,6 +8,7 @@ from pero_ocr.decoding.decoders import find_new_prefixes
 from pero_ocr.decoding.decoders import GreedyDecoder
 from pero_ocr.decoding.decoders import CTCPrefixLogRawNumpyDecoder
 from pero_ocr.decoding.decoders import get_old_prefixes_positions, get_new_prefixes_positions
+from pero_ocr.decoding.decoders import update_lm_things
 
 from .test_lm_wrapper import DummyLm
 
@@ -20,7 +21,18 @@ class CTCPrefixDecodersBeam1Tests:
 
         boh = self.decoder(logits)
         hyp = boh.best_hyp()
+
         self.assertEqual(hyp, 'a')
+
+    def test_single_blank_score(self):
+        logits = np.asarray([
+            [-80.0, -80.0, -80.0, -5.0],
+        ])
+
+        boh = self.decoder(logits)
+        hyp = boh.best_hyp()
+        self.assertEqual(hyp, '')
+        self.assertEqual(boh._hyps[0].vis_sc, -5.0)
 
     def test_trivial(self):
         logits = np.asarray([
@@ -382,6 +394,27 @@ class FindNewPrefixesTests(unittest.TestCase):
 
         self.assertEqual(set(A_new), set(A_exp))
         self.assertEqual(set(l_last_new.tolist()), set(l_last_exp.tolist()))
+
+
+class UpdateLMThingsTests(unittest.TestCase):
+    def test_shuffling_partial_update(self):
+        h_prev = np.asarray([11, 12])
+        lm_preds = np.asarray([[1, 2], [3, 4]])
+        best_inds = np.asarray([1, 0]), np.asarray([1, 2])
+
+        class Object:
+            pass
+
+        lm = Object()
+        lm.advance_h0 = lambda _, h: 2*h
+        lm.log_probs = lambda _: np.asarray([5, 6])
+
+        expected_h = np.asarray([24, 11])
+        expected_preds = np.asarray([[5, 6], [1, 2]])
+
+        h_new, lm_pred_new = update_lm_things(lm, h_prev, lm_preds, best_inds, blank_ind=2)
+        self.assertTrue(np.array_equal(h_new, expected_h))
+        self.assertTrue(np.array_equal(lm_pred_new, expected_preds))
 
 
 class HelpersTests(unittest.TestCase):

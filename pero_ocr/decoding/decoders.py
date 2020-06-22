@@ -1,7 +1,7 @@
 import itertools
 import numpy as np
 
-from .bag_of_hypotheses import BagOfHypotheses
+from .bag_of_hypotheses import BagOfHypotheses, logsumexp
 from .multisort import top_k
 
 from .lm_wrapper import LMWrapper
@@ -47,7 +47,7 @@ class GreedyDecoder:
         decoded = ''.join(self._letters[ind] for ind in reduced if ind != self._blank_ind)
 
         bag_of_hyps = BagOfHypotheses()
-        bag_of_hyps.add(decoded, np.log(np.sum(maxes)))
+        bag_of_hyps.add(decoded, logsumexp(maxes))
 
         return bag_of_hyps
 
@@ -87,52 +87,45 @@ def get_continuation_mask(nb_prefixes, nb_chars, last_chars, one=1.0, zero=0.0):
 
 def update_lm_things(lm, h_prev, lm_preds, best_inds_l, blank_ind):
     if not lm:
-        pass
-    elif len(get_new_prefixes_positions(best_inds_l, blank_ind)) == 0:
-        old_prefix_l_inds = best_inds_l[0][get_old_prefixes_positions(best_inds_l, blank_ind)]
-        h_prev = h_prev[old_prefix_l_inds]
-        lm_preds = lm_preds[old_prefix_l_inds]
-    else:
-        new_prefix_positions = get_new_prefixes_positions(best_inds_l, blank_ind)
+        return h_prev, lm_preds
+
+    h_new = h_prev[best_inds_l[0]]
+    lm_preds_new = lm_preds[best_inds_l[0]]
+
+    new_prefix_positions = get_new_prefixes_positions(best_inds_l, blank_ind)
+    if new_prefix_positions:
         new_prefix_l_inds = best_inds_l[0][new_prefix_positions]
         new_prefix_c_inds = best_inds_l[1][new_prefix_positions]
-        h_new = lm.advance_h0(new_prefix_c_inds, h_prev[new_prefix_l_inds])
-        lm_preds_new = lm.log_probs(h_new)
+        h_replacement = lm.advance_h0(new_prefix_c_inds, h_prev[new_prefix_l_inds])
+        lm_preds_new[new_prefix_positions] = lm.log_probs(h_replacement)
+        h_new[new_prefix_positions] = h_replacement
 
-        old_prefix_l_inds = best_inds_l[0][get_old_prefixes_positions(best_inds_l, blank_ind)]
-        h_retained = h_prev[old_prefix_l_inds]
-        lm_preds_retained = lm_preds[old_prefix_l_inds]
-
-        h_prev = h_new + h_retained
-        lm_preds = np.concatenate([lm_preds_new, lm_preds_retained])
-
-    return h_prev, lm_preds
+    return h_new, lm_preds_new
 
 
 def find_new_prefixes(prev_l_last, best_inds, A_prev, letters, blank_ind):
-    new_l_last = np.ones_like(prev_l_last) * -1
-    A_new = []
-    new_l_last = []
+    new_l_last = np.ones((len(best_inds[0]),)) * -1
+    A_new = [None] * len(best_inds[0])
 
     for i in get_new_prefixes_positions(best_inds, blank_ind):
         l_ind = best_inds[0][i]
         c_ind = best_inds[1][i]
-        new_l_last.append(best_inds[1][i])
-        A_new.append(A_prev[l_ind] + letters[c_ind])
+        new_l_last[i] = c_ind
+        A_new[i] = A_prev[l_ind] + letters[c_ind]
 
     for i in get_old_prefixes_positions(best_inds, blank_ind):
         l_ind = best_inds[0][i]
-        new_l_last.append(prev_l_last[l_ind])
-        A_new.append(A_prev[l_ind])
+        new_l_last[i] = prev_l_last[l_ind]
+        A_new[i] = A_prev[l_ind]
 
-    return A_new, np.asarray(new_l_last)
+    return A_new, new_l_last
 
 
 def find_matching(elems, pattern):
     return [i for i, p in enumerate(elems) if p == pattern]
 
 
-def adjust_for_prefix_joining(P_visual, A_prev, l_lasts, blank_ind):
+def adjust_for_prefix_joining(P_visual, A_prev, last_chars):
     for p_ind, prefix in enumerate(A_prev):
         if prefix == '':
             continue
@@ -144,12 +137,12 @@ def adjust_for_prefix_joining(P_visual, A_prev, l_lasts, blank_ind):
         assert(len(joinable_prefix_inds) == 1)
         joinable_prefix_ind = joinable_prefix_inds[0]
 
-        original_P = P_visual[p_ind, blank_ind]
-        joining_P = P_visual[joinable_prefix_ind, l_lasts[p_ind]]
+        original_P = P_visual[p_ind, -1]
+        joining_P = P_visual[joinable_prefix_ind, last_chars[p_ind]]
         resulting_P = np.logaddexp(original_P, joining_P)
 
-        P_visual[p_ind, blank_ind] = resulting_P
-        P_visual[joinable_prefix_ind, l_lasts[p_ind]] = -np.inf
+        P_visual[p_ind, -1] = resulting_P
+        P_visual[joinable_prefix_ind, last_chars[p_ind]] = -np.inf
 
 
 def assert_beam_size_valid(k):
@@ -160,8 +153,12 @@ def assert_beam_size_valid(k):
         raise ValueError("Beam size 'k' has to be positive, got {} instead.".format(k))
 
 
+def select_relevant_logits(logits):
+    return np.nonzero(logits > -10)
+
+
 class CTCPrefixLogRawNumpyDecoder:
-    def __init__(self, letters, k, lm=None, lm_scale=1.0, use_gpu=False):
+    def __init__(self, letters, k, lm=None, lm_scale=1.0, use_gpu=False, relevant_logits_selector=select_relevant_logits):
         assert_letters_valid(letters, BLANK_SYMBOL)
 
         self._letters = letters
@@ -171,41 +168,48 @@ class CTCPrefixLogRawNumpyDecoder:
         self._lm_scale = lm_scale
 
         self._blank_ind = self._letters.index(BLANK_SYMBOL)
+        self.select_relevant_logits = relevant_logits_selector
 
         if lm:
             self._lm = LMWrapper(lm, letters[:-1], lm_on_gpu=use_gpu)
         else:
             self._lm = None
 
-        LOG_ZERO_PROBABILITY = -1000000  # infinities would not properly compare, leading to NaNs and problems
-        self._zero_probs = lambda shape: np.full(shape, LOG_ZERO_PROBABILITY, dtype=np.float32)
+        self.LOG_ZERO_PROBABILITY = -np.inf
 
-    def compute_Pnb(self, Pnb_old, Pb_old, Pc, l_lasts):
-        P_continued_letter = Pnb_old + Pc[l_lasts]  # multiplication of probabilities
+    def compute_Pnb(self, Pnb_old, Pb_old, Pc, last_chars):
+        P_continued_letter = Pnb_old + Pc[last_chars]  # multiplication of probabilities
 
-        P_letter_from_blank = np.add.outer(Pb_old, Pc[:-1])
-        delta = get_continuation_mask(Pb_old.shape[0], Pc[:-1].shape[0], l_lasts, one=0.0, zero=-np.inf)
-        P_switching_letter = np.add.outer(Pnb_old, Pc[:-1]) + delta  # delta does masking, so anything cancelled is -inf
+        P_letter_from_blank = np.add.outer(Pb_old, Pc)
+        delta = get_continuation_mask(Pb_old.shape[0], Pc.shape[0], last_chars, one=0.0, zero=-np.inf)
+        P_switching_letter = np.add.outer(Pnb_old, Pc) + delta  # delta does masking, so anything cancelled is -inf
         Pnb_new_prefixes = np.logaddexp(P_letter_from_blank, P_switching_letter)  # summation of probabilities
 
         return np.concatenate([Pnb_new_prefixes, P_continued_letter[:, np.newaxis]], axis=1)
 
-    def compute_Plm(self, Plm_old, lm_preds):
+    def compute_Plm(self, Plm_old, lm_preds):  # TODO can be cached too
         new = Plm_old[:, np.newaxis] + lm_preds
         return np.concatenate([new, Plm_old[:, np.newaxis]], axis=1)
 
-    def compute_Pb(self, Pb_old, Pnb_old, Pc):
-        l_Pb = np.logaddexp(Pb_old, Pnb_old) + Pc[-1]  # (Pb_old + Pnb_old) * Pc[-1]
-        lc_Pb = self._zero_probs((Pb_old.shape[0], Pc.shape[0]-1))
+    def compute_Pb(self, Pb_old, Pnb_old, P_blank):
+        return np.logaddexp(Pb_old, Pnb_old) + P_blank  # (Pb_old + Pnb_old) * P_blank
 
-        return np.concatenate([lc_Pb, l_Pb[:, np.newaxis]], axis=1)
+    def get_reduced_Pc(self, Pc, selected_chars):
+        reduced_Pc = Pc[selected_chars]
+        neginf = np.asarray([self.LOG_ZERO_PROBABILITY])
+        return np.concatenate([reduced_Pc, neginf])
+
+    def get_reduced_last_chars(self, last_chars, selected_chars, impossible_index):
+        reduced_last_chars = last_chars.copy()
+        inv_sel = {v: i for i, v in enumerate(selected_chars)}
+        return np.asarray([(inv_sel[l] if l in inv_sel else impossible_index) for l in reduced_last_chars])
 
     def __call__(self, logits, model_eos=False):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
         '''
 
         empty = ''
-        A_prev = [empty]
+        prefixes = [empty]
 
         if self._lm:
             h_prev = self._lm.initial_h(1)
@@ -214,44 +218,59 @@ class CTCPrefixLogRawNumpyDecoder:
             h_prev = None
             lm_preds = 0
 
-        Pb_old = self._zero_probs((self._k,))
-        Pnb_old = self._zero_probs((self._k,))
-        Pb_old[0] = 0.0
+        Pb = np.asarray([0.0])
+        Pnb = np.asarray([self.LOG_ZERO_PROBABILITY])
 
         if self._lm:
-            Plm_old = self._zero_probs((self._k,))
-            Plm_old[0] = 0.0
+            Plm = np.asarray([0.0])
         else:
-            Plm_old = None
+            Plm = None
 
-        l_lasts = np.zeros(Pb_old.shape, dtype=np.int32)
+        last_chars = np.zeros(Pb.shape, dtype=np.int32)
 
         for t, Pc in enumerate(logits):
-            total_Pnb = self.compute_Pnb(Pnb_old, Pb_old, Pc, l_lasts)
-            adjust_for_prefix_joining(total_Pnb, A_prev, l_lasts, self._blank_ind)
-            total_Pb = self.compute_Pb(Pb_old, Pnb_old, Pc)
-            if self._lm:
-                total_Plm = self.compute_Plm(Plm_old, lm_preds)
+            P_blank = Pc[-1]
 
-            visual_P = np.logaddexp(total_Pb, total_Pnb)
+            selected_chars = self.select_relevant_logits(Pc[:-1])[0]
+            if selected_chars.shape[0] == 0:
+                Pb = self.compute_Pb(Pb, Pnb, P_blank)
+                Pnb[...] = self.LOG_ZERO_PROBABILITY
+                continue
+
+            reduced_Pc = self.get_reduced_Pc(Pc, selected_chars)
+            reduced_last_chars = self.get_reduced_last_chars(last_chars, selected_chars, reduced_Pc.shape[0]-1)
+
+            total_Pnb = self.compute_Pnb(Pnb, Pb, reduced_Pc, reduced_last_chars)
+            adjust_for_prefix_joining(total_Pnb, prefixes, reduced_last_chars)
+
+            total_Pb = self.compute_Pb(Pb, Pnb, P_blank)
+
+            visual_P = total_Pnb.copy()
+            visual_P[:, -1] = np.logaddexp(total_Pb, visual_P[:, -1])
+
+            randchar = np.asarray([-2, self._blank_ind])
+            selected_chars = np.concatenate([selected_chars, randchar])
             if self._lm:
+                total_Plm = self.compute_Plm(Plm, lm_preds)[:, selected_chars]
                 total_P = visual_P + total_Plm * self._lm_scale
             else:
                 total_P = visual_P
 
-            best_inds_l = top_k(total_P, k=self._k, reverse=True)
+            best_inds = top_k(total_P, k=min([self._k, np.sum(np.isfinite(total_P))]), reverse=True)
 
-            A_prev, l_lasts = find_new_prefixes(l_lasts, best_inds_l, A_prev, self._letters, self._blank_ind)
-            h_prev, lm_preds = update_lm_things(self._lm, h_prev, lm_preds, best_inds_l, self._blank_ind)
-
-            new_order = reorder_best_inds(best_inds_l, self._blank_ind)
-            Pb_old = total_Pb[new_order]
-            Pnb_old = total_Pnb[new_order]
+            Pb = total_Pb[best_inds[0]]
+            Pb[best_inds[1] != total_P.shape[1]-1] = self.LOG_ZERO_PROBABILITY
+            Pnb = total_Pnb[best_inds]
             if self._lm:
-                Plm_old = total_Plm[new_order]
+                Plm = total_Plm[best_inds]
+
+            best_inds = best_inds[0], np.asarray([selected_chars[x] for x in best_inds[1]])
+
+            prefixes, last_chars = find_new_prefixes(last_chars, best_inds, prefixes, self._letters, self._blank_ind)
+            h_prev, lm_preds = update_lm_things(self._lm, h_prev, lm_preds, best_inds, self._blank_ind)
 
         if model_eos:
             eos_scores = self._lm.eos_scores(h_prev)
-            Plm_old += eos_scores
+            Plm += eos_scores
 
-        return build_boh(A_prev, np.logaddexp(Pb_old, Pnb_old), Plm_old)
+        return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm)

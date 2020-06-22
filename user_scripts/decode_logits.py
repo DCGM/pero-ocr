@@ -3,6 +3,7 @@
 import argparse
 import pickle
 import time
+import sys
 
 from pero_ocr.decoding import confusion_networks
 from pero_ocr.decoding.decoding_itf import prepare_dense_logits, construct_lm, get_ocr_charset, BLANK_SYMBOL
@@ -19,6 +20,7 @@ def parse_arguments():
     parser.add_argument('-g', '--greedy', action='store_true', help='Decode with a greedy decoder')
     parser.add_argument('--eval', action='store_true', help='Turn dropouts and batchnorms to eval mode')
     parser.add_argument('--use-gpu', action='store_true', help='Make the decoder utilize a GPU')
+    parser.add_argument('--report-eta', action='store_true', help='Keep updating stdout with ETA')
     parser.add_argument('--model-eos', action='store_true', help='Make the decoder model end of sentences')
     parser.add_argument('-i', '--input', help='Pickled dictionary with names and sparse logits', required=True)
     parser.add_argument('-b', '--best', help='Where to store 1-best output', required=True)
@@ -27,7 +29,31 @@ def parse_arguments():
 
     args = parser.parse_args()
 
-    return(args)
+    return args
+
+
+class Reporter:
+    def __init__(self, stream=sys.stdout, nop=False):
+        self.nop = nop
+        self.last_len = None
+        self.stream = stream
+
+    def report(self, msg):
+        if self.nop:
+            return
+
+        self.stream.write('\r')
+        self.stream.write(msg)
+
+        if self.last_len and len(msg) < self.last_len:
+            self.stream.write(' ' * (self.last_len-len(msg)))
+
+        self.last_len = len(msg)
+
+    def clear(self):
+        if self.nop:
+            return
+        self.stream.write('\r\n')
 
 
 def main():
@@ -59,11 +85,11 @@ def main():
         cn_decodings = {}
 
     t_0 = time.time()
-    print('')
+    reporter = Reporter(nop=not args.report_eta)
     for i, (name, sparse_logits) in enumerate(zip(names, logits)):
         time_per_line = (time.time() - t_0) / (i+1)
         nb_lines_ahead = len(names) - (i+1)
-        print('\rProcessing {} [{}/{}, {:.2f}s/line, ETA {:.2f}s]'.format(name, i+1, len(names), time_per_line, time_per_line*nb_lines_ahead), end='')
+        reporter.report('Processing {} [{}/{}, {:.2f}s/line, ETA {:.2f}s]'.format(name, i+1, len(names), time_per_line, time_per_line*nb_lines_ahead))
         dense_logits = prepare_dense_logits(sparse_logits)
 
         if args.greedy:
@@ -77,7 +103,7 @@ def main():
         if args.cn_best:
             cn = confusion_networks.produce_cn_from_boh(boh)
             cn_decodings[name] = confusion_networks.best_cn_path(cn)
-    print('')
+    reporter.clear()
 
     save_transcriptions(args.best, decodings)
 
