@@ -1,7 +1,7 @@
 import itertools
 import numpy as np
 
-from .bag_of_hypotheses import BagOfHypotheses
+from .bag_of_hypotheses import BagOfHypotheses, logsumexp
 from .multisort import top_k
 
 from .lm_wrapper import LMWrapper
@@ -47,7 +47,7 @@ class GreedyDecoder:
         decoded = ''.join(self._letters[ind] for ind in reduced if ind != self._blank_ind)
 
         bag_of_hyps = BagOfHypotheses()
-        bag_of_hyps.add(decoded, np.log(np.sum(maxes)))
+        bag_of_hyps.add(decoded, logsumexp(maxes))
 
         return bag_of_hyps
 
