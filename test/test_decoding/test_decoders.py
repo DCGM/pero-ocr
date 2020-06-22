@@ -20,7 +20,18 @@ class CTCPrefixDecodersBeam1Tests:
 
         boh = self.decoder(logits)
         hyp = boh.best_hyp()
+
         self.assertEqual(hyp, 'a')
+
+    def test_single_blank_score(self):
+        logits = np.asarray([
+            [-80.0, -80.0, -80.0, -5.0],
+        ])
+
+        boh = self.decoder(logits)
+        hyp = boh.best_hyp()
+        self.assertEqual(hyp, '')
+        self.assertEqual(boh._hyps[0].vis_sc, -5.0)
 
     def test_trivial(self):
         logits = np.asarray([
