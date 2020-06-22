@@ -89,18 +89,18 @@ def update_lm_things(lm, h_prev, lm_preds, best_inds_l, blank_ind):
     if not lm:
         return h_prev, lm_preds
 
-    h_prev = h_prev[best_inds_l[0]]
-    lm_preds = lm_preds[best_inds_l[0]]
+    h_new = h_prev[best_inds_l[0]]
+    lm_preds_new = lm_preds[best_inds_l[0]]
 
     new_prefix_positions = get_new_prefixes_positions(best_inds_l, blank_ind)
     if new_prefix_positions:
         new_prefix_l_inds = best_inds_l[0][new_prefix_positions]
         new_prefix_c_inds = best_inds_l[1][new_prefix_positions]
-        h_new = lm.advance_h0(new_prefix_c_inds, h_prev[new_prefix_l_inds])
-        lm_preds[new_prefix_positions] = lm.log_probs(h_new)
-        h_prev.update(h_new, new_prefix_l_inds)
+        h_replacement = lm.advance_h0(new_prefix_c_inds, h_prev[new_prefix_l_inds])
+        lm_preds_new[new_prefix_positions] = lm.log_probs(h_replacement)
+        h_new[new_prefix_positions] = h_replacement
 
-    return h_prev, lm_preds
+    return h_new, lm_preds_new
 
 
 def find_new_prefixes(prev_l_last, best_inds, A_prev, letters, blank_ind):
@@ -187,7 +187,7 @@ class CTCPrefixLogRawNumpyDecoder:
 
         return np.concatenate([Pnb_new_prefixes, P_continued_letter[:, np.newaxis]], axis=1)
 
-    def compute_Plm(self, Plm_old, lm_preds):
+    def compute_Plm(self, Plm_old, lm_preds):  # TODO can be cached too
         new = Plm_old[:, np.newaxis] + lm_preds
         return np.concatenate([new, Plm_old[:, np.newaxis]], axis=1)
 

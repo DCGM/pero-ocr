@@ -29,12 +29,12 @@ class HiddenState:
     def prepare_for_torch(self):
         return self._h
 
-    def update(self, data, idx):
+    def __setitem__(self, idx, other):
         if isinstance(self._h, tuple):
-            for dst, src in zip(self._h, data._h):
+            for dst, src in zip(self._h, other._h):
                 dst[:, idx] = src
         else:
-            self._h[:, idx] = data._h
+            self._h[:, idx] = other._h
 
     def __add__(self, other):
         if isinstance(self._h, tuple):
