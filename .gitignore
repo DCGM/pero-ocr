@@ -1,5 +1,6 @@
 data/*
 *.logit
+*.logits
 *.xml
 *.jpg
 *.db
