@@ -10,6 +10,7 @@ from pero_ocr.document_ocr.layout import PageLayout
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--print-all', action='store_true', help='Report CER per page xml')
     parser.add_argument('--hyp', help='Folder with page xmls whose CER will be computed', required=True)
     parser.add_argument('--ref', help='Folder with reference page xml', required=True)
     args = parser.parse_args()
@@ -61,7 +62,8 @@ def main():
         result = compare_page_layouts(os.path.join(args.hyp, xml_file), os.path.join(args.ref, xml_file))
         if result is not None:
             char_sum, char_dist = result
-            print('Result:', xml_file, char_sum, char_dist, char_dist / (char_sum + 1))
+            if args.print_all:
+                print('Result:', xml_file, char_sum, char_dist, char_dist / (char_sum + 1))
             total_char_sum += char_sum
             total_char_dist += char_dist
 
