@@ -25,32 +25,31 @@ def read_page_xml(path):
     return page_layout
 
 
-def compare_page_layouts(page_file_1, page_file_2):
-    page1 = read_page_xml(page_file_1)
-    page2 = read_page_xml(page_file_2)
-    if page1 is None or page2 is None:
+def compare_page_layouts(hyp_fn, ref_fn):
+    hyp_page = read_page_xml(hyp_fn)
+    ref_page = read_page_xml(ref_fn)
+    if hyp_page is None or ref_page is None:
         return None
 
-    lines1 = dict([(line.id, line.transcription) for line in page1.lines_iterator()])
-    lines2 = dict([(line.id, line.transcription) for line in page2.lines_iterator()])
+    hyp_lines = dict([(line.id, line.transcription) for line in hyp_page.lines_iterator()])
+    ref_lines = dict([(line.id, line.transcription) for line in ref_page.lines_iterator()])
 
     char_sum = 0
     char_dist = 0
-    line_ids = set(lines1.keys()) | set(lines2.keys())
+    line_ids = set(hyp_lines.keys()) | set(ref_lines.keys())
     for line_id in line_ids:
-        if line_id not in lines1:
-            print(f'Warning: Line "{line_id}" missing in "{page_file_1}"')
-        if line_id not in lines2:
-            print(f'Warning: Line "{line_id}" missing in "{page_file_2}"')
+        if line_id not in hyp_lines:
+            print(f'Warning: Line "{line_id}" missing in "{hyp_fn}"')
+        if line_id not in ref_lines:
+            print(f'Warning: Line "{line_id}" missing in "{ref_fn}"')
 
-        char_sum += len(lines2[line_id])
-        char_dist += Levenshtein.distance(lines1[line_id], lines2[line_id])
+        char_sum += len(ref_lines[line_id])
+        char_dist += Levenshtein.distance(ref_lines[line_id], hyp_lines[line_id])
 
     return char_sum, char_dist
 
 
 def main():
-    # initialize some parameters
     args = parse_arguments()
 
     xml_to_process = set([f for f in os.listdir(args.ref) if os.path.splitext(f)[1] == '.xml'])
