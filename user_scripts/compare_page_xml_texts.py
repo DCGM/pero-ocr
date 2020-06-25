@@ -50,6 +50,10 @@ def compare_page_layouts(hyp_fn, ref_fn):
     return char_sum, char_dist
 
 
+def print_result(name, nb_errors, ref_len):
+    print(f'{name} {100.0*nb_errors/ref_len:.2f} % CER [ {nb_errors} / {ref_len} ]')
+
+
 def main():
     args = parse_arguments()
 
@@ -63,11 +67,11 @@ def main():
         if result is not None:
             char_sum, char_dist = result
             if args.print_all:
-                print('Result:', xml_file, char_sum, char_dist, char_dist / (char_sum + 1))
+                print_result(xml_file, char_dist, char_sum)
             total_char_sum += char_sum
             total_char_dist += char_dist
 
-    print('Result: FINAL', total_char_sum, total_char_dist, total_char_dist / (total_char_sum))
+    print_result('summary', total_char_dist, total_char_sum)
 
 
 if __name__ == "__main__":
