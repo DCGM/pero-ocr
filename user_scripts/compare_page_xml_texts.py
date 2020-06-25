@@ -10,8 +10,8 @@ from pero_ocr.document_ocr.layout import PageLayout
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--path1', help='First path with page xml files.', required=True)
-    parser.add_argument('--path2', help='Second path with page xml files.', required=True)
+    parser.add_argument('--hyp', help='Folder with page xmls whose CER will be computed', required=True)
+    parser.add_argument('--ref', help='Folder with reference page xml', required=True)
     args = parser.parse_args()
     return args
 
@@ -53,13 +53,13 @@ def main():
     # initialize some parameters
     args = parse_arguments()
 
-    xml_to_process = set([f for f in os.listdir(args.path1) if os.path.splitext(f)[1] == '.xml'])
-    xml_to_process |= set([f for f in os.listdir(args.path2) if os.path.splitext(f)[1] == '.xml'])
+    xml_to_process = set([f for f in os.listdir(args.ref) if os.path.splitext(f)[1] == '.xml'])
+    xml_to_process |= set([f for f in os.listdir(args.hyp) if os.path.splitext(f)[1] == '.xml'])
 
     total_char_sum = 0
     total_char_dist = 0
     for xml_file in xml_to_process:
-        result = compare_page_layouts(os.path.join(args.path1, xml_file), os.path.join(args.path2, xml_file))
+        result = compare_page_layouts(os.path.join(args.hyp, xml_file), os.path.join(args.ref, xml_file))
         if result is not None:
             char_sum, char_dist = result
             print('Result:', xml_file, char_sum, char_dist, char_dist / (char_sum + 1))
