@@ -20,7 +20,7 @@ def parse_arguments():
 def read_page_xml(path):
     try:
         page_layout = PageLayout(file=path)
-    except:
+    except Exception:
         print(f'Warning: unable to load page xml "{path}"')
         return None
     return page_layout
