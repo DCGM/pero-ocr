@@ -31,8 +31,8 @@ def compare_page_layouts(hyp_fn, ref_fn):
     if hyp_page is None or ref_page is None:
         return None
 
-    hyp_lines = dict([(line.id, line.transcription) for line in hyp_page.lines_iterator()])
-    ref_lines = dict([(line.id, line.transcription) for line in ref_page.lines_iterator()])
+    hyp_lines = {line.id: line.transcription for line in hyp_page.lines_iterator()}
+    ref_lines = {line.id: line.transcription for line in ref_page.lines_iterator()}
 
     char_sum = 0
     char_dist = 0
@@ -52,8 +52,8 @@ def compare_page_layouts(hyp_fn, ref_fn):
 def main():
     args = parse_arguments()
 
-    xml_to_process = set([f for f in os.listdir(args.ref) if os.path.splitext(f)[1] == '.xml'])
-    xml_to_process |= set([f for f in os.listdir(args.hyp) if os.path.splitext(f)[1] == '.xml'])
+    xml_to_process = set(f for f in os.listdir(args.ref) if os.path.splitext(f)[1] == '.xml')
+    xml_to_process |= set(f for f in os.listdir(args.hyp) if os.path.splitext(f)[1] == '.xml')
 
     total_char_sum = 0
     total_char_dist = 0
