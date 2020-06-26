@@ -10,8 +10,9 @@ from pero_ocr.document_ocr.layout import PageLayout
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--path1', help='First path with page xml files.', required=True)
-    parser.add_argument('--path2', help='Second path with page xml files.', required=True)
+    parser.add_argument('--print-all', action='store_true', help='Report CER per page xml')
+    parser.add_argument('--hyp', help='Folder with page xmls whose CER will be computed', required=True)
+    parser.add_argument('--ref', help='Folder with reference page xml', required=True)
     args = parser.parse_args()
     return args
 
@@ -19,54 +20,58 @@ def parse_arguments():
 def read_page_xml(path):
     try:
         page_layout = PageLayout(file=path)
-    except:
+    except Exception:
         print(f'Warning: unable to load page xml "{path}"')
         return None
     return page_layout
 
 
-def compare_page_layouts(page_file_1, page_file_2):
-    page1 = read_page_xml(page_file_1)
-    page2 = read_page_xml(page_file_2)
-    if page1 is None or page2 is None:
+def compare_page_layouts(hyp_fn, ref_fn):
+    hyp_page = read_page_xml(hyp_fn)
+    ref_page = read_page_xml(ref_fn)
+    if hyp_page is None or ref_page is None:
         return None
 
-    lines1 = dict([(line.id, line.transcription) for line in page1.lines_iterator()])
-    lines2 = dict([(line.id, line.transcription) for line in page2.lines_iterator()])
+    hyp_lines = {line.id: line.transcription for line in hyp_page.lines_iterator()}
+    ref_lines = {line.id: line.transcription for line in ref_page.lines_iterator()}
 
     char_sum = 0
     char_dist = 0
-    line_ids = set(lines1.keys()) | set(lines2.keys())
+    line_ids = set(hyp_lines.keys()) | set(ref_lines.keys())
     for line_id in line_ids:
-        if line_id not in lines1:
-            print(f'Warning: Line "{line_id}" missing in "{page_file_1}"')
-        if line_id not in lines2:
-            print(f'Warning: Line "{line_id}" missing in "{page_file_2}"')
+        if line_id not in hyp_lines:
+            print(f'Warning: Line "{line_id}" missing in "{hyp_fn}"')
+        if line_id not in ref_lines:
+            print(f'Warning: Line "{line_id}" missing in "{ref_fn}"')
 
-        char_sum += len(lines2[line_id])
-        char_dist += Levenshtein.distance(lines1[line_id], lines2[line_id])
+        char_sum += len(ref_lines[line_id])
+        char_dist += Levenshtein.distance(ref_lines[line_id], hyp_lines[line_id])
 
     return char_sum, char_dist
 
 
+def print_result(name, nb_errors, ref_len):
+    print(f'{name} {100.0*nb_errors/ref_len:.2f} % CER [ {nb_errors} / {ref_len} ]')
+
+
 def main():
-    # initialize some parameters
     args = parse_arguments()
 
-    xml_to_process = set([f for f in os.listdir(args.path1) if os.path.splitext(f)[1] == '.xml'])
-    xml_to_process |= set([f for f in os.listdir(args.path2) if os.path.splitext(f)[1] == '.xml'])
+    xml_to_process = set(f for f in os.listdir(args.ref) if os.path.splitext(f)[1] == '.xml')
+    xml_to_process |= set(f for f in os.listdir(args.hyp) if os.path.splitext(f)[1] == '.xml')
 
     total_char_sum = 0
     total_char_dist = 0
     for xml_file in xml_to_process:
-        result = compare_page_layouts(os.path.join(args.path1, xml_file), os.path.join(args.path2, xml_file))
+        result = compare_page_layouts(os.path.join(args.hyp, xml_file), os.path.join(args.ref, xml_file))
         if result is not None:
             char_sum, char_dist = result
-            print('Result:', xml_file, char_sum, char_dist, char_dist / (char_sum + 1))
+            if args.print_all:
+                print_result(xml_file, char_dist, char_sum)
             total_char_sum += char_sum
             total_char_dist += char_dist
 
-    print('Result: FINAL', total_char_sum, total_char_dist, total_char_dist / (total_char_sum))
+    print_result('summary', total_char_dist, total_char_sum)
 
 
 if __name__ == "__main__":
