@@ -261,7 +261,7 @@ class EngineLineDetectorCNNReg(object):
 
         baselines_list, heights_list = self.parse_maps(out_map, downsample)
         if not baselines_list:
-            return [], [], [], []
+            return [], [], []
 
         textlines_list = [pp.baseline_to_textline(baseline, heights) for baseline, heights in zip(baselines_list, heights_list)]
 
