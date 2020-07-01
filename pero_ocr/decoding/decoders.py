@@ -158,7 +158,10 @@ def select_relevant_logits(logits):
 
 
 class CTCPrefixLogRawNumpyDecoder:
-    def __init__(self, letters, k, lm=None, lm_scale=1.0, use_gpu=False, relevant_logits_selector=select_relevant_logits):
+    def __init__(self, letters, k,
+                 lm=None, lm_scale=1.0, insertion_bonus=0.0,
+                 use_gpu=False,
+                 relevant_logits_selector=select_relevant_logits):
         assert_letters_valid(letters, BLANK_SYMBOL)
 
         self._letters = letters
@@ -166,6 +169,7 @@ class CTCPrefixLogRawNumpyDecoder:
         assert_beam_size_valid(k)
         self._k = k
         self._lm_scale = lm_scale
+        self._insertion_bonus = insertion_bonus
 
         self._blank_ind = self._letters.index(BLANK_SYMBOL)
         self.select_relevant_logits = relevant_logits_selector
@@ -188,7 +192,7 @@ class CTCPrefixLogRawNumpyDecoder:
         return np.concatenate([Pnb_new_prefixes, P_continued_letter[:, np.newaxis]], axis=1)
 
     def compute_Plm(self, Plm_old, lm_preds):  # TODO can be cached too
-        new = Plm_old[:, np.newaxis] + lm_preds
+        new = Plm_old[:, np.newaxis] + lm_preds + self._insertion_bonus
         return np.concatenate([new, Plm_old[:, np.newaxis]], axis=1)
 
     def compute_Pb(self, Pb_old, Pnb_old, P_blank):
