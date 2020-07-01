@@ -91,7 +91,9 @@ class PageDecoder:
     def process_page(self, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
             logits = self.prepare_dense_logits(line)
-            line.transcription = self.decoder(logits).best_hyp()
+            hypotheses = self.decoder(logits)
+            if hypotheses is not None:
+                line.transcription = hypotheses.best_hyp()
 
         return page_layout
 
