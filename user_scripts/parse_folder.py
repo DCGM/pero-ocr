@@ -19,9 +19,15 @@ from pero_ocr.document_ocr.page_parser import PageParser
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', help='Path to input config file', required=True)
+    parser.add_argument('-c', '--config', help='Path to input config file.', required=True)
     parser.add_argument('-s', '--skip-processed', help='If set, already processed files are skipped.', required=False,
                         action='store_true')
+    parser.add_argument('-i', '--input-image-path', help='')
+    parser.add_argument('-x', '--input-xml-path', help='')
+    parser.add_argument('--output-xml-path', help='')
+    parser.add_argument('--output-render-path', help='')
+    parser.add_argument('--output-line-path', help='')
+    parser.add_argument('--output-logit-path', help='')
     args = parser.parse_args()
     return args
 
@@ -103,6 +109,20 @@ def main():
 
     config = configparser.ConfigParser()
     config.read(config_path)
+
+
+    if args.input_image_path is not None:
+        config['PARSE_FOLDER']['INPUT_IMAGE_PATH'] = args.input_image_path
+    if args.input_xml_path is not None:
+        config['PARSE_FOLDER']['INPUT_XML_PATH'] = args.input_xml_path
+    if args.output_xml_path is not None:
+        config['PARSE_FOLDER']['OUTPUT_XML_PATH'] = args.output_xml_path
+    if args.output_render_path is not None:
+        config['PARSE_FOLDER']['OUTPUT_RENDER_PATH'] = args.output_render_path
+    if args.output_line_path is not None:
+        config['PARSE_FOLDER']['OUTPUT_LINE_PATH'] = args.output_line_path
+    if args.output_logit_path is not None:
+        config['PARSE_FOLDER']['OUTPUT_LOGIT_PATH'] = args.output_logit_path
 
     page_parser = PageParser(config, config_path=os.path.dirname(config_path))
 
