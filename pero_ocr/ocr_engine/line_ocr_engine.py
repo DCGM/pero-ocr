@@ -35,7 +35,7 @@ class BaseEngineLineOCR(object):
         self.line_padding_px = 32
 
 
-    def process_lines(self, lines):
+    def process_lines(self, lines, sparse_logits=True, tight_crop_logits=False):
         """Runs ocr network on multiple lines.
         Args:
             lines (iterable): contains cropped lines as numpy arrays.
@@ -75,12 +75,18 @@ class BaseEngineLineOCR(object):
 
             for ids, transcription, line_logits in zip(batch_line_ids, out_transcriptions, out_logits):
                 all_transcriptions[ids] = transcription
-                line_logits = line_logits[
+                if tight_crop_logits:
+                    line_logits = line_logits[
+                                  int(self.line_padding_px // self.net_subsampling):int(
+                                     (self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
+                else:
+                    line_logits = line_logits[
                               int(self.line_padding_px // self.net_subsampling - 2):int(
                                   lines[ids].shape[1] // self.net_subsampling + 8)]
-                line_probs = softmax(line_logits, axis=1)
-                line_logits[line_probs < 0.0001] = 0
-                line_logits = sparse.csc_matrix(line_logits)
+                if sparse_logits:
+                    line_probs = softmax(line_logits, axis=1)
+                    line_logits[line_probs < 0.0001] = 0
+                    line_logits = sparse.csc_matrix(line_logits)
                 all_logits[ids] = line_logits
 
         return all_transcriptions, all_logits
