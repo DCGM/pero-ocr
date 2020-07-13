@@ -50,7 +50,7 @@ class RegionLayout(object):
         region_element = ET.SubElement(page_element, "TextRegion")
         coords = ET.SubElement(region_element, "Coords")
         region_element.set("id", self.id)
-        points = ["{},{}".format(int(coord[0]), int(coord[1])) for coord in self.polygon]
+        points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in self.polygon]
         points = " ".join(points)
         coords.set("points", points)
         if self.transcription is not None:
@@ -168,13 +168,13 @@ class PageLayout(object):
                 coords = ET.SubElement(text_line, "Coords")
 
                 if line.polygon is not None:
-                    points = ["{},{}".format(int(coord[0]), int(coord[1])) for coord in line.polygon]
+                    points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in line.polygon]
                     points = " ".join(points)
                     coords.set("points", points)
 
                 if line.baseline is not None:
                     baseline_element = ET.SubElement(text_line, "Baseline")
-                    points = ["{},{}".format(int(coord[0]), int(coord[1])) for coord in line.baseline]
+                    points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in line.baseline]
                     points = " ".join(points)
                     baseline_element.set("points", points)
 
@@ -472,7 +472,7 @@ class PageLayout(object):
                 line.logits = logits_dict[line.id]
                 line.characters = characters[line.id]
 
-    def render_to_image(self, image, thickness=2, circles=True):
+    def render_to_image(self, image, thickness=2, circles=True, render_order=False):
         """Render layout into image.
         :param image: image to render layout into
         """
@@ -487,20 +487,21 @@ class PageLayout(object):
                 image,
                 [region_layout.polygon], color=(255, 0, 0), circles=(circles, circles, circles), close=True, thickness=thickness)
 
+        if render_order:
             font = cv2.FONT_HERSHEY_DUPLEX
             font_scale = 4
             font_thickness = 5
 
-        for idx, region in enumerate(self.regions):
-            min = region.polygon.min(axis=0)
-            max = region.polygon.max(axis=0)
+            for idx, region in enumerate(self.regions):
+                min = region.polygon.min(axis=0)
+                max = region.polygon.max(axis=0)
 
-            text_w, text_h = cv2.getTextSize(f"{idx}", font, font_scale, font_thickness)[0]
+                text_w, text_h = cv2.getTextSize(f"{idx}", font, font_scale, font_thickness)[0]
 
-            mid_coords = (int((min[0] + max[0]) // 2 - text_w // 2), int((min[1] + max[1]) // 2 + text_h // 2))
+                mid_coords = (int((min[0] + max[0]) // 2 - text_w // 2), int((min[1] + max[1]) // 2 + text_h // 2))
 
-            cv2.putText(image, f"{idx}", mid_coords, font, font_scale,
-                        (0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                cv2.putText(image, f"{idx}", mid_coords, font, font_scale,
+                            (0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
 
         return image
 
@@ -522,16 +523,16 @@ def draw_lines(img, lines, color=(255,0,0), circles=(False, False, False), close
         first = line[0]
         last = first
         if circles[0]:
-            cv2.circle(img, (int(last[0]), int(last[1])), 3, color, 4)
+            cv2.circle(img, (int(np.round(last[0])), int(np.round(last[1]))), 3, color, 4)
         for p in line[1:]:
-            cv2.line(img, (int(last[0]), int(last[1])), (int(p[0]), int(p[1])), color, thickness)
+            cv2.line(img, (int(np.round(last[0])), int(np.round(last[1]))), (int(np.round(p[0])), int(np.round(p[1]))), color, thickness)
             if circles[1]:
-                cv2.circle(img, (int(last[0]), int(last[1])), 3, color, 4)
+                cv2.circle(img, (int(np.round(last[0])), int(np.round(last[1]))), 3, color, 4)
             last = p
         if circles[1]:
-            cv2.circle(img, (int(line[-1][0]), int(line[-1][1])), 3, color, 4)
+            cv2.circle(img, (int(np.round(line[-1][0])), int(np.round(line[-1][1]))), 3, color, 4)
         if close:
-            cv2.line(img, (int(last[0]), int(last[1])), (int(first[0]), int(first[1])), color, thickness)
+            cv2.line(img, (int(np.round(last[0])), int(np.round(last[1]))), (int(np.round(first[0])), int(np.round(first[1]))), color, thickness)
     return img
 
 
@@ -621,5 +622,3 @@ if __name__ == '__main__':
 
     save()
     load()
-
-

@@ -13,7 +13,7 @@ from scipy import  ndimage
 import pero_ocr.document_ocr as pero
 import pero_ocr.document_ocr.layout as layout
 import pero_ocr.line_engine.line_postprocessing as linepp
-import pero_ocr.region_engine.region_engine_splic as region_engine
+import pero_ocr.region_engine.region_engine_simple as region_engine
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -173,6 +173,25 @@ class PageEditor(object):
 
         self.render()
 
+    def sync_line_heights(self):
+        asc_heights = [self.lines[l_num].heights[0] for l_num in self.selected_lines]
+        des_heights = [self.lines[l_num].heights[1] for l_num in self.selected_lines]
+        synced_heights = [np.median(np.array(asc_heights)), np.median(np.array(des_heights))]
+        for l_num in self.selected_lines:
+            self.lines[l_num].heights = synced_heights
+            self.lines[l_num].polygon = linepp.baseline_to_textline(self.lines[l_num].baseline, self.lines[l_num].heights)
+        self.render()
+
+    def sync_all_heights(self):
+        asc_heights = [line.heights[0] for line in self.lines]
+        des_heights = [line.heights[1] for line in self.lines]
+        synced_heights = [np.median(np.array(asc_heights)), np.median(np.array(des_heights))]
+        for line in self.lines:
+            line.heights = synced_heights
+            line.polygon = linepp.baseline_to_textline(line.baseline, line.heights)
+
+        self.render()
+
     def create_line(self):
         if len(self.clicker.points) > 2:
             if self.lines:
@@ -262,7 +281,7 @@ class PageEditor(object):
             if region.id != 'dummy':
                 new_regions.append(region)
         self.page_layout.regions = new_regions
-        
+
         self.render()
 
     def render(self):
@@ -326,6 +345,10 @@ class PageEditor(object):
                 self.update_selected_lines(end=-1)
             elif key == ord('l'):
                 self.update_selected_lines(end=1)
+            elif key == ord('d'):
+                self.sync_line_heights()
+            elif key == ord('e'):
+                self.sync_all_heights()
 
             # line adding/deleting
             elif key == ord('y'):
@@ -367,6 +390,8 @@ class PageEditor(object):
 def main():
     args = parse_arguments()
 
+    SKIPPING = True # skip to the first page not containing editted anotations
+
     assert args.page_dir is not None or args.output_dir is not None, "Specify input page folder and/or output page folder"
     assert os.path.exists(args.image_dir), "Can't find input image folder"
     if args.page_dir is not None:
@@ -376,7 +401,7 @@ def main():
             os.makedirs(args.output_dir)
 
     filename_list = [x for x in os.listdir(args.image_dir)]
-    editor = PageEditor(downsample=2, line_thickness=2, show_hint=True, cursor=114)
+    editor = PageEditor(downsample=2, line_thickness=2, show_hint=True, cursor=0)
 
     while editor.cursor > -1 and editor.cursor < len(filename_list):
 
@@ -384,6 +409,9 @@ def main():
         cur_image = cv2.imread(os.path.join(args.image_dir, filename_list[editor.cursor]))
 
         if args.output_dir is not None and os.path.exists(os.path.join(args.output_dir, page_filename)):
+            if SKIPPING:
+                editor.cursor += 1
+                continue
             cur_layout = layout.PageLayout(file=os.path.join(args.output_dir, page_filename))
         elif args.page_dir is not None and os.path.exists(os.path.join(args.page_dir, page_filename)):
             cur_layout = layout.PageLayout(file=os.path.join(args.page_dir, page_filename))
@@ -397,6 +425,8 @@ def main():
             cur_layout.to_pagexml(os.path.join(args.output_dir, page_filename))
         else:
             cur_layout.to_pagexml(os.path.join(args.page_dir, page_filename))
+
+        SKIPPING = False
 
 if __name__=='__main__':
     main()
