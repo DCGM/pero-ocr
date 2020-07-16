@@ -174,11 +174,15 @@ class RegionExtractorSimple(object):
         model_path = compose_path(config['MODEL_PATH'], config_path)
         downsample = config.getint('DOWNSAMPLE')
         use_cpu = config.getboolean('USE_CPU')
+        max_mp = config.getfloat('MAX_MEGAPIXELS')
+        gpu_fraction = config.getfloat('GPU_FRACTION')
         self.keep_lines = config.getboolean('KEEP_LINES')
         self.region_engine = region_engine_simple.EngineRegionSimple(
             model_path=model_path,
             downsample=downsample,
-            use_cpu=use_cpu
+            use_cpu=use_cpu,
+            max_mp=max_mp,
+            gpu_fraction=gpu_fraction
         )
         self.pool = Pool()
 
@@ -394,12 +398,16 @@ class TextlineExtractorCNNReg(BaseTextlineExtractor):
         pad = config.getint('PAD')
         use_cpu = config.getboolean('USE_CPU')
         detection_threshold = config.getfloat('DETECTION_THRESHOLD')
+        max_mp = config.getfloat('MAX_MEGAPIXELS')
+        gpu_fraction = config.getfloat('GPU_FRACTION')
         self.line_engine = baseline_engine.EngineLineDetectorCNNReg(
             model_path=model_path,
             downsample=downsample,
             pad=pad,
             use_cpu=use_cpu,
             detection_threshold=detection_threshold,
+            max_mp=max_mp,
+            gpu_fraction=gpu_fraction
         )
 
 
