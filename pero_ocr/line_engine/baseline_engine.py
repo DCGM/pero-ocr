@@ -230,7 +230,7 @@ class EngineLineDetectorCNN(object):
 class EngineLineDetectorCNNReg(object):
 
     def __init__(self, model_path, downsample=4, use_cpu=False,
-                 pad=52, max_mp=5, gpu_fraction=0.5, detection_threshold=0.2):
+                 pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2):
 
         self.detection_threshold = detection_threshold
         self.downsample = downsample # downsample factor before CNN inference

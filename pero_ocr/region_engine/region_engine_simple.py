@@ -19,7 +19,7 @@ from pero_ocr.region_engine import spectral_clustering as sc
 class EngineRegionSimple(object):
 
     def __init__(self, model_path, downsample=4, use_cpu=False, pad=52,
-                 max_mp=5, gpu_fraction=0.5):
+                 max_mp=5, gpu_fraction=None):
 
         self.downsample = downsample # downsample factor before CNN inference
         self.pad = pad # CNN training pad
