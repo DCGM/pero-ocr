@@ -7,7 +7,7 @@
 
 import numpy as np
 import typing
-from numba import jit
+from pero_ocr.utils import jit
 
 
 def force_align(neg_logprobs: np.ndarray, symbols_seq: typing.List[int], blank_symbol: int, return_seq_positions=False) -> typing.List[int]:

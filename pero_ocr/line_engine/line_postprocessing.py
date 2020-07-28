@@ -169,11 +169,21 @@ def stretch_baselines_to_region(baselines, region):
 
 def resample_baselines(baselines, num_points=10):
     baselines_resampled = []
+
     for baseline in baselines:
-        line_interpf = np.poly1d(np.polyfit(baseline[:,0], baseline[:,1], 2))
-        new_xs = np.linspace(np.amin(baseline[:,0]), np.amax(baseline[:,0]), num_points)
+        vertical = np.abs(baseline[0,0]-baseline[-1,0]) < np.abs(baseline[0,1]-baseline[-1,1])
+        if vertical:
+            baseline = np.stack((baseline[:,-1], baseline[:,0]), axis=1)
+        if baseline.shape[0] == 2:
+            line_interpf = np.poly1d(np.polyfit(baseline[:,0], baseline[:,1], 1))
+        else:
+            line_interpf = np.poly1d(np.polyfit(baseline[:,0], baseline[:,1], 2))
+        new_xs = np.linspace(baseline[0,0], baseline[-1,0], num_points)
         new_ys = line_interpf(new_xs)
-        baselines_resampled.append(np.stack((new_xs, new_ys), axis=-1))
+        baseline_resampled = np.stack((new_xs, new_ys), axis=-1)
+        if vertical:
+            baseline_resampled = np.stack((baseline_resampled[:,-1], baseline_resampled[:,0]), axis=1)
+        baselines_resampled.append(baseline_resampled)
     return baselines_resampled
 
 
@@ -231,12 +241,25 @@ def baseline_to_textline(baseline, heights):
     :param heights: textline heights
     """
 
-    heights = np.array(heights).astype(np.float32)
+    heights = np.array([max(1, heights[0]), max(1, heights[1])]).astype(np.float32)
+
+    x_diffs = np.diff(baseline[:,0])
+    x_diffs = np.concatenate((x_diffs, x_diffs[-1:]), axis=0)
+    y_diffs = np.diff(baseline[:,1])
+    y_diffs = np.concatenate((y_diffs, y_diffs[-1:]), axis=0)
+
+    alfas = np.pi/2 + np.arctan2(y_diffs, x_diffs)
+    y_up_diffs = np.sin(alfas) * heights[0]
+    x_up_diffs = np.cos(alfas) * heights[0]
+    y_down_diffs = np.sin(alfas) * heights[1]
+    x_down_diffs = np.cos(alfas) * heights[1]
 
     pos_up = baseline.copy().astype(np.float32)
-    pos_up[:, 1] -= heights[0]
+    pos_up[:, 1] -= y_up_diffs
+    pos_up[:, 0] -= x_up_diffs
     pos_down = baseline.copy().astype(np.float32)
-    pos_down[:, 1] += heights[1]
+    pos_down[:, 1] += y_down_diffs
+    pos_down[:, 0] += x_down_diffs
     pos_t = np.concatenate([pos_up, pos_down[::-1, :]], axis=0)
 
     return pos_t

@@ -12,21 +12,19 @@ from skimage.measure import block_reduce
 from sklearn.metrics import pairwise_distances
 import shapely.geometry as sg
 from shapely.ops import cascaded_union, polygonize
-import hdbscan
 
 from pero_ocr.line_engine import line_postprocessing as pp
 from pero_ocr.region_engine import spectral_clustering as sc
 
 class EngineRegionSimple(object):
 
-    def __init__(self, model_path, downsample=4, use_cpu=False,
-                 reduce_factor=8, n_components=24, pad=52, max_mp=6):
+    def __init__(self, model_path, downsample=4, use_cpu=False, pad=52,
+                 max_mp=5, gpu_fraction=None):
 
         self.downsample = downsample # downsample factor before CNN inference
-        self.reduce_factor = reduce_factor # another downsample factor before spectral clustering (target shouldn't be much bigger than 256 x 256)
-        self.n_components = n_components # neumber of eigenvectors for clustering
         self.pad = pad # CNN training pad
-        self.max_mp = max_mp # maximum megapixels when processing image to avoid OOM
+        self.max_megapixels = max_mp if max_mp is not None else 5 # maximum megapixels when processing image to avoid OOM
+        self.gpu_fraction = gpu_fraction
 
         if model_path is not None:
             saver = tf.train.import_meta_graph(model_path + '.meta')
@@ -34,20 +32,27 @@ class EngineRegionSimple(object):
                 tf_config = tf.ConfigProto(device_count={'GPU': 0})
             else:
                 tf_config = tf.ConfigProto(device_count={'GPU': 1})
-                tf_config.gpu_options.allow_growth = True
+                if self.gpu_fraction is None:
+                    tf_config.gpu_options.allow_growth = True
+                else:
+                    tf_config.gpu_options.per_process_gpu_memory_fraction = self.gpu_fraction
             self.session = tf.Session(config=tf_config)
             saver.restore(self.session, model_path)
 
     def detect(self, image):
 
+        # check that big images are rescaled before first CNN run
         downsample = self.downsample
+        if (image.shape[0]/downsample) * (image.shape[1]/downsample) > self.max_megapixels * 10e5:
+            downsample = np.sqrt((image.shape[0] * image.shape[1]) / (self.max_megapixels * 10e5))
         out_map = self.get_maps(image, downsample)
-        recompute, downsample = self.update_ds(out_map)
-        ds_threshold = (image.shape[0] * image.shape[1]) / (self.max_mp * 10e5)
-        if downsample < ds_threshold:
-            downsample = ds_threshold
-            recompute = True
-        if recompute:
+        # adapt second CNN run so that text height is between 10 and 14 downscaled pixels
+        med_height = self.get_med_height(out_map)
+        if med_height > 14 or med_height < 10:
+            downsample = max(
+                    np.sqrt((image.shape[0] * image.shape[1]) / (self.max_megapixels * 10e5)),
+                    downsample * (med_height / 12)
+                    )
             out_map = self.get_maps(image, downsample)
 
         baselines_list, heights_list, layout_separator_map = self.parse_maps(out_map, downsample)
@@ -112,16 +117,11 @@ class EngineRegionSimple(object):
 
         return out_map
 
-    def update_ds(self, out_map):
-        heights = (out_map[:,:,2] > 0.2).astype(np.float) * (out_map[:,:,0] + out_map[:,:,1])
+    def get_med_height(self, out_map):
+        heights = (out_map[:,:,2] > 0.2).astype(np.float) * out_map[:,:,0]
         med_height = np.median(heights[heights>0])
-        if med_height < 10 or med_height > 14:
-            downsample = max(1, self.downsample * (med_height / 12))
-            recompute = True
-        else:
-            downsample = self.downsample
-            recompute = False
-        return recompute, downsample
+
+        return med_height
 
 
     def parse_maps(self, out_map, downsample):
@@ -149,7 +149,7 @@ class EngineRegionSimple(object):
         for i in range(1, num_detections+1):
             bl_inds, = np.where(labels == i)
             if len(bl_inds) > 5:
-                pos_all = np.stack([inds[1][bl_inds], inds[0][bl_inds]], axis=1)  # go from matrix indexing to image indexing
+                pos_all = np.stack([inds[1][bl_inds], inds[0][bl_inds]], axis=1) # go from matrix indexing to image indexing
 
                 _, indices = np.unique(pos_all[:, 0], return_index=True)
                 pos = pos_all[indices]

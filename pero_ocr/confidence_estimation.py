@@ -2,6 +2,8 @@ import numpy as np
 from scipy.special import logsumexp
 import typing
 
+from pero_ocr.force_alignment import align_text
+
 
 def get_letter_confidence(logits: np.ndarray, alignment: typing.List[int], blank_ind: int) -> typing.List[float]:
     """Function which estimates confidence of characters as the maximal log-prob aligned to them.
@@ -68,3 +70,24 @@ def squeeze(sequence):
     return result
 
 
+def get_line_confidence(line, labels):
+    log_probs = line.get_full_logprobs()
+
+    alignment = align_text(-log_probs, labels, log_probs.shape[1] - 1)
+    alignment = np.concatenate([alignment, [1000]])
+
+    probs = np.exp(log_probs)
+    last_border = 0
+    confidences = np.zeros(len(labels))
+    for i, label in enumerate(labels):
+        label_prob = probs[alignment[i], label]
+        next_border = (alignment[i] + 1 + alignment[i+1]) // 2
+        pos_probs = probs[last_border: next_border]
+        masked_probs = np.copy(pos_probs)
+        masked_probs[:, label] = 0
+        other_prob = masked_probs[:, :-1].max()
+        confidences[i] = label_prob - other_prob
+        last_border = next_border
+
+    confidences = confidences / 2 + 0.5
+    return confidences

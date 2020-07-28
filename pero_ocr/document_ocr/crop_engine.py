@@ -1,8 +1,8 @@
 import numpy as np
 import cv2
 from scipy import interpolate, ndimage
-from numba import jit
-
+# from numba import jit
+from pero_ocr.utils import jit
 
 class EngineLineCropper(object):
     def __init__(self, correct_slant=False, line_height=32, poly=0, scale=1, blend_border=4):
@@ -108,7 +108,7 @@ class EngineLineCropper(object):
             backward_mapping[i] = (1 - da) * sampled_values[forward_position - 1] + da * sampled_values[forward_position]
         return backward_mapping
 
-    @jit
+    # @jit
     def reverse_xy_mapping(self, forward_mapping, shape):
 
         y_mapping = forward_mapping[:,:,1]

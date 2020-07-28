@@ -174,11 +174,15 @@ class RegionExtractorSimple(object):
         model_path = compose_path(config['MODEL_PATH'], config_path)
         downsample = config.getint('DOWNSAMPLE')
         use_cpu = config.getboolean('USE_CPU')
+        max_mp = config.getfloat('MAX_MEGAPIXELS')
+        gpu_fraction = config.getfloat('GPU_FRACTION')
         self.keep_lines = config.getboolean('KEEP_LINES')
         self.region_engine = region_engine_simple.EngineRegionSimple(
             model_path=model_path,
             downsample=downsample,
-            use_cpu=use_cpu
+            use_cpu=use_cpu,
+            max_mp=max_mp,
+            gpu_fraction=gpu_fraction
         )
         self.pool = Pool()
 
@@ -234,9 +238,11 @@ class LineRefiner(object):
             for line in page_layout.lines_iterator():
                 baseline = line.baseline / self.downsample
                 sample_points = linepp.resample_baselines([baseline], num_points=40)[0]
+                y_inds = np.clip(np.round(sample_points[:,1]).astype(np.int), 0, heights_map.shape[0]-1)
+                x_inds = np.clip(np.round(sample_points[:,0]).astype(np.int), 0, heights_map.shape[1]-1)
                 heights_pred = self.line_engine.get_heights(
                     heights_map,
-                    (np.round(sample_points[:,1]).astype(np.int), np.round(sample_points[:,0]).astype(np.int)))
+                    (y_inds, x_inds))
                 line.heights = heights_pred * self.downsample
 
         height = np.median([l.heights[0] + l.heights[1] for l in page_layout.lines_iterator()])
@@ -244,6 +250,9 @@ class LineRefiner(object):
             temp_downsample = self.downsample
             print("ADAPT DOWNAMPLING", img.shape[0:2], self.downsample, height, height / self.downsample)
             self.downsample = max(1, int(height / 12 + 0.5))
+            ds_threshold = (img.shape[0] * img.shape[1]) / (5 * 10e5)
+            if self.downsample < ds_threshold:
+                self.downsample = ds_threshold
 
             self.line_engine.downsample = self.downsample
             out_map = self.line_engine.get_maps(img, self.downsample)
@@ -254,15 +263,12 @@ class LineRefiner(object):
                 for line in page_layout.lines_iterator():
                     baseline = line.baseline / self.downsample
                     sample_points = linepp.resample_baselines([baseline], num_points=40)[0]
+                    y_inds = np.clip(np.round(sample_points[:,1]).astype(np.int), 0, heights_map.shape[0]-1)
+                    x_inds = np.clip(np.round(sample_points[:,0]).astype(np.int), 0, heights_map.shape[1]-1)
                     heights_pred = self.line_engine.get_heights(
                         heights_map,
-                        (np.round(sample_points[:, 1]).astype(np.int), np.round(sample_points[:, 0]).astype(np.int)))
+                        (y_inds, x_inds))
                     line.heights = heights_pred * self.downsample
-
-            height = np.median([l.heights[0] + l.heights[1] for l in page_layout.lines_iterator()])
-            print(f"OPTIMAL DOWNAMPLING {img.shape[0] // self.downsample}:{img.shape[1] // self.downsample}",
-                  self.downsample, height, height / self.downsample)
-            self.downsample = temp_downsample
 
 
         for line in page_layout.lines_iterator():
@@ -392,12 +398,16 @@ class TextlineExtractorCNNReg(BaseTextlineExtractor):
         pad = config.getint('PAD')
         use_cpu = config.getboolean('USE_CPU')
         detection_threshold = config.getfloat('DETECTION_THRESHOLD')
+        max_mp = config.getfloat('MAX_MEGAPIXELS')
+        gpu_fraction = config.getfloat('GPU_FRACTION')
         self.line_engine = baseline_engine.EngineLineDetectorCNNReg(
             model_path=model_path,
             downsample=downsample,
             pad=pad,
             use_cpu=use_cpu,
             detection_threshold=detection_threshold,
+            max_mp=max_mp,
+            gpu_fraction=gpu_fraction
         )
 
 

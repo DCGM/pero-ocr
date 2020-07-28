@@ -11,23 +11,25 @@ from typing import Set, List, Optional
 import traceback
 import sys
 import time
+import subprocess
 
+from pero_ocr import utils
 from pero_ocr.document_ocr.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
 
-
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', help='Path to input config file.', required=True)
-    parser.add_argument('-s', '--skip-processed', help='If set, already processed files are skipped.', required=False,
-                        action='store_true')
+    parser.add_argument('-c', '--config', required=True, help='Path to input config file.')
+    parser.add_argument('-s', '--skip-processed', action='store_true', required=False,
+                        help='If set, already processed files are skipped.')
     parser.add_argument('-i', '--input-image-path', help='')
     parser.add_argument('-x', '--input-xml-path', help='')
     parser.add_argument('--output-xml-path', help='')
     parser.add_argument('--output-render-path', help='')
     parser.add_argument('--output-line-path', help='')
     parser.add_argument('--output-logit-path', help='')
+    parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
     args = parser.parse_args()
     return args
 
@@ -107,9 +109,11 @@ def main():
 
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # suppress tensorflow warnings on loading models
 
+    if args.set_gpu:
+        utils.setGPU()
+
     config = configparser.ConfigParser()
     config.read(config_path)
-
 
     if args.input_image_path is not None:
         config['PARSE_FOLDER']['INPUT_IMAGE_PATH'] = args.input_image_path
