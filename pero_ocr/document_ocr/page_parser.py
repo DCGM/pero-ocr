@@ -463,6 +463,22 @@ class PageOCR(object):
         return page_layout
 
 
+def get_prob(best_ids, best_probs):
+    last_id = -1
+    last_prob = 1
+    worst_prob = 1
+    for id, prob in zip(best_ids, best_probs):
+        if id != last_id:
+            worst_prob = min(worst_prob, last_prob)
+            last_prob = prob
+            last_id = id
+        else:
+            last_prob = max(prob, last_prob)
+
+    worst_prob = min(worst_prob, last_prob)
+    return worst_prob
+
+
 class PageParser(object):
     def __init__(self, config, config_path=''):
         self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER', fallback=False)
@@ -471,6 +487,8 @@ class PageParser(object):
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
         self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER', fallback=False)
         self.run_region_sorter = config['PAGE_PARSER'].getboolean('RUN_REGION_SORTER', fallback=False)
+        self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
+                                                                                 fallback=-1)
 
         self.layout_parser = None
         self.line_parser = None
@@ -493,6 +511,25 @@ class PageParser(object):
         if self.run_decoder:
             self.decoder = page_decoder_factory(config, config_path=config_path)
 
+    @staticmethod
+    def compute_line_confidence(line, threshold):
+        logits = line.get_dense_logits()
+        log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
+        best_ids = np.argmax(log_probs, axis=-1)
+        best_probs = np.exp(np.max(log_probs, axis=-1))
+        worst_best_prob = get_prob(best_ids, best_probs)
+        print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape,  np.nonzero(np.exp(best_probs) < threshold))
+        #for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
+        #    print(best_probs[i-1:i+2], best_ids[i-1:i+2])
+
+        return worst_best_prob
+
+    def filter_confident_lines(self, page_layout):
+        for region in page_layout.regions:
+            region.lines = [line for line in region.lines
+                            if PageParser.compute_line_confidence(line, self.filter_confident_lines_threshold) > self.filter_confident_lines_threshold]
+        return page_layout
+
     def process_page(self, image, page_layout):
         if self.run_layout_parser:
             page_layout = self.layout_parser.process_page(image, page_layout)
@@ -506,5 +543,7 @@ class PageParser(object):
             page_layout = self.ocr.process_page(image, page_layout)
         if self.run_decoder:
             page_layout = self.decoder.process_page(page_layout)
+        if self.filter_confident_lines_threshold > 0:
+            page_layout = self.filter_confident_lines(page_layout)
 
         return page_layout
