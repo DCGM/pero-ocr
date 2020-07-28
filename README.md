@@ -21,11 +21,14 @@ Pero can be later removed from your Python distribution by running:
 python setup.py develop --uninstall
 ```
 
+## Available models
+General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://www.fit.vut.cz/~ihradis/pero/pero_eu_cz_print_newspapers_2020-07-28.tar.gz).
+
 ## Developing
 Working changes are expected to happen on `develop` branch, so if you plan to contribute, you better check it out right during cloning:
 
 ```
-git clone -b develop git@github.com:DCGM/pero-ocr.git pero-ocr-others
+git clone -b develop git@github.com:DCGM/pero-ocr.git pero-ocr
 ```
 
 ### Testing
