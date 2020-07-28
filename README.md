@@ -22,7 +22,7 @@ python setup.py develop --uninstall
 ```
 
 ## Available models
-General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://www.fit.vut.cz/~ihradis/pero/pero_eu_cz_print_newspapers_2020-07-28.tar.gz).
+General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://www.fit.vut.cz/~ihradis/pero/pero_eu_cz_print_newspapers_2020-07-28.tar.gz). These models are compatible with the develop branch.
 
 ## Developing
 Working changes are expected to happen on `develop` branch, so if you plan to contribute, you better check it out right during cloning:
