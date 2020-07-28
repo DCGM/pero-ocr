@@ -1,4 +1,3 @@
-import tensorflow as tf
 import numpy as np
 import cv2
 import shapely
@@ -9,6 +8,7 @@ from scipy.ndimage.morphology import binary_erosion
 from skimage.draw import polygon2mask
 
 from . import line_postprocessing as pp
+
 
 class EngineLineDetectorSimple(object):
     def __init__(self, adaptive_threshold=91, block_size=20,
@@ -101,7 +101,9 @@ class EngineLineDetectorSimple(object):
 
 
 class EngineLineDetectorCNN(object):
+
     def __init__(self, model_path, downsample=4, pad=50, use_cpu=False, detection_threshold=0.5):
+        import tensorflow as tf
 
         self.downsample = downsample
         self.pad = pad
@@ -231,6 +233,7 @@ class EngineLineDetectorCNNReg(object):
 
     def __init__(self, model_path, downsample=4, use_cpu=False,
                  pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2):
+        import tensorflow as tf
 
         self.detection_threshold = detection_threshold
         self.downsample = downsample # downsample factor before CNN inference

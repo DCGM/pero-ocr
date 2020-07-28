@@ -2,14 +2,12 @@ import math
 import random
 import warnings
 
-import tensorflow as tf
 import numpy as np
 import cv2
 import shapely.geometry
-from scipy import ndimage, interpolate
+from scipy import ndimage
 from sklearn import cluster
 
-import matplotlib.pyplot as plt
 
 def merge_lines(baselines, heights):
     """Merge lines on similar vertical offsets. Useful as postprocessing with known regions.
