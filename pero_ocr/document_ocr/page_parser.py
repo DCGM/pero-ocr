@@ -85,12 +85,17 @@ class MissingLogits(Exception):
 
 
 class PageDecoder:
-    def __init__(self, decoder):
+    def __init__(self, decoder, line_confidence_threshold=None):
         self.decoder = decoder
+        self.line_confidence_threshold = line_confidence_threshold
 
     def process_page(self, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
             logits = self.prepare_dense_logits(line)
+            if self.line_confidence_threshold is not None:
+                if self.line_confident_enough(logits, self.line_confidence_threshold):
+                    continue
+
             hypotheses = self.decoder(logits)
             if hypotheses is not None:
                 line.transcription = hypotheses.best_hyp()
@@ -102,6 +107,13 @@ class PageDecoder:
             raise MissingLogits(f"Line {line.id} has {line.logits} in place of logits")
 
         return line.get_dense_logits()
+
+    def line_confident_enough(self, logits):
+        log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
+        best_probs = np.max(log_probs, axis=-1)
+        worst_best_prob = np.exp(np.min(best_probs))
+
+        return worst_best_prob > self.line_confidence_threshold
 
 
 class WholePageRegion(object):
