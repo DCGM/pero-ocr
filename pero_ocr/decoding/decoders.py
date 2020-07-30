@@ -159,7 +159,7 @@ def select_relevant_logits(logits):
 
 class CTCPrefixLogRawNumpyDecoder:
     def __init__(self, letters, k, lm=None, lm_scale=1.0, use_gpu=False,
-                 relevant_logits_selector=select_relevant_logits, line_confidence_threshold=10.0):
+                 relevant_logits_selector=select_relevant_logits, line_confidence_threshold=0.8):
         assert_letters_valid(letters, BLANK_SYMBOL)
 
         self._letters = letters
@@ -211,13 +211,8 @@ class CTCPrefixLogRawNumpyDecoder:
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
         '''
 
-        # Test line confidence
         if self.line_confidence_threshold < 1:
-            log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
-            best_probs = np.max(log_probs, axis=-1)
-            worst_best_prob = np.exp(np.min(best_probs))
-            print(worst_best_prob)
-            if worst_best_prob > self.line_confidence_threshold:
+            if line_confident_enough(logits, self.line_confidence_threshold):
                 return None
 
         empty = ''
@@ -286,3 +281,11 @@ class CTCPrefixLogRawNumpyDecoder:
             Plm += eos_scores
 
         return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm)
+
+
+def line_confident_enough(logits, threshold):
+    log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
+    best_probs = np.max(log_probs, axis=-1)
+    worst_best_prob = np.exp(np.min(best_probs))
+
+    return worst_best_prob > threshold
