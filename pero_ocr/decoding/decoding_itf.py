@@ -38,12 +38,16 @@ def decoder_factory(config, characters, allow_no_decoder=True, use_gpu=False, co
 
     if decoder_type == 'FAST-LOG-RAW':
         k = config.getint('BEAM_SIZE')
+
         lm_scale = config.getfloat('LM_SCALE')
         if lm_scale is None:
             raise ValueError("Missing LM_SCALE key in the config")
+
+        insertion_bonus = config.getfloat('INSERTION_BONUS', fallback=0.0)
         lm = lm_factory(config, config_path=config_path)
-        sys.stderr.write("Constructing CTCPrefixLogRawNumpyDecoder({}, {}, {})\n".format(full_characters, k, lm))
-        return CTCPrefixLogRawNumpyDecoder(full_characters, k, lm, lm_scale, use_gpu=use_gpu)
+
+        sys.stderr.write(f"Constructing CTCPrefixLogRawNumpyDecoder({full_characters}, {k}, insertion_bonus={insertion_bonus}, {lm})\n")
+        return CTCPrefixLogRawNumpyDecoder(full_characters, k, lm, lm_scale, use_gpu=use_gpu, insertion_bonus=insertion_bonus)
     elif decoder_type == 'GREEDY':
         sys.stderr.write("Constructing GreedyDecoder({})\n".format(full_characters))
         return GreedyDecoder(full_characters)

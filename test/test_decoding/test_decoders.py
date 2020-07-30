@@ -199,6 +199,27 @@ class CTCDecodingWithLMTests:
         for h in boh:
             self.assertEqual(h.lm_sc, lm.single_sentence_nll(list(h.transcript), '</s>'))
 
+    def test_insertion_bonus(self):
+        lm = self.get_lm(a=-1, b=-1, c=-1)
+        insertion_bonus = 0.5
+        decoder = self._decoder_constructor(
+            self._decoder_symbols,
+            k=1,
+            lm=lm,
+            insertion_bonus=insertion_bonus,
+        )
+        logits = np.asarray([
+            [-80.0, -0.1, -80.0, -0.7],
+        ])
+
+        boh = decoder(logits)
+        hyp = boh.best_hyp()
+        self.assertEqual(hyp, 'b')
+
+        for h in boh:
+            true_lm_nll = lm.single_sentence_nll(list(h.transcript), '</s>')
+            self.assertEqual(h.lm_sc, true_lm_nll + insertion_bonus*len(h.transcript))
+
     def test_single_selection_repeated_b(self):
         lm = self.get_lm(b=-1)
         decoder = self._decoder_constructor(
