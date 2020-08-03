@@ -79,10 +79,10 @@ class BaseEngineLineOCR(object):
                     line_logits = line_logits[
                                   int(self.line_padding_px // self.net_subsampling):int(
                                      (self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
-                else:
-                    line_logits = line_logits[
-                              int(self.line_padding_px // self.net_subsampling - 2):int(
-                                  lines[ids].shape[1] // self.net_subsampling + 8)]
+                #else:
+                #    line_logits = line_logits[
+                #              int(self.line_padding_px // self.net_subsampling - 2):int(
+                #                  lines[ids].shape[1] // self.net_subsampling + 8)]
                 if sparse_logits:
                     line_probs = softmax(line_logits, axis=1)
                     line_logits[line_probs < 0.0001] = 0
