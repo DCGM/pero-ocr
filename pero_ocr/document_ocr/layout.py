@@ -8,9 +8,8 @@ import numpy as np
 import lxml.etree as ET
 import cv2
 
-from pero_ocr.ocr_engine.softmax import softmax
 from pero_ocr.document_ocr.crop_engine import EngineLineCropper
-from pero_ocr.force_alignment import force_align
+from pero_ocr.force_alignment import align_text
 
 
 def log_softmax(x):
@@ -233,31 +232,15 @@ class PageLayout(object):
         print_space_vpos = self.page_size[0]
         print_space_hpos = self.page_size[1]
 
-        def get_hwvh(polygon):
-
-            xy = list(zip(*polygon))
-
-            height = max(xy[1]) - min(xy[1])
-            width = max(xy[0]) - min(xy[0])
-
-            vpos = min(xy[1])
-            hpos = min(xy[0])
-
-            return height, width, vpos, hpos
-
         for b, block in enumerate(self.regions):
             text_block = ET.SubElement(print_space, "TextBlock")
-            text_block.set("ID", block.id)
+            text_block.set("ID", 'block_{}' .format(block.id))
 
             text_block_height, text_block_width, text_block_vpos, text_block_hpos = get_hwvh(block.polygon)
-
-            text_block.set("HEIGHT", str(text_block_height))
-
-            text_block.set("WIDTH", str(text_block_width))
-
-            text_block.set("VPOS", str(text_block_vpos))
-
-            text_block.set("HPOS", str(text_block_hpos))
+            text_block.set("HEIGHT", str(int(text_block_height)))
+            text_block.set("WIDTH", str(int(text_block_width)))
+            text_block.set("VPOS", str(int(text_block_vpos)))
+            text_block.set("HPOS", str(int(text_block_hpos)))
 
             print_space_height = max([print_space_vpos + print_space_height, text_block_vpos + text_block_height])
             print_space_width = max([print_space_hpos + print_space_width, text_block_hpos + text_block_width])
@@ -275,10 +258,10 @@ class PageLayout(object):
 
                 text_line_height, text_line_width, text_line_vpos, text_line_hpos = get_hwvh(line.polygon)
 
-                text_line.set("VPOS", str(text_line_vpos))
-                text_line.set("HPOS", str(text_line_hpos))
-                text_line.set("HEIGHT", str(text_line_height))
-                text_line.set("WIDTH", str(text_line_width))
+                text_line.set("VPOS", str(int(text_line_vpos)))
+                text_line.set("HPOS", str(int(text_line_hpos)))
+                text_line.set("HEIGHT", str(int(text_line_height)))
+                text_line.set("WIDTH", str(int(text_line_width)))
 
                 chars = [i for i in range(len(line.characters))]
                 char_to_num = dict(zip(line.characters, chars))
@@ -298,110 +281,80 @@ class PageLayout(object):
                 logits = line.get_dense_logits()
                 logprobs = line.get_full_logprobs()
                 try:
-                    aligned = force_align(-logprobs, label, blank_idx)
-                except ValueError as error:
+                    aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
+                except ValueError as _:
                     average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
                     for w, word in enumerate(line.transcription.split()):
                         string = ET.SubElement(text_line, "String")
                         string.set("CONTENT", word)
 
-                        string.set("HEIGHT", str(text_line_height))
-                        string.set("WIDTH", str(average_word_width))
-                        string.set("VPOS", str(text_line_vpos))
-                        string.set("HPOS", str(text_line_hpos + (w * average_word_width)))
-                        if w != (len(line.transcription.split()) - 1):
-                            space = ET.SubElement(text_line, "SP")
-
-                            space.set("WIDTH", str(4))
-                            space.set("VPOS", str(text_line_vpos))
-                            space.set("HPOS", str(text_line_hpos + (w * average_word_width) + average_word_width))
+                        string.set("HEIGHT", str(int(text_line_height)))
+                        string.set("WIDTH", str(int(average_word_width)))
+                        string.set("VPOS", str(int(text_line_vpos)))
+                        string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
                 else:
-                    narrow_label(aligned, logits, blank_idx)
                     crop_engine = EngineLineCropper(poly=2)
                     line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
+                    space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
+                    word = []
+                    words = []
+                    counter = 0
+                    for i, elem in enumerate(aligned_letters):
+                        try:
+                            if i == space_idxs[counter]:
+                                if counter != (len(space_idxs) - 1):
+                                    counter += 1
+                                words.append(word)
+                                word = []
+                            else:
+                                word.append(elem)
+                        except IndexError as _:
+                            word.append(elem)
 
-                    global_letter_counter = 0
-                    for w, word in enumerate(line.transcription.split()):
-                        local_letter_counter = 0
-                        word_lenght = len(word)
-                        string_width = 0
-                        string_hpos = 0
-                        end_of_space = 0
-                        final = False
-                        last = True
+                    if word != []:
+                        words.append(word)
 
-                        for a, ali in enumerate(aligned):
-                            if ali != blank_idx:
-                                if local_letter_counter > global_letter_counter:
-                                    if final:
-                                        end_of_space = 4 * a
-                                        global_letter_counter = local_letter_counter
-                                        last = False
-                                        break
-                                    if local_letter_counter - global_letter_counter == word_lenght:
-                                        string_width = 4 * a - string_hpos
-                                        final = True
-                                elif local_letter_counter - global_letter_counter == 0:
-                                    string_hpos = 4 * a
-                                local_letter_counter += 1
+                    start_end = []
+                    for i in words:
+                        start_end.append(tuple([i[0], i[-1]]))
 
-                        if last:
-                            string_width = 4 * len(aligned) - string_hpos
-
-                        lm_const = np.shape(line_coords)[1] / (len(aligned) * 4)
-
+                    splitted_transcription = line.transcription.split()
+                    lm_const = line_coords.shape[1] / logits.shape[0]
+                    for w, word in enumerate(start_end):
                         string = ET.SubElement(text_line, "String")
-                        string.set("CONTENT", word)
+                        string.set("CONTENT", splitted_transcription[w])
+                        all_x = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 0]
+                        all_y = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 1]
 
-                        string_hpos -= 1
-                        all_x = line_coords[:,
-                                int(string_hpos * lm_const):int(string_hpos * lm_const) + int(string_width * lm_const),
-                                0]
-                        all_y = line_coords[:,
-                                int(string_hpos * lm_const):int(string_hpos * lm_const) + int(string_width * lm_const),
-                                1]
-
-                        string.set("HEIGHT", str(int(np.max(all_y) - np.min(all_y))))
-                        string.set("WIDTH", str(int(np.max(all_x) - np.min(all_x))))
+                        string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
+                        string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                         string.set("VPOS", str(int(np.min(all_y))))
                         string.set("HPOS", str(int(np.min(all_x))))
-                        if w != (len(line.transcription.split()) - 1):
-                            space = ET.SubElement(text_line, "SP")
-                            all_x = line_coords[:, int((string_hpos + string_width) * lm_const):int(
-                                (string_hpos + string_width) * lm_const) + int(
-                                (end_of_space - (string_hpos + string_width)) * lm_const), 0]
-                            all_y = line_coords[:, int((string_hpos + string_width) * lm_const):int(
-                                (string_hpos + string_width) * lm_const) + int(
-                                (end_of_space - (string_hpos + string_width)) * lm_const), 1]
 
-                            space.set("WIDTH", str(int(np.max(all_x) - np.min(all_x))))
-                            space.set("VPOS", str(int(np.min(all_y))))
-                            space.set("HPOS", str(int(np.min(all_x))))
-
-        top_margin.set("HEIGHT", "{}".format(print_space_vpos))
-        top_margin.set("WIDTH", "{}".format(self.page_size[1]))
+        top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
+        top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
         top_margin.set("VPOS", "0")
         top_margin.set("HPOS", "0")
 
-        left_margin.set("HEIGHT", "{}".format(self.page_size[0]))
-        left_margin.set("WIDTH", "{}".format(print_space_hpos))
+        left_margin.set("HEIGHT", "{}" .format(int(self.page_size[0])))
+        left_margin.set("WIDTH", "{}" .format(int(print_space_hpos)))
         left_margin.set("VPOS", "0")
         left_margin.set("HPOS", "0")
 
-        right_margin.set("HEIGHT", "{}".format(self.page_size[0]))
-        right_margin.set("WIDTH", "{}".format(self.page_size[1] - (print_space_hpos + print_space_width)))
+        right_margin.set("HEIGHT", "{}" .format(int(self.page_size[0])))
+        right_margin.set("WIDTH", "{}" .format(int(self.page_size[1] - (print_space_hpos + print_space_width))))
         right_margin.set("VPOS", "0")
-        right_margin.set("HPOS", "{}".format(print_space_hpos + print_space_width))
+        right_margin.set("HPOS", "{}" .format(int(print_space_hpos + print_space_width)))
 
-        bottom_margin.set("HEIGHT", "{}".format(self.page_size[0] - (print_space_vpos + print_space_height)))
-        bottom_margin.set("WIDTH", "{}".format(self.page_size[1]))
-        bottom_margin.set("VPOS", "{}".format(print_space_vpos + print_space_height))
+        bottom_margin.set("HEIGHT", "{}" .format(int(self.page_size[0] - (print_space_vpos + print_space_height))))
+        bottom_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
+        bottom_margin.set("VPOS", "{}" .format(int(print_space_vpos + print_space_height)))
         bottom_margin.set("HPOS", "0")
 
-        print_space.set("HEIGHT", str(print_space_height))
-        print_space.set("WIDTH", str(print_space_width))
-        print_space.set("VPOS", str(print_space_vpos))
-        print_space.set("HPOS", str(print_space_hpos))
+        print_space.set("HEIGHT", str(int(print_space_height)))
+        print_space.set("WIDTH", str(int(print_space_width)))
+        print_space.set("VPOS", str(int(print_space_vpos)))
+        print_space.set("HPOS", str(int(print_space_hpos)))
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
 
@@ -595,36 +548,16 @@ def find_optimal(logit, positions, idx):
     return highest
 
 
-def narrow_label(label, logit, idx_of_last, on_one_liberal=False):
-    last_char = None
-    repeating = []
-    for i, item in enumerate(label):
-        if last_char == item and last_char != idx_of_last:
-            repeating.extend([i])
-        else:
-            if repeating != []:
-                high = repeating[0]
-                for e, elem in enumerate(repeating):
-                    if on_one_liberal:
-                        label[elem] = idx_of_last - 1
-                    else:
-                        label[elem] = idx_of_last
-                label[high] = last_char
-        if last_char != item:
-            repeating = []
-            if item != idx_of_last:
-                repeating.append(i)
-        last_char = item
-    if repeating != []:
-        high = repeating[0]
-        for i, item in enumerate(repeating):
-            if on_one_liberal:
-                label[item] = idx_of_last - 1
-            else:
-                label[item] = idx_of_last
-        label[high] = last_char
+def get_hwvh(polygon):
+    xy = list(zip(*polygon))
 
-    return label
+    height = max(xy[1]) - min(xy[1])
+    width = max(xy[0]) - min(xy[0])
+
+    vpos = min(xy[1])
+    hpos = min(xy[0])
+
+    return height, width, vpos, hpos
 
 
 if __name__ == '__main__':
@@ -643,22 +576,8 @@ if __name__ == '__main__':
 
     def save():
         test_layout = PageLayout()
-        test_layout.from_pagexml(
-            'C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.xml')
-        test_layout.load_logits(
-            'C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.logits')
-
-        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.jpeg")
-        cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/xml_page.jpg", test_layout.render_to_image(image))
+        test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00cfab43-a5bc-4af0-b1c4-b26925679afd.xml')
+        test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00cfab43-a5bc-4af0-b1c4-b26925679afd.logits')
         test_layout.to_altoxml("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test_alto.xml")
 
-
-    def load():
-        test_layout = PageLayout()
-        test_layout.from_altoxml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test_alto.xml')
-        image = cv2.imread("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/0580ee04-14d4-4142-a14e-d5e1b31f83e0.jpeg")
-        cv2.imwrite("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/xml_alto.jpg", test_layout.render_to_image(image))
-
-
     save()
-    load()
