@@ -14,5 +14,7 @@ def read_images(folder, strip_extension=False):
 
     if strip_extension:
         names = ['.'.join(f.split('.')[:-1]) for f in filenames]
+    else:
+        names = filenames
 
     return lines, names
