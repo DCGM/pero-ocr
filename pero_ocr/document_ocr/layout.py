@@ -311,8 +311,12 @@ class PageLayout(object):
                         except IndexError as _:
                             word.append(elem)
 
-                    if word != []:
-                        words.append(word)
+                    words.append(word)
+
+                    try:
+                        words.remove([])
+                    except ValueError:
+                        pass
 
                     start_end = []
                     for i in words:
