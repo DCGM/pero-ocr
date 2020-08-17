@@ -2,7 +2,7 @@ import os
 import cv2
 
 
-def read_images(folder):
+def read_images(folder, strip_extension=False):
     filenames = [f for f in os.listdir(folder) if f.lower().split('.')[-1] in ['jpg', 'jpeg', 'png']]
 
     lines = []
@@ -12,6 +12,7 @@ def read_images(folder):
             raise ValueError('Error: Could not read image "{}"'.format(fn))
         lines.append(line_img)
 
-    names = ['.'.join(f.split('.')[:-1]) for f in filenames]
+    if strip_extension:
+        names = ['.'.join(f.split('.')[:-1]) for f in filenames]
 
     return lines, names
