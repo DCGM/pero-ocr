@@ -10,7 +10,7 @@ def get_long_desc():
 
 setup(
     name='pero-ocr',
-    version='0.2',
+    version='0.3',
     python_requires='>=3.6',
     packages=[
         'pero_ocr',
@@ -19,6 +19,7 @@ setup(
         'pero_ocr/line_engine',
         'pero_ocr/ocr_engine',
         'pero_ocr/region_engine',
+        'pero_ocr/region_sorter',
     ],
     install_requires=[
         'numpy',
@@ -30,9 +31,10 @@ setup(
         'brnolm>=0.1.1',
         'scikit-learn',
         'scikit-image',
-        'tensorflow-gpu==1.14',
+        'tensorflow-gpu==1.15',
         'shapely',
         'pyamg',
+        'imgaug',
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
