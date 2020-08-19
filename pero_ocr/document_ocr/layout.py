@@ -327,8 +327,7 @@ class PageLayout(object):
                     for w, word in enumerate(start_end):
                         all_x = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 0]
                         all_y = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 1]
-                        print(all_x, type(all_x))
-                        if all_x is [] or all_y is []:
+                        if all_x.tolist() == [] or all_y.tolist() == []:
                             continue
 
                         string = ET.SubElement(text_line, "String")
@@ -338,7 +337,12 @@ class PageLayout(object):
                         string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                         string.set("VPOS", str(int(np.min(all_y))))
                         string.set("HPOS", str(int(np.min(all_x))))
-                        #addition of SP nodes
+                        if w != (len(line.transcription.split())-1):
+                            space = ET.SubElement(text_line, "SP")
+
+                            space.set("WIDTH", str(4))
+                            space.set("VPOS", str(int(np.average(all_y))))
+                            space.set("HPOS", str(int(np.max(all_x))))
 
         top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
         top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
