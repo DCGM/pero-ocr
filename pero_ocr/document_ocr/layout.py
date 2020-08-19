@@ -216,7 +216,7 @@ class PageLayout(object):
 
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
-        page.set("ID", "id_" + self.id)
+        page.set("ID", "id_" + re.sub('[!\"#$%&\'()*+,/:;<=>?@[\\]^`{|}~ ]', '', self.id))
         page.set("PHYSICAL_IMG_NR", str(1))
         page.set("HEIGHT", str(self.page_size[0]))
         page.set("WIDTH", str(self.page_size[1]))
@@ -325,15 +325,20 @@ class PageLayout(object):
                     splitted_transcription = line.transcription.split()
                     lm_const = line_coords.shape[1] / logits.shape[0]
                     for w, word in enumerate(start_end):
-                        string = ET.SubElement(text_line, "String")
-                        string.set("CONTENT", splitted_transcription[w])
                         all_x = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 0]
                         all_y = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 1]
+                        print(all_x, type(all_x))
+                        if all_x is [] or all_y is []:
+                            continue
+
+                        string = ET.SubElement(text_line, "String")
+                        string.set("CONTENT", splitted_transcription[w])
 
                         string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
                         string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                         string.set("VPOS", str(int(np.min(all_y))))
                         string.set("HPOS", str(int(np.min(all_x))))
+                        #addition of SP nodes
 
         top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
         top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
