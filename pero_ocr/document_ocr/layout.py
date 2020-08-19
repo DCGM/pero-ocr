@@ -341,7 +341,7 @@ class PageLayout(object):
                             space = ET.SubElement(text_line, "SP")
 
                             space.set("WIDTH", str(4))
-                            space.set("VPOS", str(int(np.average(all_y))))
+                            space.set("VPOS", str(int(np.min(all_y))))
                             space.set("HPOS", str(int(np.max(all_x))))
 
         top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
