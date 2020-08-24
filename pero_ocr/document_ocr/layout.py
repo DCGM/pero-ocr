@@ -216,7 +216,7 @@ class PageLayout(object):
 
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
-        page.set("ID", "id_" + re.sub('[!\"#$%&\'()*+,/:;<=>?@[\\]^`{|}~ ]', '', self.id))
+        page.set("ID", "id_" + re.sub('[!\"#$%&\'()*+,/:;<=>?@[\\]^`{|}~ ]', '_', self.id))
         page.set("PHYSICAL_IMG_NR", str(1))
         page.set("HEIGHT", str(self.page_size[0]))
         page.set("WIDTH", str(self.page_size[1]))
