@@ -192,7 +192,7 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self):
+    def to_altoxml_string(self, ocr_processing=None, page_uuid=None):
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
@@ -201,22 +201,20 @@ class PageLayout(object):
         description = ET.SubElement(root, "Description")
         measurement_unit = ET.SubElement(description, "MeasurementUnit")
         measurement_unit.text = "pixel"
-        ocr_processing = ET.SubElement(description, "OCRProcessing")
-        ocr_processing.set("ID", "IdOcr")
-        ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
-        processing_date_time = ET.SubElement(ocr_processing_step, "processingDateTime")
-        processing_date_time.text = datetime.today().strftime('%Y-%m-%d')
-        processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
-        processing_creator = ET.SubElement(processing_software, "softwareCreator")
-        processing_creator.text = "Project PERO"
-        software_name = ET.SubElement(processing_software, "softwareName")
-        software_name.text = "PERO OCR"
-        software_version = ET.SubElement(processing_software, "softwareVersion")
-        software_version.text = "v0.1.0"
-
+        source_image_information = ET.SubElement(description, "sourceImageInformation")
+        file_name = ET.SubElement(source_image_information, "fileName")
+        file_name.text = self.id
+        if ocr_processing is not None:
+            description.append(ocr_processing)
+        else:
+            ocr_processing = create_ocr_processing_element()
+            description.append(ocr_processing)
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
-        page.set("ID", "id_" + re.sub('[!\"#$%&\'()*+,/:;<=>?@[\\]^`{|}~ ]', '_', self.id))
+        if page_uuid is not None:
+            page.set("ID", "id_" + page_uuid)
+        else:
+            page.set("ID", "id_" + re.sub('[!\"#$%&\'()*+,/:;<=>?@[\\]^`{|}~ ]', '_', self.id))
         page.set("PHYSICAL_IMG_NR", str(1))
         page.set("HEIGHT", str(self.page_size[0]))
         page.set("WIDTH", str(self.page_size[1]))
@@ -371,8 +369,8 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
 
-    def to_altoxml(self, file_name):
-        alto_string = "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n" + self.to_altoxml_string()
+    def to_altoxml(self, file_name, ocr_processing, page_uuid):
+        alto_string = "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n" + self.to_altoxml_string(ocr_processing, page_uuid)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
@@ -571,6 +569,26 @@ def get_hwvh(polygon):
     hpos = min(xy[0])
 
     return height, width, vpos, hpos
+
+
+def create_ocr_processing_element(id="IdOcr", software_creator_str="Project PERO", software_name_str="PERO OCR", software_version_str="v0.1.0", processing_datetime=None):
+    ocr_processing = ET.Element("OCRProcessing")
+    ocr_processing.set("ID", id)
+    ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
+    processing_date_time = ET.SubElement(ocr_processing_step, "processingDateTime")
+    if processing_datetime is not None:
+        processing_date_time.text = processing_datetime
+    else:
+        processing_date_time.text = datetime.today().strftime('%Y-%m-%d')
+    processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
+    processing_creator = ET.SubElement(processing_software, "softwareCreator")
+    processing_creator.text = software_creator_str
+    software_name = ET.SubElement(processing_software, "softwareName")
+    software_name.text = software_name_str
+    software_version = ET.SubElement(processing_software, "softwareVersion")
+    software_version.text = software_version_str
+
+    return ocr_processing
 
 
 if __name__ == '__main__':
