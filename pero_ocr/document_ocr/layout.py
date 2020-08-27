@@ -19,7 +19,7 @@ def log_softmax(x):
 
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None):
+                 characters=None, logit_coords=None):
         self.id = id
         self.baseline = baseline
         self.polygon = polygon
@@ -28,6 +28,7 @@ class TextLine(object):
         self.logits = logits
         self.crop = crop
         self.characters = characters
+        self.logit_coords = logit_coords
 
     def get_dense_logits(self, zero_logit_value=-80):
         dense_logits = self.logits.toarray()
@@ -276,8 +277,8 @@ class PageLayout(object):
                     else:
                         label.append(0)
 
-                logits = line.get_dense_logits()
-                logprobs = line.get_full_logprobs()
+                logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
+                logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                 try:
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except ValueError as _:
@@ -369,7 +370,7 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
 
-    def to_altoxml(self, file_name, ocr_processing, page_uuid):
+    def to_altoxml(self, file_name, ocr_processing=None, page_uuid=None):
         alto_string = "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n" + self.to_altoxml_string(ocr_processing, page_uuid)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
@@ -432,16 +433,21 @@ class PageLayout(object):
         """
         logits = []
         characters = []
+        logit_coords = []
         for region in self.regions:
             for line in region.lines:
                 if line.logits is None:
                     raise Exception(f'Missing logits for line {line.id}.')
                 if line.characters is None:
                     raise Exception(f'Missing logit mapping to characters for line {line.id}.')
+                if line.logit_coords is None:
+                    raise Exception(f'Missing logit coords for line {line.id}.')
             logits += [(line.id, line.logits) for line in region.lines]
             characters += [(line.id, line.characters) for line in region.lines]
+            logit_coords += [(line.id, line.logit_coords) for line in region.lines]
         logits_dict = dict(logits)
         logits_dict['line_characters'] = dict(characters)
+        logits_dict['logit_coords'] = dict(logit_coords)
         with open(file_name, 'wb') as f:
             pickle.dump(logits_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -457,12 +463,18 @@ class PageLayout(object):
         else:
             characters = dict([(k, None) for k in logits_dict])
 
+        if 'logit_coords' in logits_dict:
+            logit_coords = logits_dict['logit_coords']
+        else:
+            logit_coords = dict([(k, [None, None]) for k in logits_dict])
+
         for region in self.regions:
             for line in region.lines:
                 if line.id not in logits_dict:
                     raise Exception(f'Missing line id {line.id} in logits {file_name}.')
                 line.logits = logits_dict[line.id]
                 line.characters = characters[line.id]
+                line.logit_coords = logit_coords[line.id]
 
     def render_to_image(self, image, thickness=2, circles=True, render_order=False):
         """Render layout into image.
@@ -592,12 +604,13 @@ def create_ocr_processing_element(id="IdOcr", software_creator_str="Project PERO
 
 
 if __name__ == '__main__':
+    """
     l = PageLayout(
         file='/home/ikohut/data/pero_ocr_web_data/ocr_client/0fb06b7c-92b3-41cd-9523-5a869dccd7dc/output/page/9baa3b0d-3a6c-41b9-86b3-a012ea0ed378.xml')
     l.load_logits(
         '/home/ikohut/data/pero_ocr_web_data/ocr_client/0fb06b7c-92b3-41cd-9523-5a869dccd7dc/output/logits/9baa3b0d-3a6c-41b9-86b3-a012ea0ed378.logits')
     print(l.to_altoxml_string())
-
+    """
 
     # test_layout = PageLayout(file='/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
     # test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')

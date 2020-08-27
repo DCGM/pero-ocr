@@ -476,12 +476,13 @@ class PageOCR(object):
             if line.crop is None:
                 raise Exception(f'Missing crop in line {line.id}.')
 
-        transcriptions, logits = self.ocr_engine.process_lines([line.crop for line in page_layout.lines_iterator()])
+        transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in page_layout.lines_iterator()])
 
-        for line, line_transcription, line_logits in zip(page_layout.lines_iterator(), transcriptions, logits):
+        for line, line_transcription, line_logits, line_logit_coords in zip(page_layout.lines_iterator(), transcriptions, logits, logit_coords):
             line.transcription = line_transcription
             line.logits = line_logits
             line.characters = self.ocr_engine.characters
+            line.logit_coords = line_logit_coords
         return page_layout
 
 

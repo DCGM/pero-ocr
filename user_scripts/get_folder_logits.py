@@ -33,7 +33,7 @@ def main():
     ocr_engine = OCREngine(ocr_json, gpu_id=0)
 
     lines, names = read_images(args.input)
-    _, logits = ocr_engine.process_lines(lines)
+    _, logits, _ = ocr_engine.process_lines(lines)
 
     complete_data = {'names': names, 'logits': logits}
 

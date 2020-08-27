@@ -54,6 +54,7 @@ class BaseEngineLineOCR(object):
 
         all_transcriptions = [None]*len(lines)
         all_logits = [None]*len(lines)
+        all_logit_coords = [None]*len(lines)
 
         #  process all lines ordered by their length
         line_ids = [x for x, y in sorted(enumerate(lines), key=lambda x: x[1].shape[1])]
@@ -79,17 +80,22 @@ class BaseEngineLineOCR(object):
                     line_logits = line_logits[
                                   int(self.line_padding_px // self.net_subsampling):int(
                                      (self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
-                #else:
+                    all_logit_coords[ids] = [None, None]
+                    #else:
                 #    line_logits = line_logits[
                 #              int(self.line_padding_px // self.net_subsampling - 2):int(
                 #                  lines[ids].shape[1] // self.net_subsampling + 8)]
+                else:
+                    all_logit_coords[ids] = [
+                        int(self.line_padding_px // self.net_subsampling),
+                        int((self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
                 if sparse_logits:
                     line_probs = softmax(line_logits, axis=1)
                     line_logits[line_probs < 0.0001] = 0
                     line_logits = sparse.csc_matrix(line_logits)
                 all_logits[ids] = line_logits
 
-        return all_transcriptions, all_logits
+        return all_transcriptions, all_logits, all_logit_coords
 
 
 class EngineLineOCR(BaseEngineLineOCR):
@@ -156,7 +162,7 @@ def test_line_ocr(line_list, ocr_engine_json):
             raise ValueError('Error: Could not read image "{}"'.format(line))
         lines.append(line_img)
 
-    transcriptions, logits = ocr_engine.process_lines(lines)
+    transcriptions, logits, _ = ocr_engine.process_lines(lines)
 
     for transcription, line in zip(transcriptions, lines):
         print(transcription)
