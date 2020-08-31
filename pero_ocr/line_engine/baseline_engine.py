@@ -294,7 +294,7 @@ class EngineLineDetectorCNNReg(object):
         return out_map
 
     def get_med_height(self, out_map):
-        heights = (out_map[:,:,2] > 0.2).astype(np.float) * out_map[:,:,0]
+        heights = (out_map[:,:,2] > self.detection_threshold).astype(np.float) * out_map[:,:,0]
         med_height = np.median(heights[heights>0])
 
         return med_height
@@ -306,17 +306,23 @@ class EngineLineDetectorCNNReg(object):
         """
         baselines_list = []
         heights_list = []
-        l_embd_list = []
-        m_embd_list = []
-        r_embd_list = []
+        structure = np.asarray(
+        [
+            [1, 1, 1],
+            [1, 1, 1],
+            [1, 1, 1],
+            [1, 1, 1],
+            [1, 1, 1],
+        ])
 
-        baselines_map = ndimage.convolve(out_map[:,:,2], np.ones((3,3)))
+        baselines_map = ndimage.convolve(out_map[:,:,2], np.ones((3,3))/9)
         baselines_map = pp.nonmaxima_suppression(baselines_map, element_size=(7,1))
-        baselines_map /= 9 # revert signal amplification from convolution
-        baselines_map = (baselines_map - out_map[:,:,3]) > 0.2
-        heights_map = ndimage.morphology.grey_dilation(out_map[:,:,:2], size=(7,1,1))
+        baselines_map = (baselines_map - out_map[:,:,3]) > self.detection_threshold
+        heights_map = ndimage.morphology.grey_dilation(out_map[:, :, :2], size=(7,1,1))
 
-        baselines_img, num_detections = ndimage.measurements.label(baselines_map, structure=np.ones((3, 3)))
+        baselines_map_dilated = ndimage.morphology.binary_dilation(baselines_map, structure=structure)
+        baselines_img, num_detections = ndimage.measurements.label(baselines_map_dilated, structure=np.ones([3,3]))
+        baselines_img *= baselines_map
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
 
@@ -335,7 +341,7 @@ class EngineLineDetectorCNNReg(object):
                 selected_pos = np.linspace(0, (pos.shape[0]) - 1, target_point_count).astype(np.int32)
 
                 pos = pos[selected_pos, :]
-                pos[0,0] -= 2 # region edge detection bites out of baseline pixels, stretch to compensate
+                pos[0,0] -= 2  # endpoint detection can bite out of baseline pixels, stretch to compensate
                 pos[-1,0] += 2
 
                 heights_pred = heights_map[inds[0][bl_inds], inds[1][bl_inds], :]

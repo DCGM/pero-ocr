@@ -25,6 +25,7 @@ class EngineRegionSimple(object):
         self.pad = pad # CNN training pad
         self.max_megapixels = max_mp if max_mp is not None else 5 # maximum megapixels when processing image to avoid OOM
         self.gpu_fraction = gpu_fraction
+        self.line_detection_threshold = 0.2
 
         if model_path is not None:
             saver = tf.train.import_meta_graph(model_path + '.meta')
@@ -126,30 +127,35 @@ class EngineRegionSimple(object):
 
     def parse_maps(self, out_map, downsample):
         """Parse input baseline, height and region map into list of baselines coords, heights and embd
-        :param baseline_map: array of baseline and endpoint probabilities
-        :param heights_map: array of estimated heights
+        :param out_map: array of baseline and endpoint probabilities with channels: ascender height, descender height, baselines, baseline endpoints, region boundaries
         """
         baselines_list = []
         heights_list = []
-        l_embd_list = []
-        m_embd_list = []
-        r_embd_list = []
+        structure = np.asarray(
+        [
+            [1, 1, 1],
+            [1, 1, 1],
+            [1, 1, 1],
+            [1, 1, 1],
+            [1, 1, 1],
+        ])
 
         out_map[:,:,4][out_map[:,:,4]<0] = 0
-        baselines_map = ndimage.convolve(out_map[:,:,2], np.ones((3,3)))
+        baselines_map = ndimage.convolve(out_map[:,:,2], np.ones((3,3))/9)
         baselines_map = pp.nonmaxima_suppression(baselines_map, element_size=(7,1))
-        baselines_map /= 9 # revert signal amplification from convolution
-        baselines_map = (baselines_map - out_map[:,:,3]) > 0.2
-        heights_map = ndimage.morphology.grey_dilation(out_map[:,:,:2], size=(7,1,1))
+        baselines_map = (baselines_map - out_map[:,:,3]) > self.line_detection_threshold
+        heights_map = ndimage.morphology.grey_dilation(out_map[:, :, :2], size=(7,1,1))
 
-        baselines_img, num_detections = ndimage.measurements.label(baselines_map, structure=np.ones((3, 3)))
+        baselines_map_dilated = ndimage.morphology.binary_dilation(baselines_map, structure=structure)
+        baselines_img, num_detections = ndimage.measurements.label(baselines_map_dilated, structure=np.ones([3,3]))
+        baselines_img *= baselines_map
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
 
         for i in range(1, num_detections+1):
             bl_inds, = np.where(labels == i)
             if len(bl_inds) > 5:
-                pos_all = np.stack([inds[1][bl_inds], inds[0][bl_inds]], axis=1) # go from matrix indexing to image indexing
+                pos_all = np.stack([inds[1][bl_inds], inds[0][bl_inds]], axis=1)  # go from matrix indexing to image indexing
 
                 _, indices = np.unique(pos_all[:, 0], return_index=True)
                 pos = pos_all[indices]
@@ -161,7 +167,7 @@ class EngineRegionSimple(object):
                 selected_pos = np.linspace(0, (pos.shape[0]) - 1, target_point_count).astype(np.int32)
 
                 pos = pos[selected_pos, :]
-                pos[0,0] -= 2 # region edge detection bites out of baseline pixels, stretch to compensate
+                pos[0,0] -= 2  # endpoint detection can bite out of baseline pixels, stretch to compensate
                 pos[-1,0] += 2
 
                 heights_pred = heights_map[inds[0][bl_inds], inds[1][bl_inds], :]
