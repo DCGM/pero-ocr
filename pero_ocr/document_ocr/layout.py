@@ -1,3 +1,4 @@
+import sys
 import re
 import pickle
 import json
@@ -7,6 +8,7 @@ from datetime import datetime
 import numpy as np
 import lxml.etree as ET
 import cv2
+import shapely
 
 from pero_ocr.document_ocr.crop_engine import EngineLineCropper
 from pero_ocr.force_alignment import align_text
@@ -85,6 +87,35 @@ def get_region_from_page_xml(region_element, schema):
     return layout_region
 
 
+def guess_line_heights_from_polygon(text_line: TextLine):
+    '''
+    Guess line heights for line if missing (e.g. import from Transkribus).
+    Heights are computed from polygon intersection with baseline normal in the middle of baseline.
+    '''
+    try:
+        if text_line.baseline.shape[0] % 2 == 0:
+            center = (text_line.baseline[text_line.baseline.shape[0]//2 - 1] + text_line.baseline[text_line.baseline.shape[0]//2]) / 2
+        else:
+            center = text_line.baseline[text_line.baseline.shape[0]//2]
+        direction = text_line.baseline[0] - text_line.baseline[-1]
+        direction = direction[::-1]
+        direction[0] = -direction[0]
+        cross_line = np.stack([center - direction * 10, center + direction * 10])
+
+        cross_line = shapely.geometry.LineString(cross_line)
+        polygon = shapely.geometry.Polygon(text_line.polygon)
+        intersection = polygon.intersection(cross_line)
+        intersection = np.asarray(intersection.coords.xy).T
+
+        text_line.heights = [((center - intersection[0])**2).sum()**0.5,
+                             ((center - intersection[1]) ** 2).sum() ** 0.5]
+        text_line.heights = sorted(text_line.heights)[::-1]
+    except:
+        height = text_line.polygon[:, 1].max() - text_line.polygon[:, 1].min()
+        text_line.heights = [height * 0.8, height * 0.2]
+
+
+
 class PageLayout(object):
     def __init__(self, id=None, page_size=(0, 0), file=None):
         self.id = id
@@ -134,10 +165,16 @@ class PageLayout(object):
                 baseline = line.find(schema + 'Baseline')
                 if baseline is not None:
                     new_textline.baseline = get_coords_form_page_xml(baseline, schema)
+                else:
+                    print('Warning: Baseline is missing in TextLine. Skipping this line during import. Line ID:', new_textline.id, 'Page ID:', self.id, file=sys.stderr)
+                    continue
 
                 textline = line.find(schema + 'Coords')
                 if textline is not None:
                     new_textline.polygon = get_coords_form_page_xml(textline, schema)
+
+                if not new_textline.heights:
+                    guess_line_heights_from_polygon(new_textline)
 
                 transcription = line.find(schema + 'TextEquiv')
                 if transcription is not None:
