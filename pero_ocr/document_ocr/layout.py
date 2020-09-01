@@ -332,39 +332,18 @@ class PageLayout(object):
                     crop_engine = EngineLineCropper(poly=2)
                     line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
                     space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
-                    word = []
+
                     words = []
-                    counter = 0
-                    for i, elem in enumerate(aligned_letters):
-                        try:
-                            if i == space_idxs[counter]:
-                                if counter != (len(space_idxs) - 1):
-                                    counter += 1
-                                words.append(word)
-                                word = []
-                            else:
-                                word.append(elem)
-                        except IndexError as _:
-                            word.append(elem)
-
-                    words.append(word)
-
-                    try:
-                        words.remove([])
-                    except ValueError:
-                        pass
-
-                    start_end = []
-                    for i in words:
-                        start_end.append(tuple([i[0], i[-1]]))
+                    space_idxs = [-1] + space_idxs + [len(aligned_letters)]
+                    for i in range(len(space_idxs[1:])):
+                        if space_idxs[i] != space_idxs[i+1]-1:
+                            words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
 
                     splitted_transcription = line.transcription.split()
                     lm_const = line_coords.shape[1] / logits.shape[0]
-                    for w, word in enumerate(start_end):
-                        all_x = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 0]
-                        all_y = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 1]
-                        if all_x.tolist() == [] or all_y.tolist() == []:
-                            continue
+                    for w, word in enumerate(words):
+                        all_x = line_coords[:, max(0, int((words[w][0]-2) * lm_const)):int((words[w][1]+2) * lm_const), 0]
+                        all_y = line_coords[:, max(0, int((words[w][0]-2) * lm_const)):int((words[w][1]+2) * lm_const), 1]
 
                         string = ET.SubElement(text_line, "String")
                         string.set("CONTENT", splitted_transcription[w])

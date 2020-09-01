@@ -6,7 +6,7 @@ import re
 
 try:
     subprocess.check_output(
-        "{} -c 'import numba'".format(sys.executable), shell=True
+        '{} -c "import numba"'.format(sys.executable), shell=True
     )
     print('numba available, importing jit')
     from numba import jit
