@@ -5,7 +5,7 @@ from copy import deepcopy
 import cv2
 import tensorflow as tf
 from scipy import ndimage
-from scipy.spatial import Delaunay
+from scipy.spatial import Delaunay, distance
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 from skimage.measure import block_reduce
@@ -76,17 +76,11 @@ class EngineRegionSimple(object):
                     region_heights.append(heights)
                     region_textlines.append(textline)
 
-            region_poly_points = np.concatenate(region_textlines, axis=0)
-
-            max_poly_line = np.amax(np.array([np.amax(np.diff(baseline[:,0])) for baseline in region_baselines]))
-            max_height = np.amax(np.array(region_heights))
-            max_alpha =  1.5 * np.maximum(max_poly_line, max_height)
-            region_poly = alpha_shape(region_poly_points, max_alpha)
-
+            region_poly = self.region_from_textlines(region_textlines)
             regions_textlines_tmp.append(region_textlines)
             polygons_tmp.append(region_poly)
 
-        #remove overlaps
+        #remove overlaps and TBD fix invalid polygons
         polygons_tmp = self.filter_polygons(polygons_tmp, regions_textlines_tmp)
 
         #up to this point, polygons can be any geometry that comes from alpha_shape
@@ -250,6 +244,8 @@ class EngineRegionSimple(object):
             return [0]
 
     def filter_polygons(self, polygons, region_textlines):
+        polygons = [check_polygon(polygon) for polygon in polygons]
+        # TBD first, replace any invalid polygons with convex hulls
         inds_to_remove = []
         for i in range(len(polygons)):
             for j in range(i+1, len(polygons)):
@@ -267,36 +263,59 @@ class EngineRegionSimple(object):
                     # append the overlap to the one with more textlines in the overlap area
                     score_i = 0
                     for line in region_textlines[i]:
-                        score_i += sg.Polygon(line).intersection(poly_intersection).area
+                        line_poly = check_polygon(sg.Polygon(line))
+                        score_i += line_poly.intersection(poly_intersection).area
                     score_j = 0
                     for line in region_textlines[j]:
-                        score_j += sg.Polygon(line).intersection(poly_intersection).area
+                        line_poly = check_polygon(sg.Polygon(line))
+                        score_j += line_poly.intersection(poly_intersection).area
                     if score_i > score_j:
                         polygons[i] = polygons[i].union(poly_intersection)
                     else:
                         polygons[j] = polygons[j].union(poly_intersection)
         return [polygon for i, polygon in enumerate(polygons) if i not in inds_to_remove]
 
-def alpha_shape(points, alpha):
-    if len(points) < 4:
-        # When you have a triangle, there is no sense
-        # in computing an alpha shape.
-        return sg.MultiPoint(list(points)).convex_hull
+    def region_from_textlines(self, region_textlines):
+        max_spacings = []
+        for textline in region_textlines:
+            pts_1 = textline[1:]
+            pts_2 = textline[:-1]
+            spacings = np.linalg.norm(np.asarray(pts_1) - np.asarray(pts_2), axis=1)
+            max_spacings.append(spacings.max())
+        max_spacing = np.asarray(max_spacings).max()
+        region_poly_points = np.concatenate(region_textlines, axis=0)
 
-    # coords = np.array([point.coords[0] for point in points])
-    tri = Delaunay(points)
-    triangles = points[tri.vertices]
-    a = ((triangles[:,0,0] - triangles[:,1,0]) ** 2 + (triangles[:,0,1] - triangles[:,1,1]) ** 2) ** 0.5
-    b = ((triangles[:,1,0] - triangles[:,2,0]) ** 2 + (triangles[:,1,1] - triangles[:,2,1]) ** 2) ** 0.5
-    c = ((triangles[:,2,0] - triangles[:,0,0]) ** 2 + (triangles[:,2,1] - triangles[:,0,1]) ** 2) ** 0.5
-    s = ( a + b + c ) / 2.0
+        return alpha_shape(region_poly_points, max_spacing)
+
+
+def get_circumradius(a, b, c):
+    s = (a + b + c) / 2.0
     areas = (s*(s-a)*(s-b)*(s-c)) ** 0.5
     circums = a * b * c / (4.0 * (areas + 0.0001))
-    filtered = triangles[circums < alpha]
-    edge1 = filtered[:,(0,1)]
-    edge2 = filtered[:,(1,2)]
-    edge3 = filtered[:,(2,0)]
-    edge_points = np.unique(np.concatenate((edge1,edge2,edge3)), axis = 0).tolist()
+    return circums
+
+
+def alpha_shape(points, alpha):
+    if len(points) < 4:
+        return sg.MultiPoint(list(points)).convex_hull
+
+    tri = Delaunay(points)
+    triangles = points[tri.vertices]
+    a = ((triangles[:, 0, 0] - triangles[:, 1, 0]) ** 2 + (triangles[:, 0, 1] - triangles[:, 1, 1]) ** 2) ** 0.5
+    b = ((triangles[:, 1, 0] - triangles[:, 2, 0]) ** 2 + (triangles[:, 1, 1] - triangles[:, 2, 1]) ** 2) ** 0.5
+    c = ((triangles[:, 2, 0] - triangles[:, 0, 0]) ** 2 + (triangles[:, 2, 1] - triangles[:, 0, 1]) ** 2) ** 0.5
+    circums = get_circumradius(a, b, c)
+    filtered = triangles[circums <= alpha]
+    edge1 = filtered[:, (0, 1)]
+    edge2 = filtered[:, (1, 2)]
+    edge3 = filtered[:, (2, 0)]
+    edge_points = np.unique(np.concatenate((edge1, edge2, edge3)), axis=0).tolist()
     m = sg.MultiLineString(edge_points)
     triangles = list(polygonize(m))
     return cascaded_union(triangles)
+
+
+def check_polygon(polygon):
+    if not polygon.is_valid:
+        polygon = polygon.convex_hull
+    return polygon
