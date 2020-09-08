@@ -401,7 +401,7 @@ def main():
             os.makedirs(args.output_dir)
 
     filename_list = [x for x in os.listdir(args.image_dir)]
-    editor = PageEditor(downsample=2, line_thickness=2, show_hint=True, cursor=0)
+    editor = PageEditor(downsample=1, line_thickness=2, show_hint=True, cursor=0)
 
     while editor.cursor > -1 and editor.cursor < len(filename_list):
 

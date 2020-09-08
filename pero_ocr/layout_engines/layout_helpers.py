@@ -4,13 +4,124 @@ import warnings
 
 import numpy as np
 import cv2
-import shapely.geometry
 from scipy import ndimage
+from scipy.spatial import Delaunay, distance
 from sklearn import cluster
+import shapely.geometry as sg
+from shapely.ops import cascaded_union, polygonize
+
+from pero_ocr.document_ocr.layout import PageLayout, RegionLayout, TextLine
+
+def assign_lines_to_region(baseline_list, heights_list, textline_list, region):
+    for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):
+        baseline_intersection, textline_intersection = mask_textline_by_region(
+            baseline, textline, region.polygon)
+        if baseline_intersection is not None and textline_intersection is not None:
+            new_textline = TextLine(
+                id='{}-l{:03d}'.format(region.id, line_num+1),
+                baseline=baseline_intersection,
+                polygon=textline_intersection,
+                heights=heights
+                )
+            region.lines.append(new_textline)
+    return region
+
+
+def baseline_to_textline(baseline, heights):
+    """Convert baseline coords and its respective heights to a textline polygon.
+    :param baseline: baseline coords
+    :param heights: textline heights
+    """
+
+    heights = np.array(
+        [max(1, heights[0]), max(1, heights[1])]).astype(np.float32)
+
+    x_diffs = np.diff(baseline[:, 0])
+    x_diffs = np.concatenate((x_diffs, x_diffs[-1:]), axis=0)
+    y_diffs = np.diff(baseline[:, 1])
+    y_diffs = np.concatenate((y_diffs, y_diffs[-1:]), axis=0)
+
+    alfas = np.pi/2 + np.arctan2(y_diffs, x_diffs)
+    y_up_diffs = np.sin(alfas) * heights[0]
+    x_up_diffs = np.cos(alfas) * heights[0]
+    y_down_diffs = np.sin(alfas) * heights[1]
+    x_down_diffs = np.cos(alfas) * heights[1]
+
+    pos_up = baseline.copy().astype(np.float32)
+    pos_up[:, 1] -= y_up_diffs
+    pos_up[:, 0] -= x_up_diffs
+    pos_down = baseline.copy().astype(np.float32)
+    pos_down[:, 1] += y_down_diffs
+    pos_down[:, 0] += x_down_diffs
+    pos_t = np.concatenate([pos_up, pos_down[::-1, :]], axis=0)
+
+    return pos_t
+
+
+def region_from_textlines(region_textlines):
+    '''
+    Convert textline list to Shapely polygon using alpha shape
+    '''
+    max_spacings = []
+    for textline in region_textlines:
+        pts_1 = textline[1:]
+        pts_2 = textline[:-1]
+        spacings = np.linalg.norm(
+            np.asarray(pts_1) - np.asarray(pts_2), axis=1)
+        max_spacings.append(spacings.max())
+    max_spacing = np.asarray(max_spacings).max()
+    region_poly_points = np.concatenate(region_textlines, axis=0)
+
+    return alpha_shape(region_poly_points, max_spacing)
+
+
+def get_circumradius(a, b, c):
+    '''
+    Compute circumradius of a triangle
+    '''
+    s = (a + b + c) / 2.0
+    areas = (s*(s-a)*(s-b)*(s-c)) ** 0.5
+    circums = a * b * c / (4.0 * (areas + 0.0001))
+    return circums
+
+
+def alpha_shape(points, alpha):
+    '''
+    Get shapely polygon around a point cloud using alpha shape algorithm
+    '''
+    if len(points) < 4:
+        return sg.MultiPoint(list(points)).convex_hull
+
+    tri = Delaunay(points)
+    triangles = points[tri.vertices]
+    a = ((triangles[:, 0, 0] - triangles[:, 1, 0]) ** 2 + (triangles[:, 0, 1] - triangles[:, 1, 1]) ** 2) ** 0.5
+    b = ((triangles[:, 1, 0] - triangles[:, 2, 0]) ** 2 + (triangles[:, 1, 1] - triangles[:, 2, 1]) ** 2) ** 0.5
+    c = ((triangles[:, 2, 0] - triangles[:, 0, 0]) ** 2 + (triangles[:, 2, 1] - triangles[:, 0, 1]) ** 2) ** 0.5
+    circums = get_circumradius(a, b, c)
+    filtered = triangles[circums <= alpha]
+    edge1 = filtered[:, (0, 1)]
+    edge2 = filtered[:, (1, 2)]
+    edge3 = filtered[:, (2, 0)]
+    edge_points = np.unique(
+        np.concatenate((edge1, edge2, edge3)), axis=0).tolist()
+    m = sg.MultiLineString(edge_points)
+    triangles = list(polygonize(m))
+    return cascaded_union(triangles)
+
+
+def check_polygon(polygon):
+    '''
+    Check that polygon does not contain any self-intersections. If it does,
+    return the respective convex hull.
+    '''
+    if not polygon.is_valid:
+        polygon = polygon.convex_hull
+    return polygon
 
 
 def merge_lines(baselines, heights):
-    """Merge lines on similar vertical offsets. Useful as postprocessing with known regions.
+    """Merge lines on similar vertical offsets. Useful as postprocessing with
+    known regions.
     :param baselines: list of baselines to merge
     :param heights: list of respective textline heights
     """
@@ -64,60 +175,6 @@ def merge_lines(baselines, heights):
     return baselines, heights
 
 
-def cluster_baselines(baselines, heights):
-    """Cluster baselines according to their vertical and horrizontal offset.
-    Resulting clusters should match text regions.
-    :param baselines: list of baselines to cluster
-    :param heights: list of respective textline heights
-    """
-    baseline_features = np.asarray([[baseline[0][0], (baseline[0][1]+baseline[-1][1])/2] for baseline in baselines])
-    alpha = 4  # how much to reduce vertical difference penalty
-    feature_normalizers = np.asarray([[baseline[-1][0] - baseline[0][0], alpha*height[0]] for baseline, height in zip(baselines, heights)])
-    feature_normalizers = np.median(feature_normalizers, axis=0)
-    baseline_labels = cluster.DBSCAN(eps=0.5, min_samples=1).fit(baseline_features/feature_normalizers).labels_
-
-    return baseline_labels
-
-
-def order_lines_general(baselines, heights, textlines):
-    """Attempt to order lines according to their position, both inside regions
-    and across regions. This should be the correct reading order.
-    :param baselines: list of baselines to order
-    :param heights: list of respective textline heights
-    :param textlines: list of respective textline polygons
-    """
-    baseline_labels = cluster_baselines(baselines, heights)
-    clusters = np.arange(np.amax(baseline_labels)+1).tolist()
-    clusters_v_inds = list()
-    clusters_h_inds = list()
-    for c in clusters:
-        bs_inds = np.where(baseline_labels == c)[0]
-        v_min = np.amin(np.asarray([baselines[bs_ind][0][1] for bs_ind in bs_inds]))
-        v_max = np.amax(np.asarray([baselines[bs_ind][0][1] for bs_ind in bs_inds]))
-        h_min = np.median(np.asarray([baselines[bs_ind][0][0] for bs_ind in bs_inds]))
-        h_max = np.median(np.asarray([baselines[bs_ind][-1][0] for bs_ind in bs_inds]))
-        clusters_v_inds.append([v_min, v_max])
-        clusters_h_inds.append([h_min, h_max])
-    clusters_rank = np.zeros_like(clusters)
-    for cluster_ind, (cluster_v_inds, cluster_h_inds) in enumerate(zip(clusters_v_inds, clusters_h_inds)):
-        for cluster_v_inds_c, cluster_h_inds_c in zip(clusters_v_inds, clusters_h_inds):
-            if cluster_h_inds[0] - cluster_h_inds_c[1] > -20:  # how much can regions overlap to be considered next to each other
-                clusters_rank[cluster_ind] += 1
-            overlay_threshold = np.minimum(cluster_h_inds_c[1]-cluster_h_inds_c[0], cluster_h_inds[1]-cluster_h_inds[0])/2
-            overlay = np.minimum(cluster_h_inds_c[1], cluster_h_inds[1]) - np.maximum(cluster_h_inds_c[0], cluster_h_inds[0])
-            if cluster_v_inds_c[0] < cluster_v_inds[0] and overlay > overlay_threshold:
-                clusters_rank[cluster_ind] += 1
-    K = len(baselines)
-    baselines_order = np.arange(K).tolist()
-    for b, (_, label) in enumerate(zip(baselines_order, baseline_labels)):
-        baselines_order[b] = b + K * clusters_rank[label]
-    baselines = [baseline for _, baseline in sorted(zip(baselines_order, baselines))]
-    heights = [height for _, height in sorted(zip(baselines_order, heights))]
-    textlines = [textlines for _, textlines in sorted(zip(baselines_order, textlines))]
-
-    return baselines, heights, textlines
-
-
 def order_lines_vertical(baselines, heights, textlines):
     """Order lines according to their vertical position.
     :param baselines: list of baselines to order
@@ -130,39 +187,6 @@ def order_lines_vertical(baselines, heights, textlines):
     textlines = [textline for _, textline in sorted(zip(baselines_order, textlines))]
 
     return baselines, heights, textlines
-
-
-def stretch_baselines(baselines, stretch):
-    baselines_stretched = []
-    for baseline in baselines:
-        last_point = baseline[-1:, :].copy()
-        last_point[0,0] += stretch
-        first_point = baseline[:1, :].copy()
-        first_point[0,0] -= stretch
-        baselines_stretched.append(np.concatenate((first_point, baseline, last_point), axis=0))
-    return baselines_stretched
-
-
-def stretch_baselines_to_region(baselines, region):
-    baselines_stretched = []
-    region = np.concatenate((region, region[:1, :]), axis=0)
-    for baseline in baselines:
-        # print(shapely.geometry.LineString(baseline).intersects(shapely.geometry.Polygon(region)))
-        line_interpf = np.poly1d(np.polyfit(baseline[:, 0], baseline[:, 1], 1))
-        y_1 = line_interpf(np.amin(region[:, 0]))
-        y_2 = line_interpf(np.amax(region[:, 0]))
-        baseline_ls = shapely.geometry.LineString([(np.amin(region[:, 0]), y_1), (np.amax(region[:, 0]), y_2)])
-        region_ls = shapely.geometry.LineString(region)
-
-        intersections_ls = region_ls.intersection(baseline_ls)
-        #intersection can be empty due to borderline baselines and integer coordinate rotations
-        if isinstance(intersections_ls, shapely.geometry.MultiPoint):
-            intersections = np.squeeze(np.asarray([intersection.coords.xy for intersection in intersections_ls]))
-            intersection_left = intersections[np.argmin(intersections[:, 0]), :]
-            intersection_right = intersections[np.argmax(intersections[:, 0]), :]
-
-            baselines_stretched.append(np.concatenate((intersection_left[np.newaxis, :], baseline, intersection_right[np.newaxis, :]), axis=0))
-    return baselines_stretched
 
 
 def resample_baselines(baselines, num_points=10):
@@ -185,21 +209,6 @@ def resample_baselines(baselines, num_points=10):
     return baselines_resampled
 
 
-def nonmaxima_suppression(input, element_size=(7,1)):
-    """Vertical non-maxima suppression.
-    :param input: input array
-    :param element_size: structure element for greyscale dilations
-    """
-    if len(input.shape) == 3:
-        dilated = np.zeros_like(input)
-        for i in range(input.shape[0]):
-            dilated[i,:,:] = ndimage.morphology.grey_dilation(input[i,:,:], size=element_size)
-    else:
-        dilated = ndimage.morphology.grey_dilation(input, size=element_size)
-
-    return input * (input == dilated)
-
-
 def filter_list(items_list, indices_to_remove):
     """Remove list items by their indices.
     :param items_list: target list
@@ -213,13 +222,13 @@ def filter_list(items_list, indices_to_remove):
 
 
 def mask_textline_by_region(baseline, textline, region):
-    region_shpl = shapely.geometry.Polygon(region)
-    baseline_shpl = shapely.geometry.LineString(baseline)
+    region_shpl = sg.Polygon(region)
+    baseline_shpl = sg.LineString(baseline)
 
     if not baseline_shpl.intersects(region_shpl):
         return None, None
 
-    textline_shpl = shapely.geometry.Polygon(textline)
+    textline_shpl = sg.Polygon(textline)
     if not textline_shpl.is_valid: # this can happen after merging two lines
         textline_shpl = textline_shpl.convex_hull
     if not region_shpl.is_valid:
@@ -227,40 +236,10 @@ def mask_textline_by_region(baseline, textline, region):
         region_shpl = region_shpl.convex_hull
     baseline_is = region_shpl.intersection(baseline_shpl)
     textline_is = region_shpl.intersection(textline_shpl)
-    if isinstance(baseline_is, shapely.geometry.LineString) and isinstance(textline_is, shapely.geometry.Polygon) and baseline_is.length>2:
+    if isinstance(baseline_is, sg.LineString) and isinstance(textline_is, sg.Polygon) and baseline_is.length>2:
         return np.asarray(baseline_is.coords), np.asarray(textline_is.exterior.coords)
     else:
         return None, None
-
-
-def baseline_to_textline(baseline, heights):
-    """Convert baseline coords and its respective heights to a textline polygon.
-    :param baseline: baseline coords
-    :param heights: textline heights
-    """
-
-    heights = np.array([max(1, heights[0]), max(1, heights[1])]).astype(np.float32)
-
-    x_diffs = np.diff(baseline[:,0])
-    x_diffs = np.concatenate((x_diffs, x_diffs[-1:]), axis=0)
-    y_diffs = np.diff(baseline[:,1])
-    y_diffs = np.concatenate((y_diffs, y_diffs[-1:]), axis=0)
-
-    alfas = np.pi/2 + np.arctan2(y_diffs, x_diffs)
-    y_up_diffs = np.sin(alfas) * heights[0]
-    x_up_diffs = np.cos(alfas) * heights[0]
-    y_down_diffs = np.sin(alfas) * heights[1]
-    x_down_diffs = np.cos(alfas) * heights[1]
-
-    pos_up = baseline.copy().astype(np.float32)
-    pos_up[:, 1] -= y_up_diffs
-    pos_up[:, 0] -= x_up_diffs
-    pos_down = baseline.copy().astype(np.float32)
-    pos_down[:, 1] += y_down_diffs
-    pos_down[:, 0] += x_down_diffs
-    pos_t = np.concatenate([pos_up, pos_down[::-1, :]], axis=0)
-
-    return pos_t
 
 
 def get_rotation(lines):
@@ -300,6 +279,7 @@ def rotate_coords(coords, rotation, center):
     :param rotation: rotation angle
     :param center: center of rotation
     """
+    coords = coords.copy()
     M = cv2.getRotationMatrix2D((center), rotation, 1)
     change_coords = [[item[0], item[1]] for item in coords]
     coords = np.array([change_coords])
