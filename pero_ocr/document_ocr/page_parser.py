@@ -282,11 +282,9 @@ def get_prob(best_ids, best_probs):
 class PageParser(object):
     def __init__(self, config, config_path=''):
         self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER', fallback=False)
-        self.run_line_parser = config['PAGE_PARSER'].getboolean('RUN_LINE_PARSER', fallback=False)
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
         self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER', fallback=False)
-        self.run_region_sorter = config['PAGE_PARSER'].getboolean('RUN_REGION_SORTER', fallback=False)
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
                                                                                  fallback=-1)
 
@@ -294,7 +292,6 @@ class PageParser(object):
         self.line_cropper = None
         self.ocr = None
         self.decoder = None
-        self.region_sorter = None
 
         if self.run_layout_parser:
             self.layout_parsers = []
@@ -331,10 +328,6 @@ class PageParser(object):
         if self.run_layout_parser:
             for layout_parser in self.layout_parsers:
                 page_layout = layout_parser.process_page(image, page_layout)
-        if self.run_region_sorter:
-            page_layout = self.region_sorter.process_page(image, page_layout)
-        if self.run_line_parser:
-            page_layout = self.line_parser.process_page(image, page_layout)
         if self.run_line_cropper:
             page_layout = self.line_cropper.process_page(image, page_layout)
         if self.run_ocr:
