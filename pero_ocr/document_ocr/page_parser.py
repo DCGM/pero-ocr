@@ -7,6 +7,7 @@ from scipy import ndimage
 from pero_ocr.utils import compose_path
 from .layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import crop_engine as cropper
+from pero_ocr.ocr_engine import line_ocr_engine
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
 from pero_ocr.layout_engines.simple_baseline_engine import EngineLineDetectorSimple
 from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine

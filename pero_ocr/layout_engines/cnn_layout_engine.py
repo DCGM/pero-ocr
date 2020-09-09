@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 
 import cv2
-import tensorflow as tf
 from scipy import ndimage
 from scipy.spatial import Delaunay, distance
 from scipy.sparse import csr_matrix
