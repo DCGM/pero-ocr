@@ -342,8 +342,15 @@ class PageLayout(object):
                     splitted_transcription = line.transcription.split()
                     lm_const = line_coords.shape[1] / logits.shape[0]
                     for w, word in enumerate(words):
-                        all_x = line_coords[:, max(0, int((words[w][0]-2) * lm_const)):int((words[w][1]+2) * lm_const), 0]
-                        all_y = line_coords[:, max(0, int((words[w][0]-2) * lm_const)):int((words[w][1]+2) * lm_const), 1]
+                        extension = 2
+                        while True:
+                            all_x = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 0]
+                            all_y = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 1]
+
+                            if all_x.size == 0 or all_y.size == 0:
+                                extension += 1
+                            else:
+                                break
 
                         string = ET.SubElement(text_line, "String")
                         string.set("CONTENT", splitted_transcription[w])
