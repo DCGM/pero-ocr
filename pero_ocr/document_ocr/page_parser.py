@@ -174,18 +174,15 @@ class LayoutExtractor(object):
                         b_list, h_list, t_list, region)
 
         if self.merge_lines:
-            b_list, h_list, t_list = [], [], []
             for region in page_layout.regions:
                 r_b_list, r_h_list = helpers.merge_lines(
                     [line.baseline for line in region.lines],
                     [line.heights for line in region.lines]
                 )
-                r_b_list
-                r_h_list
                 r_t_list = [helpers.baseline_to_textline(b, h) for b, h in zip(r_b_list, r_h_list)]
                 region.lines = []
                 region = helpers.assign_lines_to_region(
-                    b_list, h_list, t_list, region)
+                    r_b_list, r_h_list, r_t_list, region)
 
         if self.adjust_lines:
             heights_map, ds = self.engine.get_maps(img)[:, :, :2]
