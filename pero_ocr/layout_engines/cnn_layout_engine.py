@@ -169,16 +169,15 @@ class LayoutEngine(object):
 
     def filter_polygons(self, polygons, region_textlines):
         polygons = [helpers.check_polygon(polygon) for polygon in polygons]
-        # TBD first, replace any invalid polygons with convex hulls
         inds_to_remove = []
         for i in range(len(polygons)):
             for j in range(i+1, len(polygons)):
+                # first check if a polygon is completely inside another, remove the smaller in that case
                 if polygons[i].contains(polygons[j]):
                     inds_to_remove.append(j)
                 elif polygons[j].contains(polygons[i]):
                     inds_to_remove.append(i)
                 elif polygons[i].intersects(polygons[j]):
-                    # first check if a polygon is completely inside another, remove the smaller in that case
                     poly_intersection = polygons[i].intersection(polygons[j])
                     # remove the overlap from both regions
                     poly_tmp = deepcopy(polygons[i])

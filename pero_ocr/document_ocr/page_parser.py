@@ -29,6 +29,8 @@ def layout_parser_factory(config, config_path='', order=1):
         layout_parser = TextlineExtractorSimple(config, config_path=config_path)
     elif config['METHOD'] == 'LINE_POSTPROCESSING':
         layout_parser = LinePostprocessor(config, config_path=config_path)
+    elif config['METHOD'] == 'LAYOUT_POSTPROCESSING':
+        layout_parser = LayoutPostprocessor(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SORTER_NAIVE':
         layout_parser = NaiveRegionSorter(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SORTER_SMART':
@@ -207,7 +209,6 @@ class LinePostprocessor(object):
             resample_lines=config.getboolean('RESAMPLE_LINES'),
             heights_from_regions=config.getboolean('HEIGHTS_FROM_REGIONS')
         )
-        self.pool = Pool()
 
     def process_page(self, img, page_layout: PageLayout):
         if not page_layout.regions:
@@ -216,6 +217,22 @@ class LinePostprocessor(object):
 
         for region in page_layout.regions:
             region = self.engine.postprocess(region)
+
+        return page_layout
+
+
+class LayoutPostprocessor(object):
+    def __init__(self, config, config_path=''):
+        self.retrace_regions = config.getboolean('RETRACE_REGIONS')
+
+    def process_page(self, img, page_layout: PageLayout):
+        if not page_layout.regions:
+            print(f"Warning: Skipping layout post processing for page {page_layout.id}. No text region present.")
+            return page_layout
+
+        if self.retrace_regions:
+            for region in page_layout.regions:
+                helpers.retrace_region(region)
 
         return page_layout
 

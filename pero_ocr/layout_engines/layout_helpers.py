@@ -12,6 +12,7 @@ from shapely.ops import cascaded_union, polygonize
 
 from pero_ocr.document_ocr.layout import PageLayout, RegionLayout, TextLine
 
+
 def assign_lines_to_region(baseline_list, heights_list, textline_list, region):
     for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):
         baseline_intersection, textline_intersection = mask_textline_by_region(
@@ -25,6 +26,25 @@ def assign_lines_to_region(baseline_list, heights_list, textline_list, region):
                 )
             region.lines.append(new_textline)
     return region
+
+
+def retrace_region(region):
+    """ Discards existing region coords and makes new ones from alpha shape
+    around text lines.
+    """
+    region_textlines = [line.polygon for line in region.lines]
+    new_polygon = region_from_textlines(region_textlines)
+
+    if new_polygon.geom_type == 'MultiPolygon':
+        new_polygon = new_polygon.convex_hull.simplify(5)
+    elif new_polygon.geom_type == 'Polygon':
+        new_polygon = new_polygon.simplify(5)
+    else:
+        print('WARNING: polygon coordinates discarded during retrace.')
+
+    region.polygon = np.array(new_polygon.exterior.coords)
+
+    return
 
 
 def baseline_to_textline(baseline, heights):
@@ -72,7 +92,14 @@ def region_from_textlines(region_textlines):
     max_spacing = np.asarray(max_spacings).max()
     region_poly_points = np.concatenate(region_textlines, axis=0)
 
-    return alpha_shape(region_poly_points, max_spacing)
+    region_poly = alpha_shape(region_poly_points, max_spacing)
+
+    for textline in region_textlines:
+        textline_poly = sg.Polygon(textline)
+        if not region_poly.contains(textline_poly):
+            region_poly = region_poly.union(textline_poly)
+
+    return region_poly
 
 
 def get_circumradius(a, b, c):
