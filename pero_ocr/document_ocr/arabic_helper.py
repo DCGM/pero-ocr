@@ -11,10 +11,15 @@ class ArabicHelper:
         self._arabic_chars_pattern = "^([\u0600-\u06ff]|[\u0750-\u077f]|[\ufb50-\ufbc1]|[\ufbd3-\ufd3f]|[\ufd50-\ufd8f]|\
                                      [\ufd92-\ufdc7]|[\ufe70-\ufefc]|[\uFDF0-\uFDFD])+$"
 
-    def label_form_to_visual_form(self, text):
-        text = self._reverse_transcription(text)
+    def label_form_to_visual_form(self, text, reverse_before=True, reverse_after=True):
+        if reverse_before:
+            text = self._reverse_transcription(text)
+
         text = self._reshaper.reshape(text)
-        text = self._reverse_transcription(text)
+
+        if reverse_after:
+            text = self._reverse_transcription(text)
+
         return text
 
     def visual_form_to_label_form(self, text):
