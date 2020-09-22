@@ -1,13 +1,15 @@
 import unittest
 import re
 import arabic_reshaper
+import string
 
 
 class ArabicHelper:
     def __init__(self):
         self._reshaper = arabic_reshaper.ArabicReshaper()
         self._backward_mapping = self._create_backward_mapping()
-        self._arabic_chars_pattern = "^[\u0621-\u064A]+$"
+        self._arabic_chars_pattern = "^([\u0600-\u06ff]|[\u0750-\u077f]|[\ufb50-\ufbc1]|[\ufbd3-\ufd3f]|[\ufd50-\ufd8f]|\
+                                     [\ufd92-\ufdc7]|[\ufe70-\ufefc]|[\uFDF0-\uFDFD])+$"
 
     def label_form_to_visual_form(self, text):
         text = self._reverse_transcription(text)
@@ -112,51 +114,14 @@ class ArabicHelper:
         return words
 
 
-class ArabicHelperLabelAndVisualFormsTest(unittest.TestCase):
-    # RECOMMENDATION: open this script in an editor which preserves the order of arabic characters from left to right 
-    # (e.g. terminal, sublime text; NOT PyCharm, Visual Studio Code, gedit, github - these editors reverse the order 
-    # of arabic characters).
-    #
-    # The transcription was taken from MADCAT Arabic dataset, specifically from text line with ID
-    # 'XIA20041213.0121_1_LDC0316-r16-l001'. Strings below might not be rendered correctly in a document viewer
-    # or an IDE, but should be rendered correctly when printed to the console.
-    
-    source_simple = "ةيركسعلا طباورلا نا هوق لاقو"
-    target_simple = "ﺔﻳﺮﻜﺴﻌﻟﺍ ﻂﺑﺍﻭﺮﻟﺍ ﻥﺍ ﻩﻮﻗ ﻝﺎﻗﻭ"
-
-    source_rich = "ةيركسعلا ASDF طباورلا 25.6 نا هوق لاقو!"
-    target_rich = "ﺔﻳﺮﻜﺴﻌﻟﺍ ASDF ﻂﺑﺍﻭﺮﻟﺍ 25.6 ﻥﺍ ﻩﻮﻗ ﻝﺎﻗﻭ!"
-
-    def test_label_form_to_visual_form_simple(self):
-        helper = ArabicHelper()
-        visual_form = helper.label_form_to_visual_form(self.source_simple)
-        self.assertEqual(visual_form, self.target_simple)
-
-    def test_label_form_to_visual_form_rich(self):
-        helper = ArabicHelper()
-        visual_form = helper.label_form_to_visual_form(self.source_rich)
-        self.assertEqual(visual_form, self.target_rich)
-
-    def test_visual_form_to_label_form_simple(self):
-        helper = ArabicHelper()
-        label_form = helper.visual_form_to_label_form(self.target_simple)
-        self.assertEqual(label_form, self.source_simple)
-
-    def test_visual_form_to_label_form_rich(self):
-        helper = ArabicHelper()
-        label_form = helper.visual_form_to_label_form(self.target_rich)
-        self.assertEqual(label_form, self.source_rich)
-
-
-class ArabicHelperStringAndLabelFormTest(unittest.TestCase):
+class ArabicHelperTest(unittest.TestCase):
     # RECOMMENDATION: open this script in an editor which preserves the order of arabic characters from left to right 
     # (e.g. terminal, sublime text; NOT PyCharm, Visual Studio Code, gedit, github - these editors reverse the order 
     # of arabic characters).
     #
     # Test cases were generated using the HTML below. After opening this file, the browser (tested on Google Chrome 
     # and Firefox) should render the characters in the correct format. Strings in the HTML file should correspond to
-    # the source_* variables and the rendered strings should correspond to the visual form displayed below target_*
-    # variables.
+    # the string_* variables and the rendered strings should correspond to the visual_* variables.
     # 
     # <html>
     # <head>
@@ -164,53 +129,108 @@ class ArabicHelperStringAndLabelFormTest(unittest.TestCase):
     # <body>
     #     <h1 style="direction: rtl">الاستخدام في بصريات المعادن</h1>
     #     <h1 style="direction: rtl">الاستخدام XYZ 12.3 QWER في بصريات ASDF JKL المعادن</h1>
-    #     <h1 style="direction: rtl">ليس من الممكن ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ تعيين معامل الانكسار في الشرائح 
-    #                                الرقيقة بدقة، لكن في بعض الأحيان يمكن تقديره</h1>
+    #     <h1 style="direction: rtl">ليس من الممكن تعيين معامل الانكسار في الشرائح الرقيقة بدقة، لكن في بعض الأحيان يمكن تقديره</h1>
+    #     <h1 style="direction: rtl">ليس من الممكن ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ تعيين معامل الانكسار في الشرائح الرقيقة بدقة، 
+    #                                لكن في بعض الأحيان يمكن تقديره</h1>
     # </body>
     # </html>
     #
 
-    source_1 = "الاستخدام في بصريات المعادن"
-    target_1 = "نداعملا تايرصب يف مادختسالا"
-    # visual:   ﻥﺩﺎﻌﻤﻟﺍ ﺕﺎﻳﺮﺼﺑ ﻲﻓ ﻡﺍﺪﺨﺘﺳﻻﺍ
+    string_1 = "الاستخدام في بصريات المعادن"
+    labels_1 = "نداعملا تايرصب يف مادختسالا"
+    visual_1 = "ﻥﺩﺎﻌﻤﻟﺍ ﺕﺎﻳﺮﺼﺑ ﻲﻓ ﻡﺍﺪﺨﺘﺳﻻﺍ"
 
-    source_2 = "الاستخدام XYZ 12.3 QWER في بصريات ASDF JKL المعادن"
-    target_2 = "نداعملا ASDF JKL تايرصب يف XYZ 12.3 QWER مادختسالا"
-    # visual:   ﻥﺩﺎﻌﻤﻟﺍ ASDF JKL ﺕﺎﻳﺮﺼﺑ ﻲﻓ XYZ 12.3 QWER ﻡﺍﺪﺨﺘﺳﻻﺍ
+    string_2 = "الاستخدام XYZ 12.3 QWER في بصريات ASDF JKL المعادن"
+    labels_2 = "نداعملا ASDF JKL تايرصب يف XYZ 12.3 QWER مادختسالا"
+    visual_2 = "ﻥﺩﺎﻌﻤﻟﺍ ASDF JKL ﺕﺎﻳﺮﺼﺑ ﻲﻓ XYZ 12.3 QWER ﻡﺍﺪﺨﺘﺳﻻﺍ"
 
-    source_3 = "ليس من الممكن ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ تعيين معامل الانكسار في الشرائح الرقيقة بدقة، لكن في بعض الأحيان يمكن تقديره"
-    target_3 = "هريدقت نكمي نايحألا ضعب يف نكل بدقة، ةقيقرلا حئارشلا يف راسكنالا لماعم نييعت ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ نكمملا نم سيل"
-    # visual:   ﻩﺮﻳﺪﻘﺗ ﻦﻜﻤﻳ ﻥﺎﻴﺣﻷﺍ ﺾﻌﺑ ﻲﻓ ﻦﻜﻟ ﺏﺪﻗﺓ، ﺔﻘﻴﻗﺮﻟﺍ ﺢﺋﺍﺮﺸﻟﺍ ﻲﻓ ﺭﺎﺴﻜﻧﻻﺍ ﻞﻣﺎﻌﻣ ﻦﻴﻴﻌﺗ ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ ﻦﻜﻤﻤﻟﺍ ﻦﻣ ﺲﻴﻟ
+    string_3 = "ليس من الممكن تعيين معامل الانكسار في الشرائح الرقيقة بدقة، لكن في بعض الأحيان يمكن تقديره"
+    labels_3 = "هريدقت نكمي نايحألا ضعب يف نكل ،ةقدب ةقيقرلا حئارشلا يف راسكنالا لماعم نييعت نكمملا نم سيل"
+    visual_3 = "ﻩﺮﻳﺪﻘﺗ ﻦﻜﻤﻳ ﻥﺎﻴﺣﻷﺍ ﺾﻌﺑ ﻲﻓ ﻦﻜﻟ ،ﺔﻗﺪﺑ ﺔﻘﻴﻗﺮﻟﺍ ﺢﺋﺍﺮﺸﻟﺍ ﻲﻓ ﺭﺎﺴﻜﻧﻻﺍ ﻞﻣﺎﻌﻣ ﻦﻴﻴﻌﺗ ﻦﻜﻤﻤﻟﺍ ﻦﻣ ﺲﻴﻟ"
 
+    string_4 = "ليس من الممكن ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ تعيين معامل الانكسار في الشرائح الرقيقة بدقة، لكن في بعض الأحيان يمكن تقديره"
+    labels_4 = "هريدقت نكمي نايحألا ضعب يف نكل ،ةقدب ةقيقرلا حئارشلا يف راسكنالا لماعم نييعت ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ نكمملا نم سيل"
+    visual_4 = "ﻩﺮﻳﺪﻘﺗ ﻦﻜﻤﻳ ﻥﺎﻴﺣﻷﺍ ﺾﻌﺑ ﻲﻓ ﻦﻜﻟ ،ﺔﻗﺪﺑ ﺔﻘﻴﻗﺮﻟﺍ ﺢﺋﺍﺮﺸﻟﺍ ﻲﻓ ﺭﺎﺴﻜﻧﻻﺍ ﻞﻣﺎﻌﻣ ﻦﻴﻴﻌﺗ ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ ﻦﻜﻤﻤﻟﺍ ﻦﻣ ﺲﻴﻟ"
+    
     def test_string_to_label_form_1(self):
         helper = ArabicHelper()
-        label_form = helper.string_to_label_form(self.source_1)
-        self.assertEqual(label_form, self.target_1)
+        label_form = helper.string_to_label_form(self.string_1)
+        self.assertEqual(label_form, self.labels_1)
 
     def test_string_to_label_form_2(self):
         helper = ArabicHelper()
-        label_form = helper.string_to_label_form(self.source_2)
-        self.assertEqual(label_form, self.target_2)
+        label_form = helper.string_to_label_form(self.string_2)
+        self.assertEqual(label_form, self.labels_2)
 
     def test_string_to_label_form_3(self):
         helper = ArabicHelper()
-        label_form = helper.string_to_label_form(self.source_3)
-        self.assertEqual(label_form, self.target_3)
-
+        label_form = helper.string_to_label_form(self.string_3)
+        self.assertEqual(label_form, self.labels_3)
+    
+    def test_string_to_label_form_4(self):
+        helper = ArabicHelper()
+        label_form = helper.string_to_label_form(self.string_4)
+        self.assertEqual(label_form, self.labels_4)
+    
     def test_label_form_to_string_1(self):
         helper = ArabicHelper()
-        string = helper.string_to_label_form(self.target_1)
-        self.assertEqual(string, self.source_1)
+        string = helper.label_form_to_string(self.labels_1)
+        self.assertEqual(string, self.string_1)
 
     def test_label_form_to_string_2(self):
         helper = ArabicHelper()
-        string = helper.string_to_label_form(self.target_2)
-        self.assertEqual(string, self.source_2)
+        string = helper.label_form_to_string(self.labels_2)
+        self.assertEqual(string, self.string_2)
 
     def test_label_form_to_string_3(self):
         helper = ArabicHelper()
-        string = helper.string_to_label_form(self.target_3)
-        self.assertEqual(string, self.source_3)
+        string = helper.label_form_to_string(self.labels_3)
+        self.assertEqual(string, self.string_3)
+
+    def test_label_form_to_string_4(self):
+        helper = ArabicHelper()
+        string = helper.label_form_to_string(self.labels_4)
+        self.assertEqual(string, self.string_4)
+
+    def test_label_form_to_visual_form_1(self):
+        helper = ArabicHelper()
+        visual_form = helper.label_form_to_visual_form(self.labels_1)
+        self.assertEqual(visual_form, self.visual_1)
+
+    def test_label_form_to_visual_form_2(self):
+        helper = ArabicHelper()
+        visual_form = helper.label_form_to_visual_form(self.labels_2)
+        self.assertEqual(visual_form, self.visual_2)
+
+    def test_label_form_to_visual_form_3(self):
+        helper = ArabicHelper()
+        visual_form = helper.label_form_to_visual_form(self.labels_3)
+        self.assertEqual(visual_form, self.visual_3)
+
+    def test_label_form_to_visual_form_4(self):
+        helper = ArabicHelper()
+        visual_form = helper.label_form_to_visual_form(self.labels_4)
+        self.assertEqual(visual_form, self.visual_4)
+
+    def test_visual_form_to_label_form_1(self):
+        helper = ArabicHelper()
+        label_form = helper.visual_form_to_label_form(self.visual_1)
+        self.assertEqual(label_form, self.labels_1)
+
+    def test_visual_form_to_label_form_2(self):
+        helper = ArabicHelper()
+        label_form = helper.visual_form_to_label_form(self.visual_2)
+        self.assertEqual(label_form, self.labels_2)
+
+    def test_visual_form_to_label_form_3(self):
+        helper = ArabicHelper()
+        label_form = helper.visual_form_to_label_form(self.visual_3)
+        self.assertEqual(label_form, self.labels_3)
+
+    def test_visual_form_to_label_form_4(self):
+        helper = ArabicHelper()
+        label_form = helper.visual_form_to_label_form(self.visual_4)
+        self.assertEqual(label_form, self.labels_4)
 
 
 if __name__ == "__main__":
