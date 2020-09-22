@@ -113,9 +113,14 @@ class ArabicHelper:
 
 
 class ArabicHelperLabelAndVisualFormsTest(unittest.TestCase):
+    # RECOMMENDATION: open this script in an editor which preserves the order of arabic characters from left to right 
+    # (e.g. terminal, sublime text; NOT PyCharm, Visual Studio Code, gedit, github - these editors reverse the order 
+    # of arabic characters).
+    #
     # The transcription was taken from MADCAT Arabic dataset, specifically from text line with ID
     # 'XIA20041213.0121_1_LDC0316-r16-l001'. Strings below might not be rendered correctly in a document viewer
     # or an IDE, but should be rendered correctly when printed to the console.
+    
     source_simple = "ةيركسعلا طباورلا نا هوق لاقو"
     target_simple = "ﺔﻳﺮﻜﺴﻌﻟﺍ ﻂﺑﺍﻭﺮﻟﺍ ﻥﺍ ﻩﻮﻗ ﻝﺎﻗﻭ"
 
@@ -144,14 +149,38 @@ class ArabicHelperLabelAndVisualFormsTest(unittest.TestCase):
 
 
 class ArabicHelperStringAndLabelFormTest(unittest.TestCase):
+    # RECOMMENDATION: open this script in an editor which preserves the order of arabic characters from left to right 
+    # (e.g. terminal, sublime text; NOT PyCharm, Visual Studio Code, gedit, github - these editors reverse the order 
+    # of arabic characters).
+    #
+    # Test cases were generated using the HTML below. After opening this file, the browser (tested on Google Chrome 
+    # and Firefox) should render the characters in the correct format. Strings in the HTML file should correspond to
+    # the source_* variables and the rendered strings should correspond to the visual form displayed below target_*
+    # variables.
+    # 
+    # <html>
+    # <head>
+    # </head>
+    # <body>
+    #     <h1 style="direction: rtl">الاستخدام في بصريات المعادن</h1>
+    #     <h1 style="direction: rtl">الاستخدام XYZ 12.3 QWER في بصريات ASDF JKL المعادن</h1>
+    #     <h1 style="direction: rtl">ليس من الممكن ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ تعيين معامل الانكسار في الشرائح 
+    #                                الرقيقة بدقة، لكن في بعض الأحيان يمكن تقديره</h1>
+    # </body>
+    # </html>
+    #
+
     source_1 = "الاستخدام في بصريات المعادن"
     target_1 = "نداعملا تايرصب يف مادختسالا"
+    # visual:   ﻥﺩﺎﻌﻤﻟﺍ ﺕﺎﻳﺮﺼﺑ ﻲﻓ ﻡﺍﺪﺨﺘﺳﻻﺍ
 
     source_2 = "الاستخدام XYZ 12.3 QWER في بصريات ASDF JKL المعادن"
     target_2 = "نداعملا ASDF JKL تايرصب يف XYZ 12.3 QWER مادختسالا"
+    # visual:   ﻥﺩﺎﻌﻤﻟﺍ ASDF JKL ﺕﺎﻳﺮﺼﺑ ﻲﻓ XYZ 12.3 QWER ﻡﺍﺪﺨﺘﺳﻻﺍ
 
     source_3 = "ليس من الممكن ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ تعيين معامل الانكسار في الشرائح الرقيقة بدقة، لكن في بعض الأحيان يمكن تقديره"
     target_3 = "هريدقت نكمي نايحألا ضعب يف نكل بدقة، ةقيقرلا حئارشلا يف راسكنالا لماعم نييعت ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ نكمملا نم سيل"
+    # visual:   ﻩﺮﻳﺪﻘﺗ ﻦﻜﻤﻳ ﻥﺎﻴﺣﻷﺍ ﺾﻌﺑ ﻲﻓ ﻦﻜﻟ ﺏﺪﻗﺓ، ﺔﻘﻴﻗﺮﻟﺍ ﺢﺋﺍﺮﺸﻟﺍ ﻲﻓ ﺭﺎﺴﻜﻧﻻﺍ ﻞﻣﺎﻌﻣ ﻦﻴﻴﻌﺗ ASDF QWER 12.3 XYZ@FIT.VUTBR.CZ ﻦﻜﻤﻤﻟﺍ ﻦﻣ ﺲﻴﻟ
 
     def test_string_to_label_form_1(self):
         helper = ArabicHelper()
