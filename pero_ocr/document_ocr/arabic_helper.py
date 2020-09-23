@@ -13,12 +13,12 @@ class ArabicHelper:
 
     def label_form_to_visual_form(self, text, reverse_before=True, reverse_after=True):
         if reverse_before:
-            text = self._reverse_transcription(text)
+            text = self.string_to_label_form(text)
 
         text = self._reshaper.reshape(text)
 
         if reverse_after:
-            text = self._reverse_transcription(text)
+            text = self.label_form_to_string(text)
 
         return text
 
@@ -38,12 +38,41 @@ class ArabicHelper:
         result = self.string_to_label_form(text)
         return result
 
-    def _is_arabic(self, word):
+    def is_arabic_word(self, word):
         result = False
         pattern = self._arabic_chars_pattern
 
         if re.match(pattern, word):
             result = True
+
+        return result
+
+    def is_arabic_line(self, text):
+        result = False
+
+        for word in text.split():
+            if self.is_arabic_word(word):
+                result = True
+                break
+
+        return result
+
+    def ligatures_mapping(self, text):
+        result = []
+        counter = 0
+
+        for char in text:
+            if char not in self._backward_mapping:
+                result.append([counter])
+                counter += 1
+            else:
+                mapped_chars_result = []
+                mapped_chars = self._backward_mapping[char]
+                for mapped_char in mapped_chars:
+                    mapped_chars_result.append(counter)
+                    counter += 1
+
+                result.append(mapped_chars_result)
 
         return result
 
@@ -90,7 +119,7 @@ class ArabicHelper:
     def _reverse_arabic_words(self, words):
         new_words = []
         for word in words:
-            if self._is_arabic(word):
+            if self.is_arabic_word(word):
                 new_words.append(word[::-1])
             else:
                 new_words.append(word)
@@ -106,7 +135,7 @@ class ArabicHelper:
 
         # reverse back the order of subsequent non-arabic words
         for index, word in enumerate(words):
-            if arabic != self._is_arabic(word):
+            if arabic != self.is_arabic_word(word):
                 if not arabic:
                     words[start:index] = words[start:index][::-1]
                     arabic = True
