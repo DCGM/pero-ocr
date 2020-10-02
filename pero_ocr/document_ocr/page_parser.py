@@ -159,7 +159,6 @@ class LayoutExtractor(object):
 
     def process_page(self, img, page_layout: PageLayout):
         if self.detect_regions or self.detect_lines:
-            page_layout.regions = []
             if self.multi_orientation:
                 orientations = [0, 1, 3]
             else:
@@ -170,6 +169,7 @@ class LayoutExtractor(object):
                 p_list, b_list, h_list, t_list = self.engine.detect(img, rot=rot)
 
                 if self.detect_regions:
+                    page_layout.regions = []
                     for id, polygon in enumerate(p_list):
                         region = RegionLayout('r{:03d}'.format(id), polygon)
                         regions.append(region)
