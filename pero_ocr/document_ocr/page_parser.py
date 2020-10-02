@@ -173,16 +173,16 @@ class LayoutExtractor(object):
                     for id, polygon in enumerate(p_list):
                         region = RegionLayout('r{:03d}'.format(id), polygon)
                         regions.append(region)
-
+                page_layout.regions += regions
+                
                 if self.detect_lines:
                     if len(regions) > 4:
                         regions = list(self.pool.map(partial(helpers.assign_lines_to_region, b_list, h_list, t_list),
-                                         regions))
+                                         page_layout.regions))
                     else:
-                        for region in regions:
+                        for region in page_layout.regions:
                             region = helpers.assign_lines_to_region(
                                 b_list, h_list, t_list, region)
-                page_layout.regions += regions
 
         if self.merge_lines:
             for region in page_layout.regions:
