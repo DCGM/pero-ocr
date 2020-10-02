@@ -159,6 +159,12 @@ class LayoutExtractor(object):
 
     def process_page(self, img, page_layout: PageLayout):
         if self.detect_regions or self.detect_lines:
+            if self.detect_regions:
+                page_layout.regions = []
+            if self.detect_lines:
+                for region in page_layout.regions:
+                    region.lines = []
+
             if self.multi_orientation:
                 orientations = [0, 1, 3]
             else:
@@ -169,20 +175,23 @@ class LayoutExtractor(object):
                 p_list, b_list, h_list, t_list = self.engine.detect(img, rot=rot)
 
                 if self.detect_regions:
-                    page_layout.regions = []
                     for id, polygon in enumerate(p_list):
                         region = RegionLayout('r{:03d}'.format(id), polygon)
                         regions.append(region)
-                page_layout.regions += regions
-                
+
                 if self.detect_lines:
-                    if len(regions) > 4:
-                        regions = list(self.pool.map(partial(helpers.assign_lines_to_region, b_list, h_list, t_list),
-                                         page_layout.regions))
-                    else:
-                        for region in page_layout.regions:
-                            region = helpers.assign_lines_to_region(
-                                b_list, h_list, t_list, region)
+                    if not self.detect_regions:
+                        regions = page_layout.regions
+                    # if len(regions) > 4:
+                    #     regions = list(self.pool.map(partial(helpers.assign_lines_to_region, b_list, h_list, t_list),
+                    #                      regions))
+                    # else:
+                    for region in regions:
+                        region = helpers.assign_lines_to_region(
+                            b_list, h_list, t_list, region)
+
+                if self.detect_regions:
+                    page_layout.regions += regions
 
         if self.merge_lines:
             for region in page_layout.regions:
