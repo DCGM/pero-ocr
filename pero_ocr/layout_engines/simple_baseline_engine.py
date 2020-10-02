@@ -11,7 +11,7 @@ from pero_ocr.layout_engines import layout_helpers as helpers
 
 
 class EngineLineDetectorSimple(object):
-    def __init__(self, adaptive_threshold=91, block_size=20,
+    def __init__(self, adaptive_threshold=91, block_size=21,
                  minimum_length=6, ignored_border_pixels=10):
         self.adaptive_threshold = adaptive_threshold
         self.block_size = block_size

@@ -229,7 +229,7 @@ class PageEditor(object):
             lines = []
             for l_num in self.selected_lines:
                 lines.append(self.lines[l_num].polygon)
-            poly = linepp.region_from_textlines(lines)
+        	poly = linepp.region_from_textlines(lines)
 
             new_region = layout.RegionLayout(
                 id = 'r{}'.format(len(self.page_layout.regions)+1),

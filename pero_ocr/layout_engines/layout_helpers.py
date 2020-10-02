@@ -315,6 +315,7 @@ def rotate_coords(coords, rotation, center):
 
     return np.asarray(out_coords)
 
+
 def adjust_baselines_to_intensity(baselines, img, tolerance=5):
     grad_img = np.gradient(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float))[0]
     grad_img = ndimage.gaussian_filter(grad_img, 3)

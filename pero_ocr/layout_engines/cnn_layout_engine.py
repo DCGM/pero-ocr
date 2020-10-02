@@ -8,18 +8,59 @@ from scipy.spatial import Delaunay, distance
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 from skimage.measure import block_reduce
+import skimage.draw
 from sklearn.metrics import pairwise_distances
 import shapely.geometry as sg
 from shapely.ops import cascaded_union, polygonize
 
 from pero_ocr.layout_engines import layout_helpers as helpers
-from pero_ocr.layout_engines import parsenet
+from pero_ocr.layout_engines.parsenet import ParseNet, TiltNet
+
+
+class LineFilterEngine(object):
+
+    def __init__(self, model_path, downsample=4, use_cpu=False,
+                 pad=52, max_mp=5, gpu_fraction=None):
+        self.tiltnet = TiltNet(
+            model_path,
+            downsample=downsample,
+            use_cpu=use_cpu,
+            pad=pad,
+            max_mp=max_mp,
+            gpu_fraction=gpu_fraction
+        )
+        self.downsample = downsample
+
+    def get_angle_diff(self, angle_1, angle_2):
+        smaller = np.minimum(angle_1, angle_2)
+        larger = np.maximum(angle_1, angle_2)
+        diff = np.minimum(
+            np.abs(larger - smaller),
+            np.abs(larger - (smaller + 2 * np.pi)))
+        return diff
+
+    def predict_directions(self, image):
+        out_map = self.tiltnet.get_maps(image, self.downsample)
+        self.predictions = out_map[:, :, 1:3]
+
+    def check_line_rotation(self, polygon, baseline):
+        line_mask = skimage.draw.polygon2mask(
+            self.predictions.shape[:2], np.flip(polygon, axis=1) / self.downsample)
+
+        target_angle = np.arctan2(
+            baseline[0, 1] - baseline[-1, 1], baseline[-1, 0] - baseline[0, 0])
+
+        predicted_x = np.median(self.predictions[:, :, 0][line_mask > 0])
+        predicted_y = np.median(self.predictions[:, :, 1][line_mask > 0])
+        predicted_angle = np.arctan2(predicted_y, predicted_x)
+
+        return self.get_angle_diff(predicted_angle, target_angle) < np.pi/4
 
 
 class LayoutEngine(object):
     def __init__(self, model_path, downsample=4, use_cpu=False, pad=52,
                  max_mp=5, gpu_fraction=None, detection_threshold=0.2):
-        self.parsenet = parsenet.ParseNet(
+        self.parsenet = ParseNet(
             model_path,
             downsample=downsample,
             use_cpu=use_cpu,
@@ -29,8 +70,11 @@ class LayoutEngine(object):
             detection_threshold=detection_threshold)
         self.line_detection_threshold = detection_threshold
 
-    def get_maps(self, image):
-        return self.parsenet.get_maps_with_optimal_resolution(image), self.parsenet.tmp_downsample
+    def get_maps(self, image, update_downsample=True):
+        if update_downsample:
+            return self.parsenet.get_maps_with_optimal_resolution(image), self.parsenet.tmp_downsample
+        else:
+            return self.parsenet.get_maps(image, self.parsenet.tmp_downsample), self.parsenet.tmp_downsample
 
     def get_heights(self, heights_map, ds, inds):
 
@@ -49,12 +93,16 @@ class LayoutEngine(object):
         ])
         return heights_pred * ds
 
-    def detect(self, image):
+    def detect(self, image, rot=0):
         """Uses parsenet to find lines and region separators, clusters vertically
         close lines by computing penalties and postprocesses the resulting
         regions.
+        :param rot: number of counter-clockwise 90degree rotations (0 <= n <= 3)
         """
-        maps, ds = self.get_maps(image)
+        if rot > 0:
+            image = np.rot90(image, k=rot)
+
+        maps, ds = self.get_maps(image, update_downsample=(rot == 0))  # update downsample factor if rot is 0, else assume that the same page was already parsed once to save time during downsample estimation
         b_list, h_list, layout_separator_map = self.parse(
             maps, ds)
         if not b_list:
@@ -96,6 +144,32 @@ class LayoutEngine(object):
         b_list, h_list, t_list = helpers.order_lines_vertical(
             b_list, h_list, t_list)
         p_list = [np.array(poly.exterior.coords) for poly in p_list]
+
+        if rot == 1:
+            b_list = [np.flip(b, axis=1) for b in b_list]
+            t_list = [np.flip(t, axis=1) for t in t_list]
+            p_list = [np.flip(p, axis=1) for p in p_list]
+            for b in b_list:
+                b[:, 0] = image.shape[0] - b[:, 0]
+            for t in t_list:
+                t[:, 0] = image.shape[0] - t[:, 0]
+            for p in p_list:
+                p[:, 0] = image.shape[0] - p[:, 0]
+        elif rot == 2:
+            shape_array = np.asarray(image.shape[:2][::-1])
+            b_list = [shape_array - b for b in b_list]
+            t_list = [shape_array - t for t in t_list]
+            p_list = [shape_array - p for p in p_list]
+        elif rot == 3:
+            b_list = [np.flip(b, axis=1) for b in b_list]
+            t_list = [np.flip(t, axis=1) for t in t_list]
+            p_list = [np.flip(p, axis=1) for p in p_list]
+            for b in b_list:
+                b[:, 1] = image.shape[1] - b[:, 1]
+            for t in t_list:
+                t[:, 1] = image.shape[1] - t[:, 1]
+            for p in p_list:
+                p[:, 1] = image.shape[1] - p[:, 1]
 
         return p_list, b_list, h_list, t_list
 

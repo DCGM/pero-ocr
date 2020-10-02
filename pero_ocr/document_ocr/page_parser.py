@@ -10,7 +10,7 @@ from pero_ocr.document_ocr import crop_engine as cropper
 from pero_ocr.ocr_engine import line_ocr_engine
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
 from pero_ocr.layout_engines.simple_baseline_engine import EngineLineDetectorSimple
-from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine
+from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEngine
 from pero_ocr.layout_engines.line_postprocessing_engine import PostprocessingEngine
 from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
@@ -27,6 +27,8 @@ def layout_parser_factory(config, config_path='', order=1):
         layout_parser = LayoutExtractor(config, config_path=config_path)
     elif config['METHOD'] == 'LINES_SIMPLE_THRESHOLD':
         layout_parser = TextlineExtractorSimple(config, config_path=config_path)
+    elif config['METHOD'] == 'LINE_FILTER':
+        layout_parser = LineFilter(config, config_path=config_path)
     elif config['METHOD'] == 'LINE_POSTPROCESSING':
         layout_parser = LinePostprocessor(config, config_path=config_path)
     elif config['METHOD'] == 'LAYOUT_POSTPROCESSING':
@@ -143,6 +145,7 @@ class LayoutExtractor(object):
         self.detect_lines = config.getboolean('DETECT_LINES')
         self.merge_lines = config.getboolean('MERGE_LINES')
         self.adjust_lines = config.getboolean('REFINE_LINES')
+        self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.engine = LayoutEngine(
             model_path=compose_path(config['MODEL_PATH'], config_path),
             downsample=config.getint('DOWNSAMPLE'),
@@ -156,22 +159,30 @@ class LayoutExtractor(object):
 
     def process_page(self, img, page_layout: PageLayout):
         if self.detect_regions or self.detect_lines:
-            p_list, b_list, h_list, t_list = self.engine.detect(img)
-
-        if self.detect_regions:
             page_layout.regions = []
-            for id, polygon in enumerate(p_list):
-                region = RegionLayout('r{:03d}'.format(id), polygon)
-                page_layout.regions.append(region)
-
-        if self.detect_lines:
-            if len(page_layout.regions) > 4:
-                page_layout.regions = list(self.pool.map(partial(helpers.assign_lines_to_region, b_list, h_list, t_list),
-                                 page_layout.regions))
+            if self.multi_orientation:
+                orientations = [0, 1, 3]
             else:
-                for region in page_layout.regions:
-                    region = helpers.assign_lines_to_region(
-                        b_list, h_list, t_list, region)
+                orientations = [0]
+
+            for rot in orientations:
+                regions = []
+                p_list, b_list, h_list, t_list = self.engine.detect(img, rot=rot)
+
+                if self.detect_regions:
+                    for id, polygon in enumerate(p_list):
+                        region = RegionLayout('r{:03d}'.format(id), polygon)
+                        regions.append(region)
+
+                if self.detect_lines:
+                    if len(regions) > 4:
+                        regions = list(self.pool.map(partial(helpers.assign_lines_to_region, b_list, h_list, t_list),
+                                         regions))
+                    else:
+                        for region in regions:
+                            region = helpers.assign_lines_to_region(
+                                b_list, h_list, t_list, region)
+                page_layout.regions += regions
 
         if self.merge_lines:
             for region in page_layout.regions:
@@ -195,6 +206,22 @@ class LayoutExtractor(object):
 
         return page_layout
 
+
+class LineFilter(object):
+    def __init__(self, config, config_path):
+        self.engine = LineFilterEngine(
+            model_path=compose_path(config['MODEL_PATH'], config_path),
+            gpu_fraction=config.getfloat('GPU_FRACTION')
+        )
+        self.filter_directions = config.getboolean('FILTER_DIRECTIONS')
+
+    def process_page(self, img, page_layout: PageLayout):
+        self.engine.predict_directions(img)
+        for region in page_layout.regions:
+            region.lines = [line for line in region.lines if self.engine.check_line_rotation(line.polygon, line.baseline)]
+        page_layout.regions = [region for region in page_layout.regions if region.lines]
+
+        return page_layout
 
 class LinePostprocessor(object):
     def __init__(self, config, config_path=''):
