@@ -95,7 +95,7 @@ def region_from_textlines(region_textlines):
     region_poly = alpha_shape(region_poly_points, max_spacing)
 
     for textline in region_textlines:
-        textline_poly = sg.Polygon(textline)
+        textline_poly = check_polygon(sg.Polygon(textline))
         if not region_poly.contains(textline_poly):
             region_poly = region_poly.union(textline_poly)
 
