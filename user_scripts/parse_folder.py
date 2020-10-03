@@ -29,6 +29,7 @@ def parse_arguments():
     parser.add_argument('--output-render-path', help='')
     parser.add_argument('--output-line-path', help='')
     parser.add_argument('--output-logit-path', help='')
+    parser.add_argument('--output-alto-path', help='')
     parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
     args = parser.parse_args()
     return args
@@ -127,6 +128,8 @@ def main():
         config['PARSE_FOLDER']['OUTPUT_LINE_PATH'] = args.output_line_path
     if args.output_logit_path is not None:
         config['PARSE_FOLDER']['OUTPUT_LOGIT_PATH'] = args.output_logit_path
+    if args.output_alto_path is not None:
+        config['PARSE_FOLDER']['OUTPUT_ALTO_PATH'] = args.output_alto_path
 
     page_parser = PageParser(config, config_path=os.path.dirname(config_path))
 
@@ -138,6 +141,7 @@ def main():
     output_line_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LINE_PATH')
     output_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_XML_PATH')
     output_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LOGIT_PATH')
+    output_alto_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_ALTO_PATH')
 
     if output_line_path is not None and 'lmdb' in output_line_path:
         lmdb_writer = LMDB_writer(output_line_path)
@@ -152,6 +156,8 @@ def main():
         create_dir_if_not_exists(output_xml_path)
     if output_logit_path is not None:
         create_dir_if_not_exists(output_logit_path)
+    if output_alto_path is not None:
+        create_dir_if_not_exists(output_alto_path)
 
     if input_logit_path is not None and input_xml_path is None:
         input_logit_path = None
@@ -213,6 +219,9 @@ def main():
 
             if output_logit_path is not None:
                 page_layout.save_logits(os.path.join(output_logit_path, file_id + '.logits'))
+
+            if output_alto_path is not None:
+                page_layout.to_altoxml(os.path.join(output_alto_path, file_id + '.xml'))
 
             if output_line_path is not None:
                 if lmdb_writer:
