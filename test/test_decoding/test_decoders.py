@@ -358,6 +358,22 @@ class CTCDecodingWithLMTests:
         for h in boh:
             self.assertEqual(h.lm_sc, lm.single_sentence_nll(list(h.transcript), '</s>'))
 
+    def test_wide_beam_regression(self):
+        decoder = self._decoder_constructor(
+            self._decoder_symbols,
+            k=2,
+        )
+        logits = np.asarray([
+            [-0.1, -8.0, -80.0, -2.0],
+            [-0.0, -5.0, -80.0, -80.0],
+        ])
+
+        boh = decoder(logits)
+        a_hyp = [hyp for hyp in boh if hyp.transcript == 'a']
+        assert(len(a_hyp) == 1)  # this is really a plain assert. There SHALL NOT be multiple hypotheses of the same text
+        a_hyp = a_hyp[0]
+        self.assertEqual(a_hyp.vis_sc, np.logaddexp(-0.1, -2.0))
+
 
 class CTCPrefixLogRawNumpyDecoderLMTests(CTCDecodingWithLMTests, unittest.TestCase):
     def setUp(self):

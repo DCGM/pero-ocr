@@ -2,7 +2,8 @@ import numpy as np
 
 from multiprocessing import Pool
 from functools import partial
-from scipy import ndimage
+import math
+import time
 
 from pero_ocr.utils import compose_path
 from .layout import PageLayout, RegionLayout, TextLine
@@ -57,7 +58,8 @@ def page_decoder_factory(config, config_path=''):
     ocr_chars = decoding_itf.get_ocr_charset(compose_path(config['OCR']['OCR_JSON'], config_path))
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True,
                                            config_path=config_path)
-    return PageDecoder(decoder)
+    confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
+    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold)
 
 
 class MissingLogits(Exception):
@@ -68,15 +70,22 @@ class PageDecoder:
     def __init__(self, decoder, line_confidence_threshold=None):
         self.decoder = decoder
         self.line_confidence_threshold = line_confidence_threshold
+        self.lines_examined = 0
+        self.lines_decoded = 0
+        self.seconds_decoding = 0.0
 
     def process_page(self, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
+            self.lines_examined += 1
             logits = self.prepare_dense_logits(line)
             if self.line_confidence_threshold is not None:
-                if self.line_confident_enough(logits, self.line_confidence_threshold):
+                if self.line_confident_enough(logits):
                     continue
 
+            t0 = time.time()
             hypotheses = self.decoder(logits)
+            self.seconds_decoding += time.time() - t0
+            self.lines_decoded += 1
             if hypotheses is not None:
                 line.transcription = hypotheses.best_hyp()
 
@@ -134,7 +143,7 @@ class TextlineExtractorSimple(object):
                     baseline=baseline,
                     polygon=textline,
                     heights=heights
-                    )
+                )
                 region.lines.append(new_textline)
         return page_layout
 
@@ -209,7 +218,7 @@ class LayoutExtractor(object):
             for line in page_layout.lines_iterator():
                 sample_points = helpers.resample_baselines(
                     [line.baseline], num_points=40)[0]
-                line.heights = engine.get_heights(heights_map, ds, sample_points)
+                line.heights = self.engine.get_heights(heights_map, ds, sample_points)
                 line.polygon = helpers.baseline_to_textline(
                     line.baseline, line.heights)
 
@@ -337,7 +346,7 @@ class PageParser(object):
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
         self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER', fallback=False)
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
-                                                                                 fallback=-1)
+                                                                               fallback=-1)
 
         self.layout_parser = None
         self.line_cropper = None
@@ -363,9 +372,9 @@ class PageParser(object):
         best_ids = np.argmax(log_probs, axis=-1)
         best_probs = np.exp(np.max(log_probs, axis=-1))
         worst_best_prob = get_prob(best_ids, best_probs)
-        print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape,  np.nonzero(np.exp(best_probs) < threshold))
-        #for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
-        #    print(best_probs[i-1:i+2], best_ids[i-1:i+2])
+        print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape, np.nonzero(np.exp(best_probs) < threshold))
+        # for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
+        #     print(best_probs[i-1:i+2], best_ids[i-1:i+2])
 
         return worst_best_prob
 
