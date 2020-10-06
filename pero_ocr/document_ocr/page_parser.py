@@ -2,7 +2,8 @@ import numpy as np
 
 from multiprocessing import Pool
 from functools import partial
-from scipy import ndimage
+import math
+import time
 
 from pero_ocr.utils import compose_path
 from .layout import PageLayout, RegionLayout, TextLine
@@ -57,7 +58,8 @@ def page_decoder_factory(config, config_path=''):
     ocr_chars = decoding_itf.get_ocr_charset(compose_path(config['OCR']['OCR_JSON'], config_path))
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True,
                                            config_path=config_path)
-    return PageDecoder(decoder)
+    confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
+    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold)
 
 
 class MissingLogits(Exception):
@@ -68,15 +70,22 @@ class PageDecoder:
     def __init__(self, decoder, line_confidence_threshold=None):
         self.decoder = decoder
         self.line_confidence_threshold = line_confidence_threshold
+        self.lines_examined = 0
+        self.lines_decoded = 0
+        self.seconds_decoding = 0.0
 
     def process_page(self, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
+            self.lines_examined += 1
             logits = self.prepare_dense_logits(line)
             if self.line_confidence_threshold is not None:
-                if self.line_confident_enough(logits, self.line_confidence_threshold):
+                if self.line_confident_enough(logits):
                     continue
 
+            t0 = time.time()
             hypotheses = self.decoder(logits)
+            self.seconds_decoding += time.time() - t0
+            self.lines_decoded += 1
             if hypotheses is not None:
                 line.transcription = hypotheses.best_hyp()
 
