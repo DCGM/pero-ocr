@@ -4,6 +4,8 @@ import argparse
 import os
 import pickle
 
+from safe_gpu.safe_gpu import GPUOwner
+
 from pero_ocr.line_images_io import read_images
 
 
@@ -19,9 +21,7 @@ def parse_arguments():
     return args
 
 
-def main():
-    args = parse_arguments()
-
+def main(args):
     ocr_json = args.ocr_json
 
     if args.model_type == 'TF':
@@ -42,4 +42,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_arguments()
+    gpu_owner = GPUOwner()
+    main(args)
