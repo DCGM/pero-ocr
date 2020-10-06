@@ -1,7 +1,6 @@
 import numpy as np
 
 from multiprocessing import Pool
-from functools import partial
 import math
 import time
 
@@ -240,6 +239,7 @@ class LineFilter(object):
         page_layout.regions = [region for region in page_layout.regions if region.lines]
 
         return page_layout
+
 
 class LinePostprocessor(object):
     def __init__(self, config, config_path=''):
