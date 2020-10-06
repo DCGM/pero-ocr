@@ -143,7 +143,7 @@ class TextlineExtractorSimple(object):
                     baseline=baseline,
                     polygon=textline,
                     heights=heights
-                    )
+                )
                 region.lines.append(new_textline)
         return page_layout
 
@@ -218,7 +218,7 @@ class LayoutExtractor(object):
             for line in page_layout.lines_iterator():
                 sample_points = helpers.resample_baselines(
                     [line.baseline], num_points=40)[0]
-                line.heights = engine.get_heights(heights_map, ds, sample_points)
+                line.heights = self.engine.get_heights(heights_map, ds, sample_points)
                 line.polygon = helpers.baseline_to_textline(
                     line.baseline, line.heights)
 
@@ -346,7 +346,7 @@ class PageParser(object):
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
         self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER', fallback=False)
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
-                                                                                 fallback=-1)
+                                                                               fallback=-1)
 
         self.layout_parser = None
         self.line_cropper = None
@@ -372,9 +372,9 @@ class PageParser(object):
         best_ids = np.argmax(log_probs, axis=-1)
         best_probs = np.exp(np.max(log_probs, axis=-1))
         worst_best_prob = get_prob(best_ids, best_probs)
-        print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape,  np.nonzero(np.exp(best_probs) < threshold))
-        #for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
-        #    print(best_probs[i-1:i+2], best_ids[i-1:i+2])
+        print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape, np.nonzero(np.exp(best_probs) < threshold))
+        # for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
+        #     print(best_probs[i-1:i+2], best_ids[i-1:i+2])
 
         return worst_best_prob
 
