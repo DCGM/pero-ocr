@@ -80,8 +80,8 @@ def main(args):
             insertion_bonus=args.insertion_bonus,
         )
 
-    if lm and args.eval:
-        lm.eval()
+        if lm and args.eval:
+            lm.eval()
 
     with open(args.input, 'rb') as f:
         complete_input = pickle.load(f)
