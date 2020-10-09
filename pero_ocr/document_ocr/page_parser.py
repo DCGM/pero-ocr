@@ -1,8 +1,8 @@
 import numpy as np
 
 from multiprocessing import Pool
-from functools import partial
-from scipy import ndimage
+import math
+import time
 
 from pero_ocr.utils import compose_path
 from .layout import PageLayout, RegionLayout, TextLine
@@ -10,7 +10,7 @@ from pero_ocr.document_ocr import crop_engine as cropper
 from pero_ocr.ocr_engine import line_ocr_engine
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
 from pero_ocr.layout_engines.simple_baseline_engine import EngineLineDetectorSimple
-from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine
+from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEngine
 from pero_ocr.layout_engines.line_postprocessing_engine import PostprocessingEngine
 from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
@@ -27,6 +27,8 @@ def layout_parser_factory(config, config_path='', order=1):
         layout_parser = LayoutExtractor(config, config_path=config_path)
     elif config['METHOD'] == 'LINES_SIMPLE_THRESHOLD':
         layout_parser = TextlineExtractorSimple(config, config_path=config_path)
+    elif config['METHOD'] == 'LINE_FILTER':
+        layout_parser = LineFilter(config, config_path=config_path)
     elif config['METHOD'] == 'LINE_POSTPROCESSING':
         layout_parser = LinePostprocessor(config, config_path=config_path)
     elif config['METHOD'] == 'LAYOUT_POSTPROCESSING':
@@ -55,7 +57,8 @@ def page_decoder_factory(config, config_path=''):
     ocr_chars = decoding_itf.get_ocr_charset(compose_path(config['OCR']['OCR_JSON'], config_path))
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True,
                                            config_path=config_path)
-    return PageDecoder(decoder)
+    confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
+    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold)
 
 
 class MissingLogits(Exception):
@@ -66,15 +69,22 @@ class PageDecoder:
     def __init__(self, decoder, line_confidence_threshold=None):
         self.decoder = decoder
         self.line_confidence_threshold = line_confidence_threshold
+        self.lines_examined = 0
+        self.lines_decoded = 0
+        self.seconds_decoding = 0.0
 
     def process_page(self, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
+            self.lines_examined += 1
             logits = self.prepare_dense_logits(line)
             if self.line_confidence_threshold is not None:
-                if self.line_confident_enough(logits, self.line_confidence_threshold):
+                if self.line_confident_enough(logits):
                     continue
 
+            t0 = time.time()
             hypotheses = self.decoder(logits)
+            self.seconds_decoding += time.time() - t0
+            self.lines_decoded += 1
             if hypotheses is not None:
                 line.transcription = hypotheses.best_hyp()
 
@@ -132,7 +142,7 @@ class TextlineExtractorSimple(object):
                     baseline=baseline,
                     polygon=textline,
                     heights=heights
-                    )
+                )
                 region.lines.append(new_textline)
         return page_layout
 
@@ -143,6 +153,7 @@ class LayoutExtractor(object):
         self.detect_lines = config.getboolean('DETECT_LINES')
         self.merge_lines = config.getboolean('MERGE_LINES')
         self.adjust_lines = config.getboolean('REFINE_LINES')
+        self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.engine = LayoutEngine(
             model_path=compose_path(config['MODEL_PATH'], config_path),
             downsample=config.getint('DOWNSAMPLE'),
@@ -156,22 +167,39 @@ class LayoutExtractor(object):
 
     def process_page(self, img, page_layout: PageLayout):
         if self.detect_regions or self.detect_lines:
-            p_list, b_list, h_list, t_list = self.engine.detect(img)
-
-        if self.detect_regions:
-            page_layout.regions = []
-            for id, polygon in enumerate(p_list):
-                region = RegionLayout('r{:03d}'.format(id), polygon)
-                page_layout.regions.append(region)
-
-        if self.detect_lines:
-            if len(page_layout.regions) > 4:
-                page_layout.regions = list(self.pool.map(partial(helpers.assign_lines_to_region, b_list, h_list, t_list),
-                                 page_layout.regions))
-            else:
+            if self.detect_regions:
+                page_layout.regions = []
+            if self.detect_lines:
                 for region in page_layout.regions:
-                    region = helpers.assign_lines_to_region(
-                        b_list, h_list, t_list, region)
+                    region.lines = []
+
+            if self.multi_orientation:
+                orientations = [0, 1, 3]
+            else:
+                orientations = [0]
+
+            for rot in orientations:
+                regions = []
+                p_list, b_list, h_list, t_list = self.engine.detect(img, rot=rot)
+
+                if self.detect_regions:
+                    for id, polygon in enumerate(p_list):
+                        region = RegionLayout('r{:03d}'.format(id), polygon)
+                        regions.append(region)
+
+                if self.detect_lines:
+                    if not self.detect_regions:
+                        regions = page_layout.regions
+                    # if len(regions) > 4:
+                    #     regions = list(self.pool.map(partial(helpers.assign_lines_to_region, b_list, h_list, t_list),
+                    #                      regions))
+                    # else:
+                    for region in regions:
+                        region = helpers.assign_lines_to_region(
+                            b_list, h_list, t_list, region)
+
+                if self.detect_regions:
+                    page_layout.regions += regions
 
         if self.merge_lines:
             for region in page_layout.regions:
@@ -189,9 +217,26 @@ class LayoutExtractor(object):
             for line in page_layout.lines_iterator():
                 sample_points = helpers.resample_baselines(
                     [line.baseline], num_points=40)[0]
-                line.heights = engine.get_heights(heights_map, ds, sample_points)
+                line.heights = self.engine.get_heights(heights_map, ds, sample_points)
                 line.polygon = helpers.baseline_to_textline(
                     line.baseline, line.heights)
+
+        return page_layout
+
+
+class LineFilter(object):
+    def __init__(self, config, config_path):
+        self.engine = LineFilterEngine(
+            model_path=compose_path(config['MODEL_PATH'], config_path),
+            gpu_fraction=config.getfloat('GPU_FRACTION')
+        )
+        self.filter_directions = config.getboolean('FILTER_DIRECTIONS')
+
+    def process_page(self, img, page_layout: PageLayout):
+        self.engine.predict_directions(img)
+        for region in page_layout.regions:
+            region.lines = [line for line in region.lines if self.engine.check_line_rotation(line.polygon, line.baseline)]
+        page_layout.regions = [region for region in page_layout.regions if region.lines]
 
         return page_layout
 
@@ -301,7 +346,7 @@ class PageParser(object):
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
         self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER', fallback=False)
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
-                                                                                 fallback=-1)
+                                                                               fallback=-1)
 
         self.layout_parser = None
         self.line_cropper = None
@@ -327,9 +372,9 @@ class PageParser(object):
         best_ids = np.argmax(log_probs, axis=-1)
         best_probs = np.exp(np.max(log_probs, axis=-1))
         worst_best_prob = get_prob(best_ids, best_probs)
-        print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape,  np.nonzero(np.exp(best_probs) < threshold))
-        #for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
-        #    print(best_probs[i-1:i+2], best_ids[i-1:i+2])
+        print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape, np.nonzero(np.exp(best_probs) < threshold))
+        # for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
+        #     print(best_probs[i-1:i+2], best_ids[i-1:i+2])
 
         return worst_best_prob
 

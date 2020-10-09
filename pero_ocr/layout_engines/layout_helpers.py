@@ -95,7 +95,7 @@ def region_from_textlines(region_textlines):
     region_poly = alpha_shape(region_poly_points, max_spacing)
 
     for textline in region_textlines:
-        textline_poly = sg.Polygon(textline)
+        textline_poly = check_polygon(sg.Polygon(textline))
         if not region_poly.contains(textline_poly):
             region_poly = region_poly.union(textline_poly)
 
@@ -314,6 +314,7 @@ def rotate_coords(coords, rotation, center):
     out_coords = [[item[0], item[1]] for item in rotated_coords]
 
     return np.asarray(out_coords)
+
 
 def adjust_baselines_to_intensity(baselines, img, tolerance=5):
     grad_img = np.gradient(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float))[0]

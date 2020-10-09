@@ -2,8 +2,10 @@ import numpy as np
 import cv2
 from scipy import ndimage
 
+class Net(object):
 
-class ParseNet(object):
+    def __init__(self, model_path, downsample=4, use_cpu=False, prefix='prefix',
+                 pad=52, max_mp=5, gpu_fraction=None):
 
     def __init__(self, model_path, downsample=4, use_cpu=False,
                  pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2):
@@ -14,10 +16,16 @@ class ParseNet(object):
         self.max_megapixels = max_mp if max_mp is not None else 5
         self.gpu_fraction = gpu_fraction
 
-        self.tmp_downsample = None
-
+        self.prefix = prefix
         if model_path is not None:
-            saver = tf.train.import_meta_graph(model_path + '.meta')
+            with tf.gfile.GFile(model_path, "rb") as f:
+                graph_def = tf.GraphDef()
+                graph_def.ParseFromString(f.read())
+            with tf.Graph().as_default() as graph:
+                tf.import_graph_def(graph_def, name=prefix)
+                self.graph = graph
+            print(f"{model_path} loaded")
+
             if use_cpu:
                 tf_config = tf.ConfigProto(device_count={'GPU': 0})
             else:
@@ -26,8 +34,13 @@ class ParseNet(object):
                     tf_config.gpu_options.allow_growth = True
                 else:
                     tf_config.gpu_options.per_process_gpu_memory_fraction = self.gpu_fraction
-            self.session = tf.Session(config=tf_config)
-            saver.restore(self.session, model_path)
+            self.session = tf.Session(graph=self.graph, config=tf_config)
+
+            out_map = self.session.run(
+                '{}/test_probs:0'.format(prefix),
+                feed_dict={'{}/test_dataset:0'.format(prefix): np.zeros([1, 128, 128, 3], dtype=np.uint8)}
+                )
+            print('graph initialized')
 
     def get_maps(self, img, downsample):
         '''
@@ -42,11 +55,24 @@ class ParseNet(object):
         test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
 
         out_map = self.session.run(
-            'test_probs:0',
-            feed_dict={'test_dataset:0': test_img_canvas[:, :, :] / 256.})
+            '{}/test_probs:0'.format(self.prefix),
+            feed_dict={'{}/test_dataset:0'.format(self.prefix): test_img_canvas[:, :, :] / 256.})
         out_map = out_map[0, self.pad:img.shape[0]-self.pad, self.pad:img.shape[1]-self.pad, :]
 
         return out_map
+
+
+class ParseNet(Net):
+
+    def __init__(self, model_path, downsample=4, use_cpu=False, prefix='parsenet',
+                 pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2):
+
+        super().__init__(
+            model_path, downsample=downsample, use_cpu=False, prefix=prefix,
+            pad=pad, max_mp=max_mp, gpu_fraction=gpu_fraction)
+
+        self.detection_threshold = detection_threshold
+        self.tmp_downsample = None
 
     def get_maps_with_optimal_resolution(self, img):
         '''
@@ -78,3 +104,12 @@ class ParseNet(object):
         med_height = np.median(heights[heights > 0])
 
         return med_height
+
+
+class TiltNet(Net):
+    def __init__(self, model_path, downsample=4, use_cpu=False, prefix='tiltnet',
+                 pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2):
+
+        super().__init__(
+            model_path, downsample=downsample, use_cpu=False, prefix=prefix,
+            pad=pad, max_mp=max_mp, gpu_fraction=gpu_fraction)
