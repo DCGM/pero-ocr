@@ -1,6 +1,5 @@
 import numpy as np
 import cv2
-import tensorflow as tf
 from scipy import ndimage
 
 
@@ -8,7 +7,7 @@ class ParseNet(object):
 
     def __init__(self, model_path, downsample=4, use_cpu=False,
                  pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2):
-
+        import tensorflow as tf
         self.detection_threshold = detection_threshold
         self.downsample = downsample  # downsample before first CNN inference
         self.pad = pad

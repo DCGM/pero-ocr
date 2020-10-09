@@ -7,9 +7,7 @@ import cv2
 import numpy as np
 from os.path import isabs, realpath, join, dirname
 from scipy import sparse
-import tensorflow as tf
 
-from .CTC_nets import build_eval_net, line_nets
 from .softmax import softmax
 
 
@@ -101,6 +99,9 @@ class BaseEngineLineOCR(object):
 class EngineLineOCR(BaseEngineLineOCR):
     def __init__(self, json_def, gpu_id=0, batch_size=8):
         super(EngineLineOCR, self).__init__(json_def, gpu_id=0, batch_size=8)
+
+        import tensorflow as tf
+        from .CTC_nets import build_eval_net, line_nets
 
         self.net_graph = tf.Graph()
         tf.reset_default_graph()
