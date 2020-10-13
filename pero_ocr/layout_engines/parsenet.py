@@ -1,6 +1,5 @@
 import numpy as np
 import cv2
-from scipy import ndimage
 
 class Net(object):
 
@@ -33,9 +32,15 @@ class Net(object):
                     tf_config.gpu_options.per_process_gpu_memory_fraction = self.gpu_fraction
             self.session = tf.Session(graph=self.graph, config=tf_config)
 
-            out_map = self.session.run(
-                '{}/test_probs:0'.format(prefix),
-                feed_dict={'{}/test_dataset:0'.format(prefix): np.zeros([1, 128, 128, 3], dtype=np.uint8)}
+            if self.prefix is not None:
+                out_map = self.session.run(
+                    '{}/test_probs:0'.format(self.prefix),
+                    feed_dict={'{}/test_dataset:0'.format(self.prefix): np.zeros([1, 128, 128, 3], dtype=np.uint8)}
+                    )
+            else:
+                out_map = self.session.run(
+                    'test_probs:0',
+                    feed_dict={'test_dataset:0': np.zeros([1, 128, 128, 3], dtype=np.uint8)}
                 )
             print('graph initialized')
 
@@ -51,10 +56,16 @@ class Net(object):
         test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3))
         test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
 
-        out_map = self.session.run(
-            '{}/test_probs:0'.format(self.prefix),
-            feed_dict={'{}/test_dataset:0'.format(self.prefix): test_img_canvas[:, :, :] / 256.})
-        out_map = out_map[0, self.pad:img.shape[0]-self.pad, self.pad:img.shape[1]-self.pad, :]
+        if self.prefix is not None:
+            out_map = self.session.run(
+                '{}/test_probs:0'.format(self.prefix),
+                feed_dict={'{}/test_dataset:0'.format(self.prefix): test_img_canvas[:, :, :] / 256.})
+            out_map = out_map[0, self.pad:img.shape[0]-self.pad, self.pad:img.shape[1]-self.pad, :]
+        else:
+            out_map = self.session.run(
+                'test_probs:0',
+                feed_dict={'test_dataset:0': test_img_canvas[:, :, :] / 256.})
+            out_map = out_map[0, self.pad:img.shape[0] - self.pad, self.pad:img.shape[1] - self.pad, :]
 
         return out_map
 

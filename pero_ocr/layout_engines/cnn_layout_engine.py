@@ -19,7 +19,7 @@ from pero_ocr.layout_engines.parsenet import ParseNet, TiltNet
 
 class LineFilterEngine(object):
 
-    def __init__(self, model_path, downsample=4, use_cpu=False,
+    def __init__(self, model_path, downsample=4, use_cpu=False, model_prefix='tiltnet',
                  pad=52, max_mp=5, gpu_fraction=None):
         self.tiltnet = TiltNet(
             model_path,
@@ -27,7 +27,8 @@ class LineFilterEngine(object):
             use_cpu=use_cpu,
             pad=pad,
             max_mp=max_mp,
-            gpu_fraction=gpu_fraction
+            gpu_fraction=gpu_fraction,
+            prefix=model_prefix
         )
         self.downsample = downsample
 
@@ -58,7 +59,7 @@ class LineFilterEngine(object):
 
 
 class LayoutEngine(object):
-    def __init__(self, model_path, downsample=4, use_cpu=False, pad=52,
+    def __init__(self, model_path, downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
                  max_mp=5, gpu_fraction=None, detection_threshold=0.2):
         self.parsenet = ParseNet(
             model_path,
@@ -67,7 +68,9 @@ class LayoutEngine(object):
             pad=pad,
             max_mp=max_mp,
             gpu_fraction=gpu_fraction,
-            detection_threshold=detection_threshold)
+            detection_threshold=detection_threshold,
+            prefix=model_prefix
+        )
         self.line_detection_threshold = detection_threshold
 
     def get_maps(self, image, update_downsample=True):
