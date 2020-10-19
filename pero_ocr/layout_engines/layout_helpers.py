@@ -13,6 +13,22 @@ from shapely.ops import cascaded_union, polygonize
 from pero_ocr.document_ocr.layout import PageLayout, RegionLayout, TextLine
 
 
+def check_line_position(baseline, page_size, margin=20):
+    """Checks if line is short and very close to the page edge, which may indicate that the region actually belongs to
+    a second, partially scanned page of the document.
+    """
+    x_coords = np.array(baseline)[:, 0]
+    print(page_size)
+    print(x_coords)
+    print()
+    if np.any(x_coords < margin) and not np.any(x_coords > page_size[1] / 2):
+        return False
+    elif np.any(x_coords > (page_size[1] - margin)) and not np.any(x_coords < page_size[1] / 2):
+        return False
+    else:
+        return True
+
+
 def assign_lines_to_region(baseline_list, heights_list, textline_list, region):
     for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):
         baseline_intersection, textline_intersection = mask_textline_by_region(

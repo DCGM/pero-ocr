@@ -230,16 +230,25 @@ class LayoutExtractor(object):
 
 class LineFilter(object):
     def __init__(self, config, config_path):
-        self.engine = LineFilterEngine(
-            model_path=compose_path(config['MODEL_PATH'], config_path),
-            gpu_fraction=config.getfloat('GPU_FRACTION')
-        )
         self.filter_directions = config.getboolean('FILTER_DIRECTIONS')
+        self.filter_incomplete_pages = config.getboolean('FILTER_INCOMPLETE_PAGES')
+
+        if self.filter_directions:
+            self.engine = LineFilterEngine(
+                model_path=compose_path(config['MODEL_PATH'], config_path),
+                gpu_fraction=config.getfloat('GPU_FRACTION')
+            )
 
     def process_page(self, img, page_layout: PageLayout):
-        self.engine.predict_directions(img)
-        for region in page_layout.regions:
-            region.lines = [line for line in region.lines if self.engine.check_line_rotation(line.polygon, line.baseline)]
+        if self.filter_directions:
+            self.engine.predict_directions(img)
+            for region in page_layout.regions:
+                region.lines = [line for line in region.lines if self.engine.check_line_rotation(line.polygon, line.baseline)]
+
+        if self.filter_incomplete_pages:
+            for region in page_layout.regions:
+                region.lines = [line for line in region.lines if helpers.check_line_position(line.baseline, page_layout.page_size)]
+
         page_layout.regions = [region for region in page_layout.regions if region.lines]
 
         return page_layout
