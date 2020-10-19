@@ -207,7 +207,7 @@ def main():
             if layout_clicker.points[1][1]-offset[1] > line_mapping.shape[1]-10: # dirty fix noisy values at the end of coord map
                 y2 = np.amax(line_mapping[:,:,1].astype(np.uint16))
             print('{}/{}'.format(y2, line_crop.shape[1]))
-            transcriptions, _ = ocr_engine.process_lines([line_crop[:, :np.minimum(y1, y2), :],
+            transcriptions, _, _ = ocr_engine.process_lines([line_crop[:, :np.minimum(y1, y2), :],
                                                           line_crop[:, np.maximum(y1, y2):, :]])
             line_crop[:, np.minimum(y1, y2):np.maximum(y1, y2), :] = 0
             text_input = TextInputInpaint(transcriptions[0], transcriptions[1])

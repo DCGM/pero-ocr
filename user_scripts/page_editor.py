@@ -12,8 +12,8 @@ from scipy import  ndimage
 
 import pero_ocr.document_ocr as pero
 import pero_ocr.document_ocr.layout as layout
-import pero_ocr.line_engine.line_postprocessing as linepp
-import pero_ocr.region_engine.region_engine_simple as region_engine
+from pero_ocr.layout_engines import layout_helpers as linepp
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -22,6 +22,7 @@ def parse_arguments():
     parser.add_argument('-o', '--output-dir', help='Path to output PAGE XML folder (optional, overwrites input page files if left blank)', required=False)
     args = parser.parse_args()
     return args
+
 
 def select_polygons(polygon_coords, points):
     selected = []
@@ -37,10 +38,12 @@ def select_polygons(polygon_coords, points):
             selected.append(l_num)
     return selected
 
+
 def check_intersection(line1, line2):
     line1 = LineString(line1)
     line2 = LineString(line2)
     return line1.intersects(line2)
+
 
 def get_region_by_point(regions_coords, point):
     num_chosen = None
@@ -223,17 +226,11 @@ class PageEditor(object):
 
     def create_region_from_lines(self):
         if self.selected_lines:
-            poly_points = []
-            max_alpha = 0
+            lines = []
             for l_num in self.selected_lines:
-                self.lines[l_num].polygon = linepp.baseline_to_textline(self.lines[l_num].baseline, self.lines[l_num].heights)
-                poly_points += self.lines[l_num].polygon.tolist()
-                # heuristic to estimate appropriate alpha for region polygon
-                x_dist = np.amax(np.diff(self.lines[l_num].baseline[:,0]))
-                height = self.lines[l_num].heights[0] + self.lines[l_num].heights[1]
-                max_alpha = np.amax([max_alpha, x_dist, height])
+                lines.append(self.lines[l_num].polygon)
+        	poly = linepp.region_from_textlines(lines)
 
-            poly = region_engine.alpha_shape(np.stack(poly_points, axis=1).T, 1.5*max_alpha)
             new_region = layout.RegionLayout(
                 id = 'r{}'.format(len(self.page_layout.regions)+1),
                 polygon = np.array(poly.simplify(5).exterior.coords, dtype=np.float))
@@ -404,8 +401,12 @@ def main():
     editor = PageEditor(downsample=2, line_thickness=2, show_hint=True, cursor=0)
 
     while editor.cursor > -1 and editor.cursor < len(filename_list):
-
+        print('cursor: ', editor.cursor)
         page_filename = os.path.splitext(filename_list[editor.cursor])[0]+'.xml'
+        if not os.path.exists(os.path.join(args.page_dir, page_filename)):
+            editor.cursor += 1
+            print('Cannot find PAGE XML in expected location {}'.format(os.path.join(args.page_dir, page_filename)))
+            continue
         cur_image = cv2.imread(os.path.join(args.image_dir, filename_list[editor.cursor]))
 
         if args.output_dir is not None and os.path.exists(os.path.join(args.output_dir, page_filename)):
@@ -426,7 +427,7 @@ def main():
         else:
             cur_layout.to_pagexml(os.path.join(args.page_dir, page_filename))
 
-        SKIPPING = False
+        # SKIPPING = False
 
 if __name__=='__main__':
     main()

@@ -1,3 +1,4 @@
+import sys
 import re
 import pickle
 import json
@@ -7,6 +8,7 @@ from datetime import datetime
 import numpy as np
 import lxml.etree as ET
 import cv2
+import shapely
 
 from pero_ocr.document_ocr.crop_engine import EngineLineCropper
 from pero_ocr.force_alignment import align_text
@@ -19,7 +21,7 @@ def log_softmax(x):
 
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None):
+                 characters=None, logit_coords=None):
         self.id = id
         self.baseline = baseline
         self.polygon = polygon
@@ -28,6 +30,7 @@ class TextLine(object):
         self.logits = logits
         self.crop = crop
         self.characters = characters
+        self.logit_coords = logit_coords
 
     def get_dense_logits(self, zero_logit_value=-80):
         dense_logits = self.logits.toarray()
@@ -84,6 +87,35 @@ def get_region_from_page_xml(region_element, schema):
     return layout_region
 
 
+def guess_line_heights_from_polygon(text_line: TextLine):
+    '''
+    Guess line heights for line if missing (e.g. import from Transkribus).
+    Heights are computed from polygon intersection with baseline normal in the middle of baseline.
+    '''
+    try:
+        if text_line.baseline.shape[0] % 2 == 0:
+            center = (text_line.baseline[text_line.baseline.shape[0]//2 - 1] + text_line.baseline[text_line.baseline.shape[0]//2]) / 2
+        else:
+            center = text_line.baseline[text_line.baseline.shape[0]//2]
+        direction = text_line.baseline[0] - text_line.baseline[-1]
+        direction = direction[::-1]
+        direction[0] = -direction[0]
+        cross_line = np.stack([center - direction * 10, center + direction * 10])
+
+        cross_line = shapely.geometry.LineString(cross_line)
+        polygon = shapely.geometry.Polygon(text_line.polygon)
+        intersection = polygon.intersection(cross_line)
+        intersection = np.asarray(intersection.coords.xy).T
+
+        text_line.heights = [((center - intersection[0])**2).sum()**0.5,
+                             ((center - intersection[1]) ** 2).sum() ** 0.5]
+        text_line.heights = sorted(text_line.heights)[::-1]
+    except:
+        height = text_line.polygon[:, 1].max() - text_line.polygon[:, 1].min()
+        text_line.heights = [height * 0.8, height * 0.2]
+
+
+
 class PageLayout(object):
     def __init__(self, id=None, page_size=(0, 0), file=None):
         self.id = id
@@ -133,10 +165,16 @@ class PageLayout(object):
                 baseline = line.find(schema + 'Baseline')
                 if baseline is not None:
                     new_textline.baseline = get_coords_form_page_xml(baseline, schema)
+                else:
+                    print('Warning: Baseline is missing in TextLine. Skipping this line during import. Line ID:', new_textline.id, 'Page ID:', self.id, file=sys.stderr)
+                    continue
 
                 textline = line.find(schema + 'Coords')
                 if textline is not None:
                     new_textline.polygon = get_coords_form_page_xml(textline, schema)
+
+                if not new_textline.heights:
+                    guess_line_heights_from_polygon(new_textline)
 
                 transcription = line.find(schema + 'TextEquiv')
                 if transcription is not None:
@@ -192,7 +230,7 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self):
+    def to_altoxml_string(self, ocr_processing=None, page_uuid=None):
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
@@ -201,22 +239,20 @@ class PageLayout(object):
         description = ET.SubElement(root, "Description")
         measurement_unit = ET.SubElement(description, "MeasurementUnit")
         measurement_unit.text = "pixel"
-        ocr_processing = ET.SubElement(description, "OCRProcessing")
-        ocr_processing.set("ID", "IdOcr")
-        ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
-        processing_date_time = ET.SubElement(ocr_processing_step, "processingDateTime")
-        processing_date_time.text = datetime.today().strftime('%Y-%m-%d')
-        processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
-        processing_creator = ET.SubElement(processing_software, "softwareCreator")
-        processing_creator.text = "Project PERO"
-        software_name = ET.SubElement(processing_software, "softwareName")
-        software_name.text = "PERO OCR"
-        software_version = ET.SubElement(processing_software, "softwareVersion")
-        software_version.text = "v0.1.0"
-
+        source_image_information = ET.SubElement(description, "sourceImageInformation")
+        file_name = ET.SubElement(source_image_information, "fileName")
+        file_name.text = self.id
+        if ocr_processing is not None:
+            description.append(ocr_processing)
+        else:
+            ocr_processing = create_ocr_processing_element()
+            description.append(ocr_processing)
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
-        page.set("ID", "id_" + self.id)
+        if page_uuid is not None:
+            page.set("ID", "id_" + page_uuid)
+        else:
+            page.set("ID", "id_" + re.sub('[!\"#$%&\'()*+,/:;<=>?@[\\]^`{|}~ ]', '_', self.id))
         page.set("PHYSICAL_IMG_NR", str(1))
         page.set("HEIGHT", str(self.page_size[0]))
         page.set("WIDTH", str(self.page_size[1]))
@@ -278,8 +314,8 @@ class PageLayout(object):
                     else:
                         label.append(0)
 
-                logits = line.get_dense_logits()
-                logprobs = line.get_full_logprobs()
+                logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
+                logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                 try:
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except ValueError as _:
@@ -296,44 +332,39 @@ class PageLayout(object):
                     crop_engine = EngineLineCropper(poly=2)
                     line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
                     space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
-                    word = []
+
                     words = []
-                    counter = 0
-                    for i, elem in enumerate(aligned_letters):
-                        try:
-                            if i == space_idxs[counter]:
-                                if counter != (len(space_idxs) - 1):
-                                    counter += 1
-                                words.append(word)
-                                word = []
-                            else:
-                                word.append(elem)
-                        except IndexError as _:
-                            word.append(elem)
-
-                    words.append(word)
-
-                    try:
-                        words.remove([])
-                    except ValueError:
-                        pass
-
-                    start_end = []
-                    for i in words:
-                        start_end.append(tuple([i[0], i[-1]]))
+                    space_idxs = [-1] + space_idxs + [len(aligned_letters)]
+                    for i in range(len(space_idxs[1:])):
+                        if space_idxs[i] != space_idxs[i+1]-1:
+                            words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
 
                     splitted_transcription = line.transcription.split()
                     lm_const = line_coords.shape[1] / logits.shape[0]
-                    for w, word in enumerate(start_end):
+                    for w, word in enumerate(words):
+                        extension = 2
+                        while True:
+                            all_x = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 0]
+                            all_y = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 1]
+
+                            if all_x.size == 0 or all_y.size == 0:
+                                extension += 1
+                            else:
+                                break
+
                         string = ET.SubElement(text_line, "String")
                         string.set("CONTENT", splitted_transcription[w])
-                        all_x = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 0]
-                        all_y = line_coords[:, int((start_end[w][0]-2) * lm_const):int((start_end[w][1]+2) * lm_const), 1]
 
                         string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
                         string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                         string.set("VPOS", str(int(np.min(all_y))))
                         string.set("HPOS", str(int(np.min(all_x))))
+                        if w != (len(line.transcription.split())-1):
+                            space = ET.SubElement(text_line, "SP")
+
+                            space.set("WIDTH", str(4))
+                            space.set("VPOS", str(int(np.min(all_y))))
+                            space.set("HPOS", str(int(np.max(all_x))))
 
         top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
         top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
@@ -362,8 +393,8 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
 
-    def to_altoxml(self, file_name):
-        alto_string = "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n" + self.to_altoxml_string()
+    def to_altoxml(self, file_name, ocr_processing=None, page_uuid=None):
+        alto_string = "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n" + self.to_altoxml_string(ocr_processing, page_uuid)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
@@ -425,16 +456,21 @@ class PageLayout(object):
         """
         logits = []
         characters = []
+        logit_coords = []
         for region in self.regions:
             for line in region.lines:
                 if line.logits is None:
                     raise Exception(f'Missing logits for line {line.id}.')
                 if line.characters is None:
                     raise Exception(f'Missing logit mapping to characters for line {line.id}.')
+                if line.logit_coords is None:
+                    raise Exception(f'Missing logit coords for line {line.id}.')
             logits += [(line.id, line.logits) for line in region.lines]
             characters += [(line.id, line.characters) for line in region.lines]
+            logit_coords += [(line.id, line.logit_coords) for line in region.lines]
         logits_dict = dict(logits)
         logits_dict['line_characters'] = dict(characters)
+        logits_dict['logit_coords'] = dict(logit_coords)
         with open(file_name, 'wb') as f:
             pickle.dump(logits_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -450,12 +486,18 @@ class PageLayout(object):
         else:
             characters = dict([(k, None) for k in logits_dict])
 
+        if 'logit_coords' in logits_dict:
+            logit_coords = logits_dict['logit_coords']
+        else:
+            logit_coords = dict([(k, [None, None]) for k in logits_dict])
+
         for region in self.regions:
             for line in region.lines:
                 if line.id not in logits_dict:
                     raise Exception(f'Missing line id {line.id} in logits {file_name}.')
                 line.logits = logits_dict[line.id]
                 line.characters = characters[line.id]
+                line.logit_coords = logit_coords[line.id]
 
     def render_to_image(self, image, thickness=2, circles=True, render_order=False):
         """Render layout into image.
@@ -564,13 +606,34 @@ def get_hwvh(polygon):
     return height, width, vpos, hpos
 
 
+def create_ocr_processing_element(id="IdOcr", software_creator_str="Project PERO", software_name_str="PERO OCR", software_version_str="v0.1.0", processing_datetime=None):
+    ocr_processing = ET.Element("OCRProcessing")
+    ocr_processing.set("ID", id)
+    ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
+    processing_date_time = ET.SubElement(ocr_processing_step, "processingDateTime")
+    if processing_datetime is not None:
+        processing_date_time.text = processing_datetime
+    else:
+        processing_date_time.text = datetime.today().strftime('%Y-%m-%d')
+    processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
+    processing_creator = ET.SubElement(processing_software, "softwareCreator")
+    processing_creator.text = software_creator_str
+    software_name = ET.SubElement(processing_software, "softwareName")
+    software_name.text = software_name_str
+    software_version = ET.SubElement(processing_software, "softwareVersion")
+    software_version.text = software_version_str
+
+    return ocr_processing
+
+
 if __name__ == '__main__':
+    """
     l = PageLayout(
         file='/home/ikohut/data/pero_ocr_web_data/ocr_client/0fb06b7c-92b3-41cd-9523-5a869dccd7dc/output/page/9baa3b0d-3a6c-41b9-86b3-a012ea0ed378.xml')
     l.load_logits(
         '/home/ikohut/data/pero_ocr_web_data/ocr_client/0fb06b7c-92b3-41cd-9523-5a869dccd7dc/output/logits/9baa3b0d-3a6c-41b9-86b3-a012ea0ed378.logits')
     print(l.to_altoxml_string())
-
+    """
 
     # test_layout = PageLayout(file='/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
     # test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')

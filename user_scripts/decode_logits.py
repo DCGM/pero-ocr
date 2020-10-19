@@ -5,6 +5,8 @@ import pickle
 import time
 import sys
 
+from safe_gpu.safe_gpu import GPUOwner
+
 from pero_ocr.decoding import confusion_networks
 from pero_ocr.decoding.decoding_itf import prepare_dense_logits, construct_lm, get_ocr_charset, BLANK_SYMBOL
 import pero_ocr.decoding.decoders as decoders
@@ -57,8 +59,7 @@ class Reporter:
         self.stream.write('\r\n')
 
 
-def main():
-    args = parse_arguments()
+def main(args):
     print(args)
 
     ocr_engine_chars = get_ocr_charset(args.ocr_json)
@@ -79,8 +80,8 @@ def main():
             insertion_bonus=args.insertion_bonus,
         )
 
-    if lm and args.eval:
-        lm.eval()
+        if lm and args.eval:
+            lm.eval()
 
     with open(args.input, 'rb') as f:
         complete_input = pickle.load(f)
@@ -124,4 +125,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_arguments()
+    gpu_owner = GPUOwner()
+    main(args)
