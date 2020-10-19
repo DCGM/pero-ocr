@@ -184,7 +184,11 @@ class LayoutExtractor(object):
 
                 if self.detect_regions:
                     for id, polygon in enumerate(p_list):
-                        region = RegionLayout('r{:03d}'.format(id), polygon)
+                        if rot > 0:
+                            id = 'r{:03d}_{}'.format(id, rot)
+                        else:
+                            id = 'r{:03d}'.format(id)
+                        region = RegionLayout(id, polygon)
                         regions.append(region)
 
                 if self.detect_lines:
