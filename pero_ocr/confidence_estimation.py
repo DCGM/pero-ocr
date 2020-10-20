@@ -87,11 +87,11 @@ def get_line_confidence(line, labels):
         masked_probs[:, label] = 0
         if i > 0:
             masked_probs[:, labels[i-1]] = 0
-        if i < len(lables):
+        if i + 1 < len(labels):
             masked_probs[:, labels[i+1]] = 0
         other_prob = masked_probs[:, :-1].max()
-        confidences[i] = label_prob - other_prob
+        confidences[i] = max(0, label_prob - other_prob)
         last_border = next_border
 
-    confidences = confidences / 2 + 0.5
+    #confidences = confidences / 2 + 0.5
     return confidences
