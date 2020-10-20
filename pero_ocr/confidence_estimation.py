@@ -85,6 +85,10 @@ def get_line_confidence(line, labels):
         pos_probs = probs[last_border: next_border]
         masked_probs = np.copy(pos_probs)
         masked_probs[:, label] = 0
+        if i > 0:
+            masked_probs[:, labels[i-1]] = 0
+        if i < len(lables):
+            masked_probs[:, labels[i+1]] = 0
         other_prob = masked_probs[:, :-1].max()
         confidences[i] = label_prob - other_prob
         last_border = next_border
