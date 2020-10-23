@@ -152,7 +152,7 @@ class LayoutExtractor(object):
         self.detect_regions = config.getboolean('DETECT_REGIONS')
         self.detect_lines = config.getboolean('DETECT_LINES')
         self.merge_lines = config.getboolean('MERGE_LINES')
-        self.adjust_lines = config.getboolean('REFINE_LINES')
+        self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.engine = LayoutEngine(
             model_path=compose_path(config['MODEL_PATH'], config_path),
@@ -216,8 +216,8 @@ class LayoutExtractor(object):
                 region = helpers.assign_lines_to_region(
                     r_b_list, r_h_list, r_t_list, region)
 
-        if self.adjust_lines:
-            heights_map, ds = self.engine.get_maps(img)[:, :, :2]
+        if self.adjust_heights:
+            heights_map, ds = self.engine.get_maps(img)
             for line in page_layout.lines_iterator():
                 sample_points = helpers.resample_baselines(
                     [line.baseline], num_points=40)[0]
