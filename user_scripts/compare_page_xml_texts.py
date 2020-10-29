@@ -51,7 +51,10 @@ def compare_page_layouts(hyp_fn, ref_fn):
 
 
 def print_result(name, nb_errors, ref_len):
-    print(f'{name} {100.0*nb_errors/ref_len:.2f} % CER [ {nb_errors} / {ref_len} ]')
+    if ref_len > 0:
+        print(f'{name} {100.0*nb_errors/ref_len:.2f} % CER [ {nb_errors} / {ref_len} ]')
+    else:
+        print(f'{name} N/A % CER [ {nb_errors} / {ref_len} ]')
 
 
 def main():
