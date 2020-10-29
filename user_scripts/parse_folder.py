@@ -113,6 +113,10 @@ def main():
     if args.set_gpu:
         utils.setGPU()
 
+    if not os.path.isfile(config_path):
+        print(f'ERROR: Config file does not exist: "{config_path}".')
+        exit(-1)
+
     config = configparser.ConfigParser()
     config.read(config_path)
 
