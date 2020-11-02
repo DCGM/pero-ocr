@@ -16,10 +16,10 @@ setup(
         'pero_ocr',
         'pero_ocr/decoding',
         'pero_ocr/document_ocr',
+        'pero_ocr/layout_engines',
         'pero_ocr/line_engine',
         'pero_ocr/ocr_engine',
         'pero_ocr/region_engine',
-        'pero_ocr/region_sorter',
     ],
     install_requires=[
         'numpy',
