@@ -10,7 +10,7 @@ def get_long_desc():
 
 setup(
     name='pero-ocr',
-    version='0.3',
+    version='0.4',
     python_requires='>=3.6',
     packages=[
         'pero_ocr',
