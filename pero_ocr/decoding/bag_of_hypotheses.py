@@ -48,12 +48,21 @@ class BagOfHypotheses:
         return len(self._hyps)
 
     def recompute_posteriors(self):
-        total_prob = logsumexp([hyp.vis_sc for hyp in self._hyps])
+        total_prob = logsumexp([hyp.vis_sc + hyp.lm_sc for hyp in self._hyps])
         self._posteriors = [hyp.vis_sc - total_prob for hyp in self._hyps]
 
     def confidence(self):
         self.recompute_posteriors()
         return math.exp(max(self._posteriors))
+
+    def transcript_confidence(self, transcript):
+        self.recompute_posteriors()
+
+        for i, hyp in enumerate(self._hyps):
+            if hyp.transcript == transcript:
+                return math.exp(self._posteriors[i])
+
+        return 0.0  # Transcript not found in the bag of hypotheses
 
     def best_hyp(self):
         return max(self._hyps, key=lambda hyp: hyp.vis_sc + (hyp.lm_sc if hyp.lm_sc is not None else 0)).transcript
