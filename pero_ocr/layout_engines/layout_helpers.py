@@ -13,17 +13,14 @@ from shapely.ops import cascaded_union, polygonize
 from pero_ocr.document_ocr.layout import PageLayout, RegionLayout, TextLine
 
 
-def check_line_position(baseline, page_size, margin=20):
+def check_line_position(baseline, page_size, margin=20, min_ratio=0.125):
     """Checks if line is short and very close to the page edge, which may indicate that the region actually belongs to
     a second, partially scanned page of the document.
     """
     x_coords = np.array(baseline)[:, 0]
-    print(page_size)
-    print(x_coords)
-    print()
-    if np.any(x_coords < margin) and not np.any(x_coords > page_size[1] / 2):
+    if np.any(x_coords < margin) and not np.any(x_coords > page_size[1] * min_ratio):
         return False
-    elif np.any(x_coords > (page_size[1] - margin)) and not np.any(x_coords < page_size[1] / 2):
+    elif np.any(x_coords > (page_size[1] - margin)) and not np.any(x_coords < page_size[1] * min_ratio):
         return False
     else:
         return True
@@ -186,8 +183,12 @@ def merge_lines(baselines, heights):
                 min_j = np.amin(np.asarray(baselines[j])[:, 0]).astype(np.int32)
                 max_j = np.amax(np.asarray(baselines[j])[:, 0]).astype(np.int32)
                 v_overlay = (min_i > min_j and max_i < max_j) or (min_j > min_i and max_j < max_i)
+                v_gap = np.maximum(min_i - max_j, min_j - max_i)
                 h_overlay = np.minimum(avg_hpos_1 + heights[i][1], avg_hpos_2 + heights[j][1]) - np.maximum(avg_hpos_1 - heights[i][0], avg_hpos_2 - heights[j][0])
-                if h_overlay > (0.7 * np.minimum(heights[i][0] + heights[i][1], heights[j][0] + heights[j][1])) and not v_overlay:
+                if (h_overlay > (0.7 * np.minimum(heights[i][0] + heights[i][1], heights[j][0] + heights[j][1]))
+                        and not v_overlay
+                        and v_gap < 2 * np.minimum(heights[i][0] + heights[i][1], heights[j][0] + heights[j][1])):
+                    # print(v_gap)
                     if i not in merged_lines:
                         lines_to_merge_i.append(i)
                         merged_lines.append(i)
@@ -207,7 +208,7 @@ def merge_lines(baselines, heights):
                 if heights[l_num][1] > new_height[1]:
                     new_height[1] = heights[l_num][1]
             new_line_inds = np.argsort(np.asarray(new_line)[:, 0])
-            baselines.append([new_line[x] for x in new_line_inds.tolist()])
+            baselines.append(resample_baselines([np.asarray([new_line[x] for x in new_line_inds.tolist()])])[0])
             heights.append(new_height.tolist())
 
     baselines = filter_list(baselines, merged_lines)
@@ -215,6 +216,7 @@ def merge_lines(baselines, heights):
 
     baselines = [np.asarray(baseline) for baseline in baselines]
     baselines = [rotate_coords(baseline, -rotation, (0, 0)) for baseline in baselines]
+
     return baselines, heights
 
 
@@ -297,7 +299,7 @@ def get_rotation(lines):
 
         if last_line_point[1] != first_line_point[1]:
             rotation = math.degrees(
-                math.atan((last_line_point[1] - first_line_point[1]) / (last_line_point[0] - first_line_point[0])))
+                np.arctan2((last_line_point[1] - first_line_point[1]), (last_line_point[0] - first_line_point[0])))
             length = math.sqrt(
                 math.pow(last_line_point[0] - first_line_point[0], 2)
                 + math.pow(last_line_point[1] - first_line_point[1], 2))
@@ -305,7 +307,7 @@ def get_rotation(lines):
         else:
             lines_info.append((0,0))
 
-    lines_info = sorted(lines_info, key = lambda x: x[0], reverse = True)
+    lines_info = sorted(lines_info, key=lambda x: x[0], reverse=True)
     lines_info = lines_info[0:int(len(lines_info)/2)]
     rotation_sum = sum(item[1] for item in lines_info)
     rotation = 0

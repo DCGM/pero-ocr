@@ -55,7 +55,10 @@ class LineFilterEngine(object):
         predicted_y = np.median(self.predictions[:, :, 1][line_mask > 0])
         predicted_angle = np.arctan2(predicted_y, predicted_x)
 
-        return self.get_angle_diff(predicted_angle, target_angle) < np.pi/4
+        if target_angle < np.pi/4 and target_angle > -np.pi/4:
+            return True
+        else:
+            return self.get_angle_diff(predicted_angle, target_angle) < np.pi/4
 
 
 class LayoutEngine(object):
@@ -105,7 +108,8 @@ class LayoutEngine(object):
         if rot > 0:
             image = np.rot90(image, k=rot)
 
-        maps, ds = self.get_maps(image, update_downsample=(rot == 0))  # update downsample factor if rot is 0, else assume that the same page was already parsed once to save time during downsample estimation
+        maps, ds = self.get_maps(image, update_downsample=(rot==0))  # update downsample factor if rot is 0, else assume that the same page was already parsed once to save time during downsample estimation
+
         b_list, h_list, layout_separator_map = self.parse(
             maps, ds)
         if not b_list:
@@ -134,7 +138,6 @@ class LayoutEngine(object):
         # remove overlaps while minimizing textline modifications
         polygons_tmp = self.filter_polygons(
             polygons_tmp, regions_textlines_tmp)
-
         # up to this point, polygons can be any geometry that comes from alpha_shape
         p_list = []
         for region_poly in polygons_tmp:
@@ -209,6 +212,9 @@ class LayoutEngine(object):
         baselines_img *= baselines_map
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
+
+        # plt.imshow(baselines_img)
+        # plt.show()
 
         for i in range(1, num_detections+1):
             bl_inds, = np.where(labels == i)
