@@ -181,7 +181,6 @@ class LayoutExtractor(object):
             for rot in orientations:
                 regions = []
                 p_list, b_list, h_list, t_list = self.engine.detect(img, rot=rot)
-
                 if self.detect_regions:
                     for id, polygon in enumerate(p_list):
                         if rot > 0:
@@ -190,17 +189,11 @@ class LayoutExtractor(object):
                             id = 'r{:03d}'.format(id)
                         region = RegionLayout(id, polygon)
                         regions.append(region)
-
                 if self.detect_lines:
                     if not self.detect_regions:
                         regions = page_layout.regions
-                    # if len(regions) > 4:
-                    #     regions = list(self.pool.map(partial(helpers.assign_lines_to_region, b_list, h_list, t_list),
-                    #                      regions))
-                    # else:
-                    for region in regions:
-                        region = helpers.assign_lines_to_region(
-                            b_list, h_list, t_list, region)
+                    regions = helpers.assign_lines_to_regions(
+                        b_list, h_list, t_list, regions)
 
                 if self.detect_regions:
                     page_layout.regions += regions

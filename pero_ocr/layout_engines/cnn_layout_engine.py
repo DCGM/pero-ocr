@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from copy import deepcopy
+import time
 
 import cv2
 from scipy import ndimage
@@ -112,6 +113,7 @@ class LayoutEngine(object):
 
         b_list, h_list, layout_separator_map = self.parse(
             maps, ds)
+
         if not b_list:
             return [], [], [], []
         t_list = [
@@ -119,6 +121,7 @@ class LayoutEngine(object):
 
         # cluster the lines into regions
         clusters_array = self.cluster_lines(t_list, layout_separator_map, ds)
+
         regions_textlines_tmp = []
         polygons_tmp = []
         for i in range(np.amax(clusters_array)+1):
@@ -323,20 +326,35 @@ class LayoutEngine(object):
     def cluster_lines(self, textlines, layout_separator_map, downsample, threshold=0.3):
         if len(textlines) > 1:
 
+            min_pos = np.zeros([len(textlines), 2], dtype=np.float32)
+            max_pos = np.zeros([len(textlines), 2], dtype=np.float32)
+
             textlines_dilated = []
-            for textline in textlines:
+            for textline, min_, max_ in zip(textlines, min_pos, max_pos):
                 textline_poly = sg.Polygon(textline)
                 tot_height = np.abs(textline[0, 1] - textline[-1, 1])
                 textlines_dilated.append(textline_poly.buffer(tot_height))
+                min_[:] = textline.min(axis=0) - tot_height
+                max_[:] = textline.max(axis=0) + tot_height
 
+            candidates = np.logical_and(
+                np.logical_or(
+                    max_pos[:, np.newaxis, 1] <= min_pos[np.newaxis, :, 1],
+                    min_pos[:, np.newaxis, 1] >= max_pos[np.newaxis, :, 1]),
+                np.logical_or(
+                    max_pos[:, np.newaxis, 0] <= min_pos[np.newaxis, :, 0],
+                    min_pos[:, np.newaxis, 0] >= max_pos[np.newaxis, :, 0]),
+            )
+            candidates = np.logical_not(candidates)
+
+            candidates = np.triu(candidates, k=1)
             distances = np.ones((len(textlines), len(textlines)))
-            for i in range(len(textlines)):
-                for j in range(i+1, len(textlines)):
-                    if textlines_dilated[i].intersects(textlines_dilated[j]):
-                        penalty = self.get_penalty(
-                            textlines[i]/downsample, textlines[j]/downsample, layout_separator_map)
-                        distances[i, j] = penalty
-                        distances[j, i] = penalty
+            for i, j in zip(*candidates.nonzero()):
+                if textlines_dilated[i].intersects(textlines_dilated[j]):
+                    penalty = self.get_penalty(
+                        textlines[i]/downsample, textlines[j]/downsample, layout_separator_map)
+                    distances[i, j] = penalty
+                    distances[j, i] = penalty
 
             adjacency = distances < threshold
             graph = csr_matrix(adjacency)

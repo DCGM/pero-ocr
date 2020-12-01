@@ -76,7 +76,7 @@ class ParseNet(Net):
                  pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2):
 
         super().__init__(
-            model_path, downsample=downsample, use_cpu=False, prefix=prefix,
+            model_path, downsample=downsample, use_cpu=use_cpu, prefix=prefix,
             pad=pad, max_mp=max_mp, gpu_fraction=gpu_fraction)
 
         self.detection_threshold = detection_threshold

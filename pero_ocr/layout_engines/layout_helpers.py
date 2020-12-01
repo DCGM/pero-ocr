@@ -26,19 +26,48 @@ def check_line_position(baseline, page_size, margin=20, min_ratio=0.125):
         return True
 
 
-def assign_lines_to_region(baseline_list, heights_list, textline_list, region):
-    for line_num, (baseline, heights, textline) in enumerate(zip(baseline_list, heights_list, textline_list)):
+def assign_lines_to_regions(baseline_list, heights_list, textline_list, regions):
+
+    min_line = np.zeros([len(textline_list), 2], dtype=np.float32)
+    max_line = np.zeros([len(textline_list), 2], dtype=np.float32)
+    for textline, min_, max_ in zip(baseline_list, min_line, max_line):
+        min_[:] = textline.min(axis=0)
+        max_[:] = textline.max(axis=0)
+
+    min_region = np.zeros([len(regions), 2], dtype=np.float32)
+    max_region = np.zeros([len(regions), 2], dtype=np.float32)
+    for region, min_, max_ in zip(regions, min_region, max_region):
+        min_[:] = region.polygon.min(axis=0)
+        max_[:] = region.polygon.max(axis=0)
+
+    candidates = np.logical_and(
+            np.logical_or(
+                max_line[:, np.newaxis, 1] <= min_region[np.newaxis, :, 1],
+                min_line[:, np.newaxis, 1] >= max_region[np.newaxis, :, 1]),
+            np.logical_or(
+                max_line[:, np.newaxis, 0] <= min_region[np.newaxis, :, 0],
+                min_line[:, np.newaxis, 0] >= max_region[np.newaxis, :, 0]),
+    )
+    candidates = np.logical_not(candidates)
+
+    for line_id, region_id in zip(*candidates.nonzero()):
+        baseline = baseline_list[line_id]
+        heights = heights_list[line_id]
+        textline = textline_list[line_id]
+        region = regions[region_id]
+
         baseline_intersection, textline_intersection = mask_textline_by_region(
             baseline, textline, region.polygon)
         if baseline_intersection is not None and textline_intersection is not None:
             new_textline = TextLine(
-                id='{}-l{:03d}'.format(region.id, line_num+1),
+                id='{}-l{:03d}'.format(region.id, line_id+1),
                 baseline=baseline_intersection,
                 polygon=textline_intersection,
                 heights=heights
                 )
             region.lines.append(new_textline)
-    return region
+
+    return regions
 
 
 def retrace_region(region):
