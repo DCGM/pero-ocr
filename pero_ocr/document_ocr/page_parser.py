@@ -208,8 +208,8 @@ class LayoutExtractor(object):
                     )
                     r_t_list = [helpers.baseline_to_textline(b, h) for b, h in zip(r_b_list, r_h_list)]
                     region.lines = []
-                    region = helpers.assign_lines_to_region(
-                        r_b_list, r_h_list, r_t_list, region)
+                    region = helpers.assign_lines_to_regions(
+                        r_b_list, r_h_list, r_t_list, [region])[0]
                     if len(region.lines) == original_line_count:
                         break
 
