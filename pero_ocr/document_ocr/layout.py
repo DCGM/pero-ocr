@@ -318,7 +318,8 @@ class PageLayout(object):
                 logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                 try:
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
-                except ValueError as _:
+                except (ValueError, IndexError) as e:
+                    print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
                     average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
                     for w, word in enumerate(line.transcription.split()):
                         string = ET.SubElement(text_line, "String")
