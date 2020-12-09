@@ -55,7 +55,6 @@ def assign_lines_to_regions(baseline_list, heights_list, textline_list, regions)
         heights = heights_list[line_id]
         textline = textline_list[line_id]
         region = regions[region_id]
-
         baseline_intersection, textline_intersection = mask_textline_by_region(
             baseline, textline, region.polygon)
         if baseline_intersection is not None and textline_intersection is not None:
@@ -304,12 +303,18 @@ def mask_textline_by_region(baseline, textline, region):
 
     textline_shpl = sg.Polygon(textline)
     if not textline_shpl.is_valid: # this can happen after merging two lines
+        print('Invalid textline encountered, replacing it with convex hull...')
         textline_shpl = textline_shpl.convex_hull
     if not region_shpl.is_valid:
         warnings.warn("Input region contains self-intersections, replacing it with convex hull...")
         region_shpl = region_shpl.convex_hull
     baseline_is = region_shpl.intersection(baseline_shpl)
     textline_is = region_shpl.intersection(textline_shpl)
+
+    if isinstance(textline_is, sg.MultiPolygon): # this can happen generally with some combinations of layout and line detection
+        areas = np.array([poly.area for poly in textline_is])
+        textline_is = textline_is[np.argmax(areas)]
+
     if isinstance(baseline_is, sg.LineString) and isinstance(textline_is, sg.Polygon) and baseline_is.length>2:
         return np.asarray(baseline_is.coords), np.asarray(textline_is.exterior.coords)
     else:

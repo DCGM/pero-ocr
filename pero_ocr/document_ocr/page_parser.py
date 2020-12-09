@@ -14,6 +14,7 @@ from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEn
 from pero_ocr.layout_engines.line_postprocessing_engine import PostprocessingEngine
 from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
+from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
 from pero_ocr.layout_engines import layout_helpers as helpers
 
 
@@ -151,6 +152,7 @@ class LayoutExtractor(object):
     def __init__(self, config, config_path=''):
         self.detect_regions = config.getboolean('DETECT_REGIONS')
         self.detect_lines = config.getboolean('DETECT_LINES')
+        self.detect_straight_lines_in_regions = config.getboolean('DETECT_STRAIGHT_LINES_IN_REGIONS')
         self.merge_lines = config.getboolean('MERGE_LINES')
         self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
@@ -194,7 +196,6 @@ class LayoutExtractor(object):
                         regions = page_layout.regions
                     regions = helpers.assign_lines_to_regions(
                         b_list, h_list, t_list, regions)
-
                 if self.detect_regions:
                     page_layout.regions += regions
 
@@ -214,13 +215,25 @@ class LayoutExtractor(object):
                         break
 
         if self.adjust_heights:
-            heights_map, ds = self.engine.get_maps(img)
+            maps, ds = self.engine.get_maps(img)
             for line in page_layout.lines_iterator():
                 sample_points = helpers.resample_baselines(
                     [line.baseline], num_points=40)[0]
-                line.heights = self.engine.get_heights(heights_map, ds, sample_points)
+                line.heights = self.engine.get_heights(maps, ds, sample_points)
                 line.polygon = helpers.baseline_to_textline(
                     line.baseline, line.heights)
+
+        if self.detect_straight_lines_in_regions:
+            maps, ds = self.engine.get_maps(img)
+            p_list = [region.polygon for region in page_layout.regions]
+            b_list, h_list, t_list = [], [], []
+            for p in p_list:
+                pb_list, ph_list, pt_list = detect_lines_in_region(p, maps, ds)
+                b_list += pb_list
+                h_list += ph_list
+                t_list += pt_list
+            page_layout.regions = helpers.assign_lines_to_regions(
+                b_list, h_list, t_list, page_layout.regions)
 
         return page_layout
 
@@ -233,7 +246,8 @@ class LineFilter(object):
         if self.filter_directions:
             self.engine = LineFilterEngine(
                 model_path=compose_path(config['MODEL_PATH'], config_path),
-                gpu_fraction=config.getfloat('GPU_FRACTION')
+                gpu_fraction=config.getfloat('GPU_FRACTION'),
+                use_cpu=config.getboolean('USE_CPU')
             )
 
     def process_page(self, img, page_layout: PageLayout):

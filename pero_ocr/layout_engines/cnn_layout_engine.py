@@ -13,6 +13,7 @@ import skimage.draw
 from sklearn.metrics import pairwise_distances
 import shapely.geometry as sg
 from shapely.ops import cascaded_union, polygonize
+import hdbscan
 
 from pero_ocr.layout_engines import layout_helpers as helpers
 from pero_ocr.layout_engines.parsenet import ParseNet, TiltNet
@@ -104,6 +105,7 @@ class LayoutEngine(object):
         """Uses parsenet to find lines and region separators, clusters vertically
         close lines by computing penalties and postprocesses the resulting
         regions.
+        :param image: input image
         :param rot: number of counter-clockwise 90degree rotations (0 <= n <= 3)
         """
         if rot > 0:
@@ -111,74 +113,16 @@ class LayoutEngine(object):
 
         maps, ds = self.get_maps(image, update_downsample=(rot==0))  # update downsample factor if rot is 0, else assume that the same page was already parsed once to save time during downsample estimation
 
-        b_list, h_list, layout_separator_map = self.parse(
-            maps, ds)
+        b_list, h_list, t_list = self.parse(maps, ds)
 
         if not b_list:
             return [], [], [], []
-        t_list = [
-            helpers.baseline_to_textline(b, h) for b, h in zip(b_list, h_list)]
 
-        # cluster the lines into regions
-        clusters_array = self.cluster_lines(t_list, layout_separator_map, ds)
+        clusters_array = self.make_clusters(t_list, maps[:, :, 4], ds)
+        p_list = self.clustered_lines_to_polygons(t_list, clusters_array)
 
-        regions_textlines_tmp = []
-        polygons_tmp = []
-        for i in range(np.amax(clusters_array)+1):
-            region_baselines = []
-            region_heights = []
-            region_textlines = []
-            for baseline, heights, textline, cluster in zip(b_list, h_list, t_list, clusters_array):
-                if cluster == i:
-                    region_baselines.append(baseline)
-                    region_heights.append(heights)
-                    region_textlines.append(textline)
-
-            region_poly = helpers.region_from_textlines(region_textlines)
-            regions_textlines_tmp.append(region_textlines)
-            polygons_tmp.append(region_poly)
-
-        # remove overlaps while minimizing textline modifications
-        polygons_tmp = self.filter_polygons(
-            polygons_tmp, regions_textlines_tmp)
-        # up to this point, polygons can be any geometry that comes from alpha_shape
-        p_list = []
-        for region_poly in polygons_tmp:
-            if region_poly.geom_type == 'MultiPolygon':
-                for poly in region_poly:
-                    p_list.append(poly.simplify(5))
-            if region_poly.geom_type == 'Polygon':
-                p_list.append(region_poly.simplify(5))
-
-        b_list, h_list, t_list = helpers.order_lines_vertical(
-            b_list, h_list, t_list)
-        p_list = [np.array(poly.exterior.coords) for poly in p_list]
-
-        if rot == 1:
-            b_list = [np.flip(b, axis=1) for b in b_list]
-            t_list = [np.flip(t, axis=1) for t in t_list]
-            p_list = [np.flip(p, axis=1) for p in p_list]
-            for b in b_list:
-                b[:, 0] = image.shape[0] - b[:, 0]
-            for t in t_list:
-                t[:, 0] = image.shape[0] - t[:, 0]
-            for p in p_list:
-                p[:, 0] = image.shape[0] - p[:, 0]
-        elif rot == 2:
-            shape_array = np.asarray(image.shape[:2][::-1])
-            b_list = [shape_array - b for b in b_list]
-            t_list = [shape_array - t for t in t_list]
-            p_list = [shape_array - p for p in p_list]
-        elif rot == 3:
-            b_list = [np.flip(b, axis=1) for b in b_list]
-            t_list = [np.flip(t, axis=1) for t in t_list]
-            p_list = [np.flip(p, axis=1) for p in p_list]
-            for b in b_list:
-                b[:, 1] = image.shape[1] - b[:, 1]
-            for t in t_list:
-                t[:, 1] = image.shape[1] - t[:, 1]
-            for p in p_list:
-                p[:, 1] = image.shape[1] - p[:, 1]
+        b_list, h_list, t_list = helpers.order_lines_vertical(b_list, h_list, t_list)
+        p_list, b_list, t_list = self.rotate_layout(p_list, b_list, t_list, rot, image.shape)
 
         return p_list, b_list, h_list, t_list
 
@@ -188,9 +132,10 @@ class LayoutEngine(object):
         :param out_map: array of baseline and endpoint probabilities with
         channels: ascender height, descender height, baselines, baseline
         endpoints, region boundaries
+        :param downsample: downsample factor to apply to layout coords
         """
-        baselines_list = []
-        heights_list = []
+        b_list = []
+        h_list = []
         structure = np.asarray(
             [
                 [1, 1, 1],
@@ -216,9 +161,6 @@ class LayoutEngine(object):
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
 
-        # plt.imshow(baselines_img)
-        # plt.show()
-
         for i in range(1, num_detections+1):
             bl_inds, = np.where(labels == i)
             if len(bl_inds) > 5:
@@ -243,15 +185,49 @@ class LayoutEngine(object):
 
                 heights_pred = np.maximum(heights_pred, 0)
                 heights_pred = np.asarray([
-                    np.percentile(heights_pred[:, 0], 70),
-                    np.percentile(heights_pred[:, 1], 70)
+                    np.percentile(heights_pred[:, 0], 50),
+                    np.percentile(heights_pred[:, 1], 50)
                 ])
 
-                baselines_list.append(downsample * pos.astype(np.float))
-                heights_list.append([downsample * heights_pred[0],
-                                     downsample * heights_pred[1]])
+                b_list.append(downsample * pos.astype(np.float))
+                h_list.append([downsample * heights_pred[0], downsample * heights_pred[1]])
 
-        return baselines_list, heights_list, out_map[:, :, 4]
+        # sort lines from LEFT to RIGHT
+        x_inds = [np.amin(baseline[:, 0]) + 0.0001 * np.random.rand() for baseline in b_list]
+        b_list = [b for _, b in sorted(zip(x_inds, b_list))]
+        h_list = [h for _, h in sorted(zip(x_inds, h_list))]
+
+        t_list = [helpers.baseline_to_textline(b, h) for b, h in zip(b_list, h_list)]
+
+        return b_list, h_list, t_list
+
+    def rotate_layout(self, p_list, b_list, t_list, rot, shape):
+        if rot == 1:
+            b_list = [np.flip(b, axis=1) for b in b_list]
+            t_list = [np.flip(t, axis=1) for t in t_list]
+            p_list = [np.flip(p, axis=1) for p in p_list]
+            for b in b_list:
+                b[:, 0] = shape[0] - b[:, 0]
+            for t in t_list:
+                t[:, 0] = shape[0] - t[:, 0]
+            for p in p_list:
+                p[:, 0] = shape[0] - p[:, 0]
+        elif rot == 2:
+            shape_array = np.asarray(shape[:2][::-1])
+            b_list = [shape_array - b for b in b_list]
+            t_list = [shape_array - t for t in t_list]
+            p_list = [shape_array - p for p in p_list]
+        elif rot == 3:
+            b_list = [np.flip(b, axis=1) for b in b_list]
+            t_list = [np.flip(t, axis=1) for t in t_list]
+            p_list = [np.flip(p, axis=1) for p in p_list]
+            for b in b_list:
+                b[:, 1] = shape[1] - b[:, 1]
+            for t in t_list:
+                t[:, 1] = shape[1] - t[:, 1]
+            for p in p_list:
+                p[:, 1] = shape[1] - p[:, 1]
+        return p_list, b_list, t_list
 
     def filter_polygons(self, polygons, region_textlines):
         polygons = [helpers.check_polygon(polygon) for polygon in polygons]
@@ -284,13 +260,14 @@ class LayoutEngine(object):
                         polygons[j] = polygons[j].union(poly_intersection)
         return [polygon for i, polygon in enumerate(polygons) if i not in inds_to_remove]
 
+
     def get_penalty(self, textline1, textline2, map):
-        x_overlap = max(0, min(np.amax(textline1[:,0]), np.amax(textline2[:,0])) - max(np.amin(textline1[:,0]), np.amin(textline2[:,0])))
-        smaller_len = min(np.amax(textline1[:,0])-np.amin(textline1[:,0]), np.amax(textline2[:,0])-np.amin(textline2[:,0]))
-        if x_overlap > smaller_len / 4:
-            x_1 = int(max(np.amin(textline1[:,0]), np.amin(textline2[:,0])))
-            x_2 = int(min(np.amax(textline1[:,0]), np.amax(textline2[:,0])))
-            if np.average(textline1[:,1]) > np.average(textline2[:,1]):
+        x_overlap = max(0, min(np.amax(textline1[:, 0]), np.amax(textline2[:, 0])) - max(np.amin(textline1[:, 0]), np.amin(textline2[:, 0])))
+        y_overlap = max(0, min(np.amax(textline1[:, 1]), np.amax(textline2[:, 1])) - max(np.amin(textline1[:, 1]), np.amin(textline2[:, 1])))
+        if x_overlap > y_overlap and x_overlap > 5:
+            x_1 = int(max(np.amin(textline1[:, 0]), np.amin(textline2[:, 0])))
+            x_2 = int(min(np.amax(textline1[:, 0]), np.amax(textline2[:, 0])))
+            if np.average(textline1[:, 1]) > np.average(textline2[:, 1]):
                 y_pos_1 = np.average(textline1[:textline1.shape[0]//2,1]).astype(np.int)
                 penalty_1 = np.sum(map[
                     np.clip(y_pos_1-3, 0, map.shape[0]):np.clip(y_pos_1+3, 0, map.shape[0]),
@@ -298,21 +275,21 @@ class LayoutEngine(object):
                     ])
                 penalty_1 /= x_overlap
 
-                y_pos_2 = np.average(textline2[textline1.shape[0]//2:,1]).astype(np.int)
+                y_pos_2 = np.average(textline2[textline1.shape[0]//2:, 1]).astype(np.int)
                 penalty_2 = np.sum(map[
                     np.clip(y_pos_2-3, 0, map.shape[0]):np.clip(y_pos_2+3, 0, map.shape[0]),
                     np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
                     ])
                 penalty_2 /= x_overlap
             else:
-                y_pos_1 = np.average(textline1[textline1.shape[0]//2:,1]).astype(np.int)
+                y_pos_1 = np.average(textline1[textline1.shape[0]//2:, 1]).astype(np.int)
                 penalty_1 = np.sum(map[
                     np.clip(y_pos_1-3, 0, map.shape[0]):np.clip(y_pos_1+3, 0, map.shape[0]),
                     np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
                     ])
                 penalty_1 /= x_overlap
 
-                y_pos_2 = np.average(textline2[:textline1.shape[0]//2,1]).astype(np.int)
+                y_pos_2 = np.average(textline2[:textline1.shape[0]//2, 1]).astype(np.int)
                 penalty_2 = np.sum(map[
                     np.clip(y_pos_2-3, 0, map.shape[0]):np.clip(y_pos_2+3, 0, map.shape[0]),
                     np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
@@ -320,10 +297,36 @@ class LayoutEngine(object):
                 penalty_2 /= x_overlap
             penalty = np.abs(max(penalty_1, penalty_2))
         else:
-            penalty = 999
+            penalty = 1
         return penalty
 
-    def cluster_lines(self, textlines, layout_separator_map, downsample, threshold=0.3):
+    def clustered_lines_to_polygons(self, t_list, clusters_array):
+        regions_textlines_tmp = []
+        polygons_tmp = []
+        for i in range(np.amax(clusters_array) + 1):
+            region_textlines = []
+            for textline, cluster in zip(t_list, clusters_array):
+                if cluster == i:
+                    region_textlines.append(textline)
+
+            region_poly = helpers.region_from_textlines(region_textlines)
+            regions_textlines_tmp.append(region_textlines)
+            polygons_tmp.append(region_poly)
+
+        # remove overlaps while minimizing textline modifications
+        polygons_tmp = self.filter_polygons(
+            polygons_tmp, regions_textlines_tmp)
+        # up to this point, polygons can be any geometry that comes from alpha_shape
+        p_list = []
+        for region_poly in polygons_tmp:
+            if region_poly.geom_type == 'MultiPolygon':
+                for poly in region_poly:
+                    p_list.append(poly.simplify(5))
+            if region_poly.geom_type == 'Polygon':
+                p_list.append(region_poly.simplify(5))
+        return [np.array(poly.exterior.coords) for poly in p_list]
+
+    def make_clusters(self, textlines, layout_separator_map, downsample, lower_threshold=0.3, upper_threshold=1.8):
         if len(textlines) > 1:
 
             min_pos = np.zeros([len(textlines), 2], dtype=np.float32)
@@ -333,7 +336,7 @@ class LayoutEngine(object):
             for textline, min_, max_ in zip(textlines, min_pos, max_pos):
                 textline_poly = sg.Polygon(textline)
                 tot_height = np.abs(textline[0, 1] - textline[-1, 1])
-                textlines_dilated.append(textline_poly.buffer(tot_height))
+                textlines_dilated.append(textline_poly.buffer(3*tot_height/4))
                 min_[:] = textline.min(axis=0) - tot_height
                 max_[:] = textline.max(axis=0) + tot_height
 
@@ -356,8 +359,9 @@ class LayoutEngine(object):
                     distances[i, j] = penalty
                     distances[j, i] = penalty
 
-            adjacency = distances < threshold
-            graph = csr_matrix(adjacency)
+            adjacency = (distances < lower_threshold).astype(np.int) - (distances > upper_threshold).astype(np.int)
+            adjacency = adjacency * (1 - np.eye(adjacency.shape[0]))  # put zeros on diagonal
+            graph = csr_matrix(adjacency>0)
             _, clusters_array = connected_components(
                 csgraph=graph, directed=False, return_labels=True)
 
@@ -365,7 +369,6 @@ class LayoutEngine(object):
 
         else:
             return [0]
-
 
 def nonmaxima_suppression(input, element_size=(7, 1)):
     """Vertical non-maxima suppression.
