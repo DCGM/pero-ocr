@@ -65,10 +65,11 @@ class LineFilterEngine(object):
 
 class LayoutEngine(object):
     def __init__(self, model_path, downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
-                 max_mp=5, gpu_fraction=None, detection_threshold=0.2):
+                 max_mp=5, gpu_fraction=None, detection_threshold=0.2, adaptive_downsample=True):
         self.parsenet = ParseNet(
             model_path,
             downsample=downsample,
+            adaptive_downsample=adaptive_downsample,
             use_cpu=use_cpu,
             pad=pad,
             max_mp=max_mp,
@@ -77,12 +78,10 @@ class LayoutEngine(object):
             prefix=model_prefix
         )
         self.line_detection_threshold = detection_threshold
+        self.adaptive_downsample = adaptive_downsample
 
-    def get_maps(self, image, update_downsample=True):
-        if update_downsample:
-            return self.parsenet.get_maps_with_optimal_resolution(image), self.parsenet.tmp_downsample
-        else:
-            return self.parsenet.get_maps(image, self.parsenet.tmp_downsample), self.parsenet.tmp_downsample
+    def get_maps(self, image):
+            return self.parsenet.get_maps_with_optimal_resolution(image)
 
     def get_heights(self, heights_map, ds, inds):
 
@@ -111,7 +110,7 @@ class LayoutEngine(object):
         if rot > 0:
             image = np.rot90(image, k=rot)
 
-        maps, ds = self.get_maps(image, update_downsample=(rot==0))  # update downsample factor if rot is 0, else assume that the same page was already parsed once to save time during downsample estimation
+        maps, ds = self.get_maps(image)
 
         b_list, h_list, t_list = self.parse(maps, ds)
 

@@ -108,12 +108,12 @@ def find_peaks(array, min_distance=1, min_height=0.05):
     :param min_height: Minimum height of peaks to avoid noise
     :return: 1D array of integer peak positions, 1D array of float peak positions
     """
-    array = np.concatenate((array, [0]), axis=0)
+    # array = np.concatenate((array, [0]), axis=0)
     peaks, _ = signal.find_peaks(array, distance=min_distance, height=min_height)
 
     peaks_float = peaks.copy().astype(np.float)
     for i, x in enumerate(peaks):
-        xs = np.array(range(x - 2, x + 3))
+        xs = np.clip(np.array(range(x - 2, x + 3)), 0, array.shape[0]-1)
         ys = array[xs]
         p = np.polyfit(xs, ys, 2)
         peaks_float[i] = -p[1] / (2 * p[0])

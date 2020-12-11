@@ -159,6 +159,7 @@ class LayoutExtractor(object):
         self.engine = LayoutEngine(
             model_path=compose_path(config['MODEL_PATH'], config_path),
             downsample=config.getint('DOWNSAMPLE'),
+            adaptive_downsample=config.getboolean('ADAPTIVE_DOWNSAMPLE', fallback=True),
             pad=config.getint('PAD'),
             use_cpu=config.getboolean('USE_CPU'),
             detection_threshold=config.getfloat('DETECTION_THRESHOLD'),
@@ -225,15 +226,9 @@ class LayoutExtractor(object):
 
         if self.detect_straight_lines_in_regions:
             maps, ds = self.engine.get_maps(img)
-            p_list = [region.polygon for region in page_layout.regions]
-            b_list, h_list, t_list = [], [], []
-            for p in p_list:
-                pb_list, ph_list, pt_list = detect_lines_in_region(p, maps, ds)
-                b_list += pb_list
-                h_list += ph_list
-                t_list += pt_list
-            page_layout.regions = helpers.assign_lines_to_regions(
-                b_list, h_list, t_list, page_layout.regions)
+            for region in page_layout.regions:
+                pb_list, ph_list, pt_list = detect_lines_in_region(region.polygon, maps, ds)
+                region = helpers.assign_lines_to_regions(pb_list, ph_list, pt_list, [region])[0]
 
         return page_layout
 
@@ -242,6 +237,8 @@ class LineFilter(object):
     def __init__(self, config, config_path):
         self.filter_directions = config.getboolean('FILTER_DIRECTIONS')
         self.filter_incomplete_pages = config.getboolean('FILTER_INCOMPLETE_PAGES')
+        self.filter_pages_with_short_lines = config.getboolean('FILTER_PAGES_WITH_SHORT_LINES')
+        self.length_threshold = config.getint('LENGTH_THRESHOLD')
 
         if self.filter_directions:
             self.engine = LineFilterEngine(
@@ -259,6 +256,11 @@ class LineFilter(object):
         if self.filter_incomplete_pages:
             for region in page_layout.regions:
                 region.lines = [line for line in region.lines if helpers.check_line_position(line.baseline, page_layout.page_size)]
+
+        if self.filter_pages_with_short_lines:
+            b_list = [line.baseline for line in page_layout.lines_iterator()]
+            if helpers.get_max_line_length(b_list) < self.length_threshold:
+                page_layout.regions = []
 
         page_layout.regions = [region for region in page_layout.regions if region.lines]
 

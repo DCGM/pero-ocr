@@ -26,6 +26,14 @@ def check_line_position(baseline, page_size, margin=20, min_ratio=0.125):
         return True
 
 
+def get_max_line_length(baseline_list):
+    if not baseline_list:
+        return 0
+    x0s = np.array([b[0, 0] for b in baseline_list])
+    x1s = np.array([b[-1, 0] for b in baseline_list])
+    return np.abs(x1s - x0s).max()
+
+
 def assign_lines_to_regions(baseline_list, heights_list, textline_list, regions):
 
     min_line = np.zeros([len(textline_list), 2], dtype=np.float32)
@@ -314,6 +322,9 @@ def mask_textline_by_region(baseline, textline, region):
     if isinstance(textline_is, sg.MultiPolygon): # this can happen generally with some combinations of layout and line detection
         areas = np.array([poly.area for poly in textline_is])
         textline_is = textline_is[np.argmax(areas)]
+    if isinstance(baseline_is, sg.MultiLineString):  # this can happen generally with some combinations of layout and line detection
+        lengths = np.array([line.length for line in baseline_is])
+        baseline_is = baseline_is[np.argmax(lengths)]
 
     if isinstance(baseline_is, sg.LineString) and isinstance(textline_is, sg.Polygon) and baseline_is.length>2:
         return np.asarray(baseline_is.coords), np.asarray(textline_is.exterior.coords)

@@ -21,7 +21,6 @@ class Net(object):
                 tf.import_graph_def(graph_def, name=prefix)
                 self.graph = graph
             print(f"{model_path} loaded")
-
             if use_cpu:
                 tf_config = tf.ConfigProto(device_count={'GPU': 0})
             else:
@@ -73,25 +72,28 @@ class Net(object):
 class ParseNet(Net):
 
     def __init__(self, model_path, downsample=4, use_cpu=False, prefix='parsenet',
-                 pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2):
+                 pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2, adaptive_downsample=True):
 
         super().__init__(
             model_path, downsample=downsample, use_cpu=use_cpu, prefix=prefix,
             pad=pad, max_mp=max_mp, gpu_fraction=gpu_fraction)
 
         self.detection_threshold = detection_threshold
-        self.tmp_downsample = None
+        self.adaptive_downsample = adaptive_downsample
 
     def get_maps_with_optimal_resolution(self, img):
         '''
         Memory-safe Parsenet CNN inference with optimal downsampling
         '''
         # check that big images are rescaled before first CNN run
+
         downsample = self.downsample
         if (img.shape[0]/downsample) * (img.shape[1]/downsample) > self.max_megapixels * 10e5:
             downsample = np.sqrt((img.shape[0] * img.shape[1]) / (self.max_megapixels * 10e5))
         # first run with default downsample
         out_map = self.get_maps(img, downsample)
+        if not self.adaptive_downsample:
+            return out_map, downsample
         # adapt second CNN run so that text height is between 10 and 14 downscaled pixels
         med_height = self.get_med_height(out_map)
         if med_height > 14 or med_height < 10:
@@ -100,9 +102,8 @@ class ParseNet(Net):
                     downsample * (med_height / 12)
                     )
             out_map = self.get_maps(img, downsample)
-        self.tmp_downsample = downsample
 
-        return out_map
+        return out_map, downsample
 
     def get_med_height(self, out_map):
         '''
