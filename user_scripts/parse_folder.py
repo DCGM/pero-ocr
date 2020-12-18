@@ -169,8 +169,9 @@ def main():
 
     if input_image_path is not None:
         print(f'Reading images from {input_image_path}.')
+        ignored_extensions = ['', '.xml', '.logits']
         images_to_process = [f for f in os.listdir(input_image_path) if
-                             os.path.splitext(f)[1].lower() in ['.jpg', '.jpeg', '.png', '.tif']]
+                             os.path.splitext(f)[1].lower() not in ignored_extensions]
         ids_to_process = [os.path.splitext(os.path.basename(file))[0] for file in images_to_process]
     elif input_xml_path is not None:
         print(f'Reading page xml from {input_xml_path}')
