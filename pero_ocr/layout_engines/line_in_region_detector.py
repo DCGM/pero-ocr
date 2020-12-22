@@ -65,10 +65,11 @@ def detect_lines_in_region(region, detection_maps, downsample, line_detection_th
     region_map = cv2.warpAffine(region_maps[:, :, :3], T[:2, :], output_size)
     polygon_mask = cv2.warpAffine(polygon_mask, T[:2, :], output_size)
 
+    region_map[:, :, 2][region_map[:, :, 2] < line_detection_threshold] = 0
     detection_projections = np.sum(region_map[:, :, 2], axis=1) / output_size[0]
 
     mean_height = np.average((region_map[:, :, 0] + region_map[:, :, 1])[polygon_mask > 0])
-    baselines_y, baselines_y_float = find_peaks(detection_projections, min_distance=0.7*mean_height)
+    baselines_y, baselines_y_float = find_peaks(detection_projections, min_distance=np.maximum(0.7*mean_height, 1))
 
     if baselines_y.shape[0] == 0:
         return [], [], []

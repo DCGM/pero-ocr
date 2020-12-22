@@ -15,6 +15,7 @@ from pero_ocr.layout_engines.line_postprocessing_engine import PostprocessingEng
 from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
+from pero_ocr.layout_engines.baseline_refiner import refine_baseline
 from pero_ocr.layout_engines import layout_helpers as helpers
 
 
@@ -156,6 +157,7 @@ class LayoutExtractor(object):
         self.merge_lines = config.getboolean('MERGE_LINES')
         self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
+        self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
         self.engine = LayoutEngine(
             model_path=compose_path(config['MODEL_PATH'], config_path),
             downsample=config.getint('DOWNSAMPLE'),
@@ -215,8 +217,16 @@ class LayoutExtractor(object):
                     if len(region.lines) == original_line_count:
                         break
 
-        if self.adjust_heights:
+        if self.detect_straight_lines_in_regions or self.adjust_heights or self.adjust_baselines:
             maps, ds = self.engine.get_maps(img)
+
+        if self.detect_straight_lines_in_regions:
+            for region in page_layout.regions:
+                pb_list, ph_list, pt_list = detect_lines_in_region(region.polygon, maps, ds)
+                region.lines = []
+                region = helpers.assign_lines_to_regions(pb_list, ph_list, pt_list, [region])[0]
+
+        if self.adjust_heights:
             for line in page_layout.lines_iterator():
                 sample_points = helpers.resample_baselines(
                     [line.baseline], num_points=40)[0]
@@ -224,12 +234,12 @@ class LayoutExtractor(object):
                 line.polygon = helpers.baseline_to_textline(
                     line.baseline, line.heights)
 
-        if self.detect_straight_lines_in_regions:
-            maps, ds = self.engine.get_maps(img)
-            for region in page_layout.regions:
-                pb_list, ph_list, pt_list = detect_lines_in_region(region.polygon, maps, ds)
-                region = helpers.assign_lines_to_regions(pb_list, ph_list, pt_list, [region])[0]
-
+        if self.adjust_baselines:
+            crop_engine = cropper.EngineLineCropper(
+                line_height=32, poly=0, scale=1)
+            for line in page_layout.lines_iterator():
+                line.baseline = refine_baseline(line.baseline, line.heights, maps, ds, crop_engine)
+                line.polygon = helpers.baseline_to_textline(line.baseline, line.heights)
         return page_layout
 
 

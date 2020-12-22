@@ -11,16 +11,21 @@ class PostprocessingEngine(object):
 
     def postprocess(self, region):
         if region.lines:
+            redo_textlines = False
             if self.stretch_lines == 'max' or self.stretch_lines > 0:
                 self.stretch_baselines(region)
+                redo_textlines = True
             if self.resample_lines:
                 self.resample_baselines(region)
+                redo_textlines = True
             if self.heights_from_regions:
                 self.get_heights_from_regions(region)
+                redo_textlines = True
 
-            for line in region.lines:
-                line.polygon = helpers.baseline_to_textline(
-                    line.baseline, line.heights)
+            if redo_textlines:
+                for line in region.lines:
+                    line.polygon = helpers.baseline_to_textline(
+                        line.baseline, line.heights)
 
         return region
 
