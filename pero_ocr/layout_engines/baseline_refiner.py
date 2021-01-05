@@ -39,7 +39,7 @@ def refine_baseline(baseline, heights, detection_maps, downsample, crop_engine, 
         line_x_indices = np.round(line_x_indices)
 
         line_values = line_crop[line_y_indices, line_x_indices]
-        line_x_indices = np.delete(line_x_indices, line_values < detection_threshold)
+        line_x_indices = np.delete(line_x_indices, np.where(line_values < detection_threshold))
 
         min_x = np.maximum(np.amin(line_x_indices)-10, 0)
         max_x = np.minimum(np.amax(line_x_indices)+10, line_crop.shape[1]-1)
