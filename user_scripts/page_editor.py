@@ -20,6 +20,7 @@ def parse_arguments():
     parser.add_argument('-i', '--image-dir', help='Path to input image folder', required=True)
     parser.add_argument('-p', '--page-dir', help='Path to input PAGE XML folder (optional)', required=False)
     parser.add_argument('-o', '--output-dir', help='Path to output PAGE XML folder (optional, overwrites input page files if left blank)', required=False)
+    parser.add_argument('-s', '--skipping', action='store_true', help='Skip files for which output PAGE XML exists')
     args = parser.parse_args()
     return args
 
@@ -229,7 +230,7 @@ class PageEditor(object):
             lines = []
             for l_num in self.selected_lines:
                 lines.append(self.lines[l_num].polygon)
-        	poly = linepp.region_from_textlines(lines)
+            poly = linepp.region_from_textlines(lines)
 
             new_region = layout.RegionLayout(
                 id = 'r{}'.format(len(self.page_layout.regions)+1),
@@ -387,8 +388,6 @@ class PageEditor(object):
 def main():
     args = parse_arguments()
 
-    SKIPPING = True # skip to the first page not containing editted anotations
-
     assert args.page_dir is not None or args.output_dir is not None, "Specify input page folder and/or output page folder"
     assert os.path.exists(args.image_dir), "Can't find input image folder"
     if args.page_dir is not None:
@@ -410,10 +409,11 @@ def main():
         cur_image = cv2.imread(os.path.join(args.image_dir, filename_list[editor.cursor]))
 
         if args.output_dir is not None and os.path.exists(os.path.join(args.output_dir, page_filename)):
-            if SKIPPING:
+            if args.skipping:
                 editor.cursor += 1
                 continue
-            cur_layout = layout.PageLayout(file=os.path.join(args.output_dir, page_filename))
+            else:
+                cur_layout = layout.PageLayout(file=os.path.join(args.output_dir, page_filename))
         elif args.page_dir is not None and os.path.exists(os.path.join(args.page_dir, page_filename)):
             cur_layout = layout.PageLayout(file=os.path.join(args.page_dir, page_filename))
         else:
@@ -423,11 +423,9 @@ def main():
 
         edited_layout = editor.annotate(cur_image, cur_layout)
         if args.output_dir is not None:
-            cur_layout.to_pagexml(os.path.join(args.output_dir, page_filename))
+            edited_layout.to_pagexml(os.path.join(args.output_dir, page_filename))
         else:
-            cur_layout.to_pagexml(os.path.join(args.page_dir, page_filename))
-
-        # SKIPPING = False
+            edited_layout.to_pagexml(os.path.join(args.page_dir, page_filename))
 
 if __name__=='__main__':
     main()
