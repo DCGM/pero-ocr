@@ -6,7 +6,8 @@ class Net(object):
     def __init__(self, model_path, downsample=4, use_cpu=False, prefix='prefix',
                  pad=52, max_mp=5, gpu_fraction=None):
 
-        import tensorflow as tf
+        import tensorflow.compat.v1 as tf
+        tf.disable_v2_behavior()
         self.downsample = downsample  # downsample before first CNN inference
         self.pad = pad
         self.max_megapixels = max_mp if max_mp is not None else 5
@@ -94,12 +95,12 @@ class ParseNet(Net):
         out_map = self.get_maps(img, downsample)
         if not self.adaptive_downsample:
             return out_map, downsample
-        # adapt second CNN run so that text height is between 10 and 14 downscaled pixels
+        # adapt second CNN run so that text height is between 20 and 28 downscaled pixels
         med_height = self.get_med_height(out_map)
-        if med_height > 14 or med_height < 10:
+        if med_height > 18 or med_height < 14:
             downsample = max(
                     np.sqrt((img.shape[0] * img.shape[1]) / (self.max_megapixels * 10e5)),
-                    downsample * (med_height / 12)
+                    downsample * (med_height / 16)
                     )
             out_map = self.get_maps(img, downsample)
 
