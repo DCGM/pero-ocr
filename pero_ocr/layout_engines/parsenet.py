@@ -97,10 +97,10 @@ class ParseNet(Net):
             return out_map, downsample
         # adapt second CNN run so that text height is between 20 and 28 downscaled pixels
         med_height = self.get_med_height(out_map)
-        if med_height > 18 or med_height < 14:
+        if med_height > 14 or med_height < 10:
             downsample = max(
                     np.sqrt((img.shape[0] * img.shape[1]) / (self.max_megapixels * 10e5)),
-                    downsample * (med_height / 16)
+                    downsample * (med_height / 12)
                     )
             out_map = self.get_maps(img, downsample)
 
