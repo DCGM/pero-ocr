@@ -25,6 +25,7 @@ def parse_arguments():
                         help='If set, already processed files are skipped.')
     parser.add_argument('-i', '--input-image-path', help='')
     parser.add_argument('-x', '--input-xml-path', help='')
+    parser.add_argument('--input-logit-path', help='')
     parser.add_argument('--output-xml-path', help='')
     parser.add_argument('--output-render-path', help='')
     parser.add_argument('--output-line-path', help='')
@@ -124,6 +125,8 @@ def main():
         config['PARSE_FOLDER']['INPUT_IMAGE_PATH'] = args.input_image_path
     if args.input_xml_path is not None:
         config['PARSE_FOLDER']['INPUT_XML_PATH'] = args.input_xml_path
+    if args.input_logit_path is not None:
+        config['PARSE_FOLDER']['INPUT_LOGIT_PATH'] = args.input_xml_path
     if args.output_xml_path is not None:
         config['PARSE_FOLDER']['OUTPUT_XML_PATH'] = args.output_xml_path
     if args.output_render_path is not None:
@@ -216,7 +219,8 @@ def main():
             page_layout = page_parser.process_page(image, page_layout)
 
             if output_xml_path is not None:
-                page_layout.to_pagexml(os.path.join(output_xml_path, file_id + '.xml'))
+                page_layout.to_pagexml(
+                    os.path.join(output_xml_path, file_id + '.xml'))
 
             if output_render_path is not None:
                 page_layout.render_to_image(image)
