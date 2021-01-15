@@ -31,6 +31,7 @@ class TextLine(object):
         self.crop = crop
         self.characters = characters
         self.logit_coords = logit_coords
+        self.transcription_confidence = None
 
     def get_dense_logits(self, zero_logit_value=-80):
         dense_logits = self.logits.toarray()
@@ -203,6 +204,9 @@ class PageLayout(object):
                 text_line.set("id", line.id)
                 if line.heights is not None:
                     text_line.set("custom", f"heights_v2:[{line.heights[0]:.1f},{line.heights[1]:.1f}]")
+                if line.transcription_confidence is not None:
+                    text_line.set("conf", f"{line.transcription_confidence:.3f}")
+
                 coords = ET.SubElement(text_line, "Coords")
 
                 if line.polygon is not None:
