@@ -13,7 +13,6 @@ import skimage.draw
 from sklearn.metrics import pairwise_distances
 import shapely.geometry as sg
 from shapely.ops import cascaded_union, polygonize
-import hdbscan
 
 from pero_ocr.layout_engines import layout_helpers as helpers
 from pero_ocr.layout_engines.parsenet import ParseNet, TiltNet
@@ -318,9 +317,12 @@ class LayoutEngine(object):
         # up to this point, polygons can be any geometry that comes from alpha_shape
         p_list = []
         for region_poly in polygons_tmp:
+            if region_poly.is_empty:
+                continue
             if region_poly.geom_type == 'MultiPolygon':
                 for poly in region_poly:
-                    p_list.append(poly.simplify(5))
+                    if not poly.is_empty:
+                        p_list.append(poly.simplify(5))
             if region_poly.geom_type == 'Polygon':
                 p_list.append(region_poly.simplify(5))
         return [np.array(poly.exterior.coords) for poly in p_list]
