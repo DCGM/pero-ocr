@@ -1,11 +1,10 @@
 import numpy as np
+import math
 import cv2
 from scipy import interpolate, ndimage
 # from numba import jit
 from pero_ocr.utils import jit
 
-# DEBUG:
-import time
 
 class EngineLineCropper(object):
     def __init__(self, correct_slant=False, line_height=32, poly=0, scale=1, blend_border=4):
@@ -56,6 +55,9 @@ class EngineLineCropper(object):
     def get_crop_inputs(self, baseline, line_heights, target_height):
         line_heights = [line_heights[0] * self.scale, line_heights[1] * self.scale]
         coords = np.asarray(baseline).copy().astype(int)
+        alfa = math.atan2(coords[-1, 1] - coords[0, 1], coords[-1, 0] - coords[0, 0])
+        R = np.array([[np.cos(alfa), np.sin(alfa)], [-np.sin(alfa), np.cos(alfa)]])
+        coords = np.dot(coords, np.linalg.inv(R))
         if self.poly:
             if coords.shape[0] > 2:
                 line_interpf = np.poly1d(np.polyfit(coords[:,0], coords[:,1], self.poly))
@@ -92,7 +94,8 @@ class EngineLineCropper(object):
         vertical_map_x = norm_x.reshape(1, -1) * vertical_map + output_x_positions.reshape(1, -1) # get the rest of source x positions for target pixels computed from normals
         vertical_map_y = norm_y.reshape(1, -1) * vertical_map + output_y_positions.reshape(1, -1) # get the rest of source y positions for target pixels computed from normals
 
-        coords = np.stack((vertical_map_x, vertical_map_y), axis=2).astype(np.float32)
+        coords = np.stack((vertical_map_x, vertical_map_y), axis=2)
+        coords = np.dot(coords, R).astype(np.float32)
         return coords
 
     @jit

@@ -35,7 +35,6 @@ def get_max_line_length(baseline_list):
 
 
 def assign_lines_to_regions(baseline_list, heights_list, textline_list, regions):
-
     min_line = np.zeros([len(textline_list), 2], dtype=np.float32)
     max_line = np.zeros([len(textline_list), 2], dtype=np.float32)
     for textline, min_, max_ in zip(baseline_list, min_line, max_line):
@@ -57,7 +56,6 @@ def assign_lines_to_regions(baseline_list, heights_list, textline_list, regions)
                 min_line[:, np.newaxis, 0] >= max_region[np.newaxis, :, 0]),
     )
     candidates = np.logical_not(candidates)
-
     for line_id, region_id in zip(*candidates.nonzero()):
         baseline = baseline_list[line_id]
         heights = heights_list[line_id]
@@ -251,6 +249,12 @@ def merge_lines(baselines, heights):
     heights = filter_list(heights, merged_lines)
 
     baselines = [np.asarray(baseline) for baseline in baselines]
+
+    baselines_order = [baseline[0][1] + random.uniform(0.001, 0.999) for baseline in
+                       baselines]  # adding random number to order to prevent swapping when two lines are on same y-coord
+    baselines = [baseline for _, baseline in sorted(zip(baselines_order, baselines))]
+    heights = [height for _, height in sorted(zip(baselines_order, heights))]
+
     baselines = [rotate_coords(baseline, -rotation, (0, 0)) for baseline in baselines]
 
     return baselines, heights
