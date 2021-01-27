@@ -28,7 +28,7 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
         super(PytorchEngineLineOCR, self).__init__(json_def, gpu_id=0, batch_size=8)
 
         self.net_subsampling = 4
-        self.characters = list(self.characters) + ['|']
+        self.characters = list(self.characters) + [u'\u200B']
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         net = PYTORCH_NETS[self.net_name]
         self.model = net[0](num_classes=len(self.characters), in_height=self.line_px_height, **net[1])
