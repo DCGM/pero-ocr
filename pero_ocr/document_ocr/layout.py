@@ -236,6 +236,7 @@ class PageLayout(object):
             out_f.write(xml_string)
 
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None):
+        arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
@@ -293,6 +294,9 @@ class PageLayout(object):
             for l, line in enumerate(block.lines):
                 if not line.transcription:
                     continue
+                arabic_line = False
+                if helper.is_arabic_line(line.transcription):
+                    arabic_line = True
                 text_line = ET.SubElement(text_block, "TextLine")
                 text_line_baseline = int(np.average(np.array(line.baseline)[:, 1]))
                 text_line.set("BASELINE", str(text_line_baseline))
@@ -358,21 +362,24 @@ class PageLayout(object):
                             else:
                                 break
 
-                        confidence = -1
-                        confidences = get_line_confidence(line, np.array(label))
+                        confidences = get_line_confidence(line, np.array(label), aligned_letters)
                         if confidences.size != 0:
-                            confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
+                            self.transcription_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
 
                         string = ET.SubElement(text_line, "String")
-                        string.set("CONTENT", splitted_transcription[w])
+
+                        if arabic_line:
+                            string.set("CONTENT", arabic_helper.label_form_to_string(splitted_transcription[w]))
+                        else:
+                            string.set("CONTENT", splitted_transcription[w])
 
                         string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
                         string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                         string.set("VPOS", str(int(np.min(all_y))))
                         string.set("HPOS", str(int(np.min(all_x))))
 
-                        if confidence != -1:
-                            string.set("WC", str(round(confidence, 2)))
+                        if self.transcription_confidence is not None:
+                            string.set("WC", str(round(self.transcription_confidence, 2)))
 
                         if w != (len(line.transcription.split())-1):
                             space = ET.SubElement(text_line, "SP")
