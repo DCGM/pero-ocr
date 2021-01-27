@@ -12,6 +12,7 @@ import shapely
 
 from pero_ocr.document_ocr.crop_engine import EngineLineCropper
 from pero_ocr.force_alignment import align_text
+from pero_ocr.confidence_estimation import get_line_confidence
 
 
 def log_softmax(x):
@@ -343,9 +344,9 @@ class PageLayout(object):
                     for i in range(len(space_idxs[1:])):
                         if space_idxs[i] != space_idxs[i+1]-1:
                             words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
-
                     splitted_transcription = line.transcription.split()
                     lm_const = line_coords.shape[1] / logits.shape[0]
+                    letter_counter = 0
                     for w, word in enumerate(words):
                         extension = 2
                         while True:
@@ -357,6 +358,11 @@ class PageLayout(object):
                             else:
                                 break
 
+                        confidence = -1
+                        confidences = get_line_confidence(line, np.array(label))
+                        if confidences.size != 0:
+                            confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
+
                         string = ET.SubElement(text_line, "String")
                         string.set("CONTENT", splitted_transcription[w])
 
@@ -364,12 +370,17 @@ class PageLayout(object):
                         string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                         string.set("VPOS", str(int(np.min(all_y))))
                         string.set("HPOS", str(int(np.min(all_x))))
+
+                        if confidence != -1:
+                            string.set("WC", str(round(confidence, 2)))
+
                         if w != (len(line.transcription.split())-1):
                             space = ET.SubElement(text_line, "SP")
 
                             space.set("WIDTH", str(4))
                             space.set("VPOS", str(int(np.min(all_y))))
                             space.set("HPOS", str(int(np.max(all_x))))
+                        letter_counter += len(splitted_transcription[w])+1
 
         top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
         top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
