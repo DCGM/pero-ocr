@@ -13,6 +13,7 @@ import shapely
 from pero_ocr.document_ocr.crop_engine import EngineLineCropper
 from pero_ocr.force_alignment import align_text
 from pero_ocr.confidence_estimation import get_line_confidence
+from pero_ocr.document_ocr.arabic_helper import ArabicHelper
 
 
 def log_softmax(x):
@@ -295,7 +296,7 @@ class PageLayout(object):
                 if not line.transcription:
                     continue
                 arabic_line = False
-                if helper.is_arabic_line(line.transcription):
+                if arabic_helper.is_arabic_line(line.transcription):
                     arabic_line = True
                 text_line = ET.SubElement(text_block, "TextLine")
                 text_line_baseline = int(np.average(np.array(line.baseline)[:, 1]))
@@ -362,7 +363,7 @@ class PageLayout(object):
                             else:
                                 break
 
-                        confidences = get_line_confidence(line, np.array(label), aligned_letters)
+                        confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
                         if confidences.size != 0:
                             self.transcription_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
 
