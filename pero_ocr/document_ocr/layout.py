@@ -365,7 +365,7 @@ class PageLayout(object):
 
                         confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
                         if confidences.size != 0:
-                            self.transcription_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
+                            line.transcription_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
 
                         string = ET.SubElement(text_line, "String")
 
@@ -379,8 +379,8 @@ class PageLayout(object):
                         string.set("VPOS", str(int(np.min(all_y))))
                         string.set("HPOS", str(int(np.min(all_x))))
 
-                        if self.transcription_confidence is not None:
-                            string.set("WC", str(round(self.transcription_confidence, 2)))
+                        if line.transcription_confidence is not None:
+                            string.set("WC", str(round(line.transcription_confidence, 2)))
 
                         if w != (len(line.transcription.split())-1):
                             space = ET.SubElement(text_line, "SP")
