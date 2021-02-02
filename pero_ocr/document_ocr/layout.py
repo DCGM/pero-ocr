@@ -236,7 +236,7 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self, ocr_processing=None, page_uuid=None):
+    def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -352,6 +352,8 @@ class PageLayout(object):
                     splitted_transcription = line.transcription.split()
                     lm_const = line_coords.shape[1] / logits.shape[0]
                     letter_counter = 0
+                    confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
+                    line.transcription_confidence = np.quantile(confidences, .50)
                     for w, word in enumerate(words):
                         extension = 2
                         while True:
@@ -363,9 +365,9 @@ class PageLayout(object):
                             else:
                                 break
 
-                        confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
+                        word_confidence = None
                         if confidences.size != 0:
-                            line.transcription_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
+                            word_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
 
                         string = ET.SubElement(text_line, "String")
 
@@ -379,8 +381,8 @@ class PageLayout(object):
                         string.set("VPOS", str(int(np.min(all_y))))
                         string.set("HPOS", str(int(np.min(all_x))))
 
-                        if line.transcription_confidence is not None:
-                            string.set("WC", str(round(line.transcription_confidence, 2)))
+                        if word_confidence is not None:
+                            string.set("WC", str(round(word_confidence, 2)))
 
                         if w != (len(line.transcription.split())-1):
                             space = ET.SubElement(text_line, "SP")
@@ -389,7 +391,8 @@ class PageLayout(object):
                             space.set("VPOS", str(int(np.min(all_y))))
                             space.set("HPOS", str(int(np.max(all_x))))
                         letter_counter += len(splitted_transcription[w])+1
-
+                if line.transcription_confidence < min_line_confidence:
+                    text_block.remove(text_line)
         top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
         top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
         top_margin.set("VPOS", "0")
