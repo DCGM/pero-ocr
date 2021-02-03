@@ -79,8 +79,6 @@ class LayoutEngine(object):
         self.line_detection_threshold = detection_threshold
         self.adaptive_downsample = adaptive_downsample
 
-    def get_maps(self, image):
-            return self.parsenet.get_maps_with_optimal_resolution(image)
 
     def get_heights(self, heights_map, ds, inds):
 
@@ -109,7 +107,8 @@ class LayoutEngine(object):
         if rot > 0:
             image = np.rot90(image, k=rot)
 
-        maps, ds = self.get_maps(image)
+        maps, ds = self.parsenet.get_maps_with_optimal_resolution(image)
+
 
         b_list, h_list, t_list = self.parse(maps, ds)
 
