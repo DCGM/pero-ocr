@@ -62,12 +62,13 @@ class EngineLineCropper(object):
             if coords.shape[0] > 2:
                 line_interpf = np.poly1d(np.polyfit(coords[:,0], coords[:,1], self.poly))
             else:
-                line_interpf = interpolate.interp1d(coords[:,0], coords[:,1], kind='linear',)
+                line_interpf = np.poly1d(np.polyfit(coords[:,0], coords[:,1], 1))
         else:
             try:
+                coords[-1, 0] += 0.1 # shift the last point slightly right, prevents interpolation function from failing during computation of normals
                 line_interpf = interpolate.interp1d(coords[:,0], coords[:,1], kind='cubic',)
             except: # fall back to linear interpolation in case y_values fails (usually with very short baselines)
-                line_interpf = interpolate.interp1d(coords[:,0], coords[:,1], kind='linear',)
+                line_interpf = np.poly1d(np.polyfit(coords[:,0], coords[:,1], 1))
         left = coords[:, 0].min()
         right = coords[:, 0].max()
         line_x_values = np.arange(left, right)

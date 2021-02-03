@@ -70,11 +70,13 @@ def squeeze(sequence):
     return result
 
 
-def get_line_confidence(line, labels):
-    log_probs = line.get_full_logprobs()
+def get_line_confidence(line, labels, aligned_letters=None, log_probs=None):
+    if log_probs is None:
+        log_probs = line.get_full_logprobs()
 
-    alignment = align_text(-log_probs, labels, log_probs.shape[1] - 1)
-    alignment = np.concatenate([alignment, [1000]])
+    if aligned_letters is None:
+        aligned_letters = align_text(-log_probs, labels, log_probs.shape[1] - 1)
+    alignment = np.concatenate([aligned_letters, [1000]])
 
     probs = np.exp(log_probs)
     last_border = 0
