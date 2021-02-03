@@ -110,6 +110,7 @@ def main():
     skip_already_processed_files = args.skip_processed
 
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # suppress tensorflow warnings on loading models
+    os.environ['TF_CUDNN_USE_AUTOTUNE'] = '0'  # turn off tuning some TF parts based on input size
 
     if args.set_gpu:
         utils.setGPU()
