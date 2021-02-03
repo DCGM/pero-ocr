@@ -31,6 +31,7 @@ class BaseEngineLineOCR(object):
         self.batch_size = batch_size
 
         self.line_padding_px = 32
+        self.max_input_horizontal_pixels = 480 * batch_size
 
 
     def process_lines(self, lines, sparse_logits=True, tight_crop_logits=False):
@@ -55,20 +56,23 @@ class BaseEngineLineOCR(object):
         all_logit_coords = [None]*len(lines)
 
         #  process all lines ordered by their length
-        line_ids = [x for x, y in sorted(enumerate(lines), key=lambda x: x[1].shape[1])]
+        line_ids = [x for x, y in sorted(enumerate(lines), key=lambda x: -x[1].shape[1])]
         while line_ids:
-            batch_line_ids = line_ids[:self.batch_size]
-            line_ids = line_ids[self.batch_size:]
-            max_width = 0
-            for ids in batch_line_ids:
-                max_width = max(max_width, lines[ids].shape[1])
-
+            max_width = lines[line_ids[0]].shape[1]
             max_width = int(np.ceil(max_width / 32.0) * 32)
+            batch_size = max(1, self.max_input_horizontal_pixels // max_width)
+
+            batch_line_ids = line_ids[:batch_size]
+            line_ids = line_ids[batch_size:]
 
             batch_data = np.zeros(
-                [self.batch_size, self.line_px_height, max_width + 2*self.line_padding_px, 3], dtype=np.uint8)
+                [len(batch_line_ids), self.line_px_height, max_width + 2*self.line_padding_px, 3], dtype=np.uint8)
             for data, ids in zip(batch_data, batch_line_ids):
                 data[:, self.line_padding_px:self.line_padding_px+lines[ids].shape[1], :] = lines[ids]
+
+            if batch_data.shape[2] > self.max_input_horizontal_pixels:
+                print(f'WARNING: Line too long for OCR engine. Cropping from {batch_data.shape[2]} px down to {self.max_input_horizontal_pixels}.')
+                batch_data = batch_data[:, :, :self.max_input_horizontal_pixels]
 
             out_transcriptions, out_logits = self.run_ocr(batch_data)
 
