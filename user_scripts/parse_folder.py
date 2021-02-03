@@ -31,6 +31,7 @@ def parse_arguments():
     parser.add_argument('--output-line-path', help='')
     parser.add_argument('--output-logit-path', help='')
     parser.add_argument('--output-alto-path', help='')
+    parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
     parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
     args = parser.parse_args()
     return args
@@ -175,6 +176,7 @@ def main():
         ignored_extensions = ['', '.xml', '.logits']
         images_to_process = [f for f in os.listdir(input_image_path) if
                              os.path.splitext(f)[1].lower() not in ignored_extensions]
+        images_to_process = sorted(images_to_process)
         ids_to_process = [os.path.splitext(os.path.basename(file))[0] for file in images_to_process]
     elif input_xml_path is not None:
         print(f'Reading page xml from {input_xml_path}')
@@ -197,6 +199,19 @@ def main():
             images_to_process = [image for id, image in zip(ids_to_process, images_to_process) if id not in already_processed_files]
             ids_to_process = [id for id in ids_to_process if id not in already_processed_files]
 
+    if input_xml_path and args.skipp_missing_xml:
+        filtered_ids_to_process = []
+        filtered_images_to_process = []
+        for file_id, image_file_name in zip(ids_to_process, images_to_process):
+            file_path = os.path.join(input_xml_path, file_id + '.xml')
+            if os.path.exists(file_path):
+                filtered_ids_to_process.append(file_id)
+                filtered_images_to_process.append(image_file_name)
+        ids_to_process = filtered_ids_to_process
+        images_to_process = filtered_images_to_process
+
+
+    t_start = time.time()
     for index, (file_id, image_file_name) in enumerate(zip(ids_to_process, images_to_process)):
         print("Processing {file_id}".format(file_id=file_id))
         t1 = time.time()
@@ -254,6 +269,8 @@ def main():
         print("DONE {current}/{total} ({percentage:.2f} %) [id: {file_id}] Time:{time:.2f}".format(
             current=index+1, total=len(ids_to_process), percentage=(index+1)/len(ids_to_process) * 100,
             file_id=file_id, time=time.time() - t1))
+
+    print('AVERAGE PROCESSING TIME', (time.time() - t_start) / len(ids_to_process))
 
 
 if __name__ == "__main__":
