@@ -53,7 +53,7 @@ class Net(object):
         new_shape_y = int(np.ceil(img.shape[1] / 64) * 64)
         test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3), dtype=np.float32)
         test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
-        print("LAYOUT DOWNSAMPLE", downsample, 'INPUT_SHAPE', test_img_canvas.shape)
+        print("LAYOUT_CNN_DOWNSAMPLE", downsample, 'INPUT_SHAPE', test_img_canvas.shape)
 
         if self.prefix is not None:
             out_map = self.session.run(
@@ -101,9 +101,10 @@ class ParseNet(Net):
             np.sqrt((img.shape[0] * img.shape[1]) / (self.max_megapixels * 10e5)))
 
         # first run with default downsample
-        out_map = self.get_maps(img, first_downsample)
+        net_downsample = first_downsample
+        out_map = self.get_maps(img, net_downsample)
         if not self.adaptive_downsample:
-            return out_map, first_downsample
+            return out_map, net_downsample
 
         second_downsample = first_downsample
         if (out_map[:, :, 2] > self.detection_threshold).sum() > self.downsample_line_pixel_adapt_threshold:
@@ -119,11 +120,10 @@ class ParseNet(Net):
                     np.sqrt((img.shape[0] * img.shape[1]) / (self.max_megapixels * 10e5)))
 
                 if second_downsample / first_downsample < 0.8 or second_downsample / first_downsample > 1.2:
-                    second_downsample = max(second_downsample, np.sqrt((img.shape[0] * img.shape[1]) / (self.max_megapixels * 10e5)))
-                    out_map = self.get_maps(img, second_downsample)
-                    self.last_downsample = second_downsample
+                    net_downsample = second_downsample
+                    out_map = self.get_maps(img, net_downsample)
 
-        return out_map, second_downsample
+        return out_map, net_downsample
 
     def get_med_height(self, out_map):
         '''
