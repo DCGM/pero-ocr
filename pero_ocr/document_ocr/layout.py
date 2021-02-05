@@ -330,6 +330,7 @@ class PageLayout(object):
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except (ValueError, IndexError) as e:
                     print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
+                    line.transcription_confidence = 0
                     average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
                     for w, word in enumerate(line.transcription.split()):
                         string = ET.SubElement(text_line, "String")
@@ -391,8 +392,9 @@ class PageLayout(object):
                             space.set("VPOS", str(int(np.min(all_y))))
                             space.set("HPOS", str(int(np.max(all_x))))
                         letter_counter += len(splitted_transcription[w])+1
-                if line.transcription_confidence < min_line_confidence:
-                    text_block.remove(text_line)
+                if line.transcription_confidence is not None:
+                    if line.transcription_confidence < min_line_confidence:
+                        text_block.remove(text_line)
         top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
         top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
         top_margin.set("VPOS", "0")
