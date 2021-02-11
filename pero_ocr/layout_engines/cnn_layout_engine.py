@@ -115,7 +115,7 @@ class LayoutEngine(object):
         if not b_list:
             return [], [], [], []
 
-        clusters_array = self.make_clusters(t_list, maps[:, :, 4], ds)
+        clusters_array = self.make_clusters(b_list, h_list, t_list, maps[:, :, 4], ds)
         p_list = self.clustered_lines_to_polygons(t_list, clusters_array)
 
         b_list, h_list, t_list = helpers.order_lines_vertical(b_list, h_list, t_list)
@@ -258,44 +258,48 @@ class LayoutEngine(object):
         return [polygon for i, polygon in enumerate(polygons) if i not in inds_to_remove]
 
 
-    def get_penalty(self, textline1, textline2, map):
-        x_overlap = max(0, min(np.amax(textline1[:, 0]), np.amax(textline2[:, 0])) - max(np.amin(textline1[:, 0]), np.amin(textline2[:, 0])))
-        y_overlap = max(0, min(np.amax(textline1[:, 1]), np.amax(textline2[:, 1])) - max(np.amin(textline1[:, 1]), np.amin(textline2[:, 1])))
-        if x_overlap > y_overlap and x_overlap > 5:
-            x_1 = int(max(np.amin(textline1[:, 0]), np.amin(textline2[:, 0])))
-            x_2 = int(min(np.amax(textline1[:, 0]), np.amax(textline2[:, 0])))
-            if np.average(textline1[:, 1]) > np.average(textline2[:, 1]):
-                y_pos_1 = np.average(textline1[:textline1.shape[0]//2,1]).astype(np.int)
-                penalty_1 = np.sum(map[
-                    np.clip(y_pos_1-3, 0, map.shape[0]):np.clip(y_pos_1+3, 0, map.shape[0]),
-                    np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
-                    ])
-                penalty_1 /= x_overlap
+    def get_penalty(self, b, shift, x_1, x_2, map, t=1):
+        b_shifted = np.round(b).astype(np.int32)
+        b_shifted[:, 1] += int(round(shift))
+        x_1_shifted = int(round(x_1)) - np.amin(b_shifted[:, 0])
+        x_2_shifted = int(round(x_2)) - np.amin(b_shifted[:, 0])
+        map_crop = map[
+                   np.clip(np.amin(b_shifted[:, 1]-t), 0, map.shape[0]-1): np.clip(np.amax(b_shifted[:, 1]+t), 0, map.shape[0]-1),
+                   np.amin(b_shifted[:, 0]): np.amax(b_shifted[:, 0])
+                   ]
 
-                y_pos_2 = np.average(textline2[textline1.shape[0]//2:, 1]).astype(np.int)
-                penalty_2 = np.sum(map[
-                    np.clip(y_pos_2-3, 0, map.shape[0]):np.clip(y_pos_2+3, 0, map.shape[0]),
-                    np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
-                    ])
-                penalty_2 /= x_overlap
+        b_shifted[:, 1] -= (np.amin(b_shifted[:, 1]) - t)
+        b_shifted[:, 0] -= np.amin(b_shifted[:, 0])
+
+        b_shifted_upper = b_shifted.copy()
+        b_shifted_upper[:, 1] -= t
+        b_shifted_lower = b_shifted.copy()
+        b_shifted_lower[:, 1] += t+1
+        penalty_area_polygon = np.concatenate((b_shifted_upper, b_shifted_lower[::-1], b_shifted_upper[:1, :]))
+
+        polygon_mask = np.zeros_like(map_crop)
+        cv2.fillPoly(polygon_mask, [penalty_area_polygon], 1.0)
+        penalty_area = polygon_mask * map_crop
+
+        return np.sum(penalty_area[:, x_1_shifted:x_2_shifted]) / (x_2 - x_1)
+
+
+    def get_pair_penalty(self, b1, b2, h1, h2, map, ds):
+        x_overlap = max(0, min(np.amax(b1[:, 0]), np.amax(b2[:, 0])) - max(np.amin(b1[:, 0]), np.amin(b2[:, 0])))
+        if x_overlap > 5:
+            x_1 = int(max(np.amin(b1[:, 0]), np.amin(b2[:, 0])))
+            x_2 = int(min(np.amax(b1[:, 0]), np.amax(b2[:, 0])))
+            if np.average(b1[:, 1]) > np.average(b2[:, 1]):
+                penalty_1 = self.get_penalty(b1/ds, -h1[0]/ds, x_1/ds, x_2/ds, map)
+                penalty_2 = self.get_penalty(b2/ds, h2[1]/ds, x_1/ds, x_2/ds, map)
             else:
-                y_pos_1 = np.average(textline1[textline1.shape[0]//2:, 1]).astype(np.int)
-                penalty_1 = np.sum(map[
-                    np.clip(y_pos_1-3, 0, map.shape[0]):np.clip(y_pos_1+3, 0, map.shape[0]),
-                    np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
-                    ])
-                penalty_1 /= x_overlap
-
-                y_pos_2 = np.average(textline2[:textline1.shape[0]//2, 1]).astype(np.int)
-                penalty_2 = np.sum(map[
-                    np.clip(y_pos_2-3, 0, map.shape[0]):np.clip(y_pos_2+3, 0, map.shape[0]),
-                    np.clip(x_1, 0, map.shape[1]):np.clip(x_2, 0, map.shape[1])
-                    ])
-                penalty_2 /= x_overlap
+                penalty_1 = self.get_penalty(b1/ds, h1[1]/ds, x_1/ds, x_2/ds, map)
+                penalty_2 = self.get_penalty(b2/ds, -h2[0]/ds, x_1/ds, x_2/ds, map)
             penalty = np.abs(max(penalty_1, penalty_2))
         else:
             penalty = 1
         return penalty
+
 
     def clustered_lines_to_polygons(self, t_list, clusters_array):
         regions_textlines_tmp = []
@@ -326,17 +330,17 @@ class LayoutEngine(object):
                 p_list.append(region_poly.simplify(5))
         return [np.array(poly.exterior.coords) for poly in p_list]
 
-    def make_clusters(self, textlines, layout_separator_map, downsample, lower_threshold=0.3, upper_threshold=1.8):
-        if len(textlines) > 1:
+    def make_clusters(self, b_list, h_list, t_list, layout_separator_map, ds, lower_threshold=0.3):
+        if len(t_list) > 1:
 
-            min_pos = np.zeros([len(textlines), 2], dtype=np.float32)
-            max_pos = np.zeros([len(textlines), 2], dtype=np.float32)
+            min_pos = np.zeros([len(t_list), 2], dtype=np.float32)
+            max_pos = np.zeros([len(t_list), 2], dtype=np.float32)
 
-            textlines_dilated = []
-            for textline, min_, max_ in zip(textlines, min_pos, max_pos):
+            t_list_dilated = []
+            for textline, min_, max_ in zip(t_list, min_pos, max_pos):
                 textline_poly = sg.Polygon(textline)
                 tot_height = np.abs(textline[0, 1] - textline[-1, 1])
-                textlines_dilated.append(textline_poly.buffer(3*tot_height/4))
+                t_list_dilated.append(textline_poly.buffer(3*tot_height/4))
                 min_[:] = textline.min(axis=0) - tot_height
                 max_[:] = textline.max(axis=0) + tot_height
 
@@ -351,15 +355,15 @@ class LayoutEngine(object):
             candidates = np.logical_not(candidates)
 
             candidates = np.triu(candidates, k=1)
-            distances = np.ones((len(textlines), len(textlines)))
+            distances = np.ones((len(t_list), len(t_list)))
             for i, j in zip(*candidates.nonzero()):
-                if textlines_dilated[i].intersects(textlines_dilated[j]):
-                    penalty = self.get_penalty(
-                        textlines[i]/downsample, textlines[j]/downsample, layout_separator_map)
+                if t_list_dilated[i].intersects(t_list_dilated[j]):
+                    penalty = self.get_pair_penalty(
+                        b_list[i], b_list[j], h_list[i], h_list[j], layout_separator_map, ds)
                     distances[i, j] = penalty
                     distances[j, i] = penalty
 
-            adjacency = (distances < lower_threshold).astype(np.int) - (distances > upper_threshold).astype(np.int)
+            adjacency = (distances < lower_threshold).astype(np.int)
             adjacency = adjacency * (1 - np.eye(adjacency.shape[0]))  # put zeros on diagonal
             graph = csr_matrix(adjacency>0)
             _, clusters_array = connected_components(
