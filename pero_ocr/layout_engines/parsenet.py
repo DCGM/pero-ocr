@@ -136,8 +136,8 @@ class ParseNet(Net):
 
 
 class TiltNet(Net):
-    def __init__(self, model_path, downsample=4, use_cpu=False, prefix='tiltnet',
-                 pad=52, max_mp=5, gpu_fraction=None, detection_threshold=0.2):
+    def __init__(self, model_path, use_cpu=False, prefix='tiltnet',
+                 pad=52, max_mp=5, gpu_fraction=None):
         super().__init__(
-            model_path, downsample=downsample, use_cpu=use_cpu, prefix=prefix,
+            model_path, use_cpu=use_cpu, prefix=prefix,
             pad=pad, max_mp=max_mp, gpu_fraction=gpu_fraction)

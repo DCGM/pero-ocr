@@ -24,7 +24,6 @@ class LineFilterEngine(object):
                  pad=52, max_mp=5, gpu_fraction=None):
         self.tiltnet = TiltNet(
             model_path,
-            downsample=downsample,
             use_cpu=use_cpu,
             pad=pad,
             max_mp=max_mp,
