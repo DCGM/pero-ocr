@@ -263,22 +263,18 @@ class LayoutEngine(object):
         x_1_shifted = int(round(x_1)) - np.amin(b_shifted[:, 0])
         x_2_shifted = int(round(x_2)) - np.amin(b_shifted[:, 0])
         map_crop = map[
-                   np.clip(np.amin(b_shifted[:, 1]-t), 0, map.shape[0]-1): np.clip(np.amax(b_shifted[:, 1]+t), 0, map.shape[0]-1),
+                   np.clip(np.amin(b_shifted[:, 1]-t), 0, map.shape[0]-1): np.clip(np.amax(b_shifted[:, 1]+t+1), 0, map.shape[0]-1),
                    np.amin(b_shifted[:, 0]): np.amax(b_shifted[:, 0])
                    ]
 
         b_shifted[:, 1] -= (np.amin(b_shifted[:, 1]) - t)
         b_shifted[:, 0] -= np.amin(b_shifted[:, 0])
 
-        b_shifted_upper = b_shifted.copy()
-        b_shifted_upper[:, 1] -= t
-        b_shifted_lower = b_shifted.copy()
-        b_shifted_lower[:, 1] += t+1
-        penalty_area_polygon = np.concatenate((b_shifted_upper, b_shifted_lower[::-1], b_shifted_upper[:1, :]))
+        penalty_mask = np.zeros_like(map_crop)
+        for b_ind in range(b_shifted.shape[0]-1):
+            cv2.line(penalty_mask, tuple(b_shifted[b_ind, :]), tuple(b_shifted[b_ind+1, :]), color=1, thickness=(2*t)+1)
 
-        polygon_mask = np.zeros_like(map_crop)
-        cv2.fillPoly(polygon_mask, [penalty_area_polygon], 1.0)
-        penalty_area = polygon_mask * map_crop
+        penalty_area = penalty_mask * map_crop
 
         return np.sum(penalty_area[:, x_1_shifted:x_2_shifted]) / (x_2 - x_1)
 
