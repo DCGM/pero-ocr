@@ -569,6 +569,77 @@ class PageLayout(object):
             for l in r.lines:
                 yield l
 
+    def get_quality(self, x=None, y=None, width=None, height=None, power=6):
+        bbox_confidences = []
+        for b, block in enumerate(self.regions):
+            for l, line in enumerate(block.lines):
+                if not line.transcription:
+                    continue
+
+                chars = [i for i in range(len(line.characters))]
+                char_to_num = dict(zip(line.characters, chars))
+
+                blank_idx = line.logits.shape[1] - 1
+
+                label = []
+                for item in line.transcription:
+                    if item in char_to_num.keys():
+                        if char_to_num[item] >= blank_idx:
+                            label.append(0)
+                        else:
+                            label.append(char_to_num[item])
+                    else:
+                        label.append(0)
+
+                logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
+                logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
+                try:
+                    aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
+                except (ValueError, IndexError) as e:
+                    pass
+                else:
+                    crop_engine = EngineLineCropper(poly=2)
+                    line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
+                    space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
+
+                    words = []
+                    space_idxs = [-1] + space_idxs + [len(aligned_letters)]
+
+                    only_letters = dict()
+                    counter = 0
+                    for i, letter in enumerate(aligned_letters):
+                        if i not in space_idxs:
+                            words.append([letter, letter])
+                            only_letters[counter] = i
+                            counter += 1
+
+                    lm_const = line_coords.shape[1] / logits.shape[0]
+                    confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
+                    line.transcription_confidence = np.quantile(confidences, .50)
+                    for w, word in enumerate(words):
+                        extension = 2
+                        while True:
+                            all_x = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 0]
+                            all_y = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 1]
+
+                            if all_x.size == 0 or all_y.size == 0:
+                                extension += 1
+                            else:
+                                break
+
+                        vpos = int(np.min(all_y))
+                        hpos = int(np.min(all_x))
+                        if x and y and height and width:
+                            if vpos >= y and vpos <= (y+height) and hpos >= x and hpos <= (x+width):
+                                bbox_confidences.append(confidences[only_letters[w]])
+                        else:
+                            bbox_confidences.append(confidences[only_letters[w]])
+
+        if len(bbox_confidences) != 0:
+            return (1 / len(bbox_confidences) * (np.power(bbox_confidences, power).sum())) ** (1 / power)
+        else:
+            return -1
+
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):
     """Draw a line into image.
