@@ -23,7 +23,7 @@ def log_softmax(x):
 
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None, logit_coords=None):
+                 characters=None, logit_coords=None, transcription_confidence=None):
         self.id = id
         self.baseline = baseline
         self.polygon = polygon
@@ -33,7 +33,7 @@ class TextLine(object):
         self.crop = crop
         self.characters = characters
         self.logit_coords = logit_coords
-        self.transcription_confidence = None
+        self.transcription_confidence = transcription_confidence
 
     def get_dense_logits(self, zero_logit_value=-80):
         dense_logits = self.logits.toarray()
@@ -354,7 +354,8 @@ class PageLayout(object):
                     lm_const = line_coords.shape[1] / logits.shape[0]
                     letter_counter = 0
                     confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
-                    line.transcription_confidence = np.quantile(confidences, .50)
+                    if line.transcription_confidence is None:
+                        line.transcription_confidence = np.quantile(confidences, .50)
                     for w, word in enumerate(words):
                         extension = 2
                         while True:
@@ -367,8 +368,11 @@ class PageLayout(object):
                                 break
 
                         word_confidence = None
-                        if confidences.size != 0:
-                            word_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
+                        if line.transcription_confidence == 1:
+                            word_confidence = 1
+                        else:
+                            if confidences.size != 0:
+                                word_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
 
                         string = ET.SubElement(text_line, "String")
 
