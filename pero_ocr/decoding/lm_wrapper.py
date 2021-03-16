@@ -64,11 +64,11 @@ class LMWrapper:
             try:
                 self._lm_device = torch.device('cuda:0')
                 self._lm.to(self._lm_device)
-            except RuntimeError as e:
-                self._lm_device = None
+            except RuntimeError:
                 print(f"WARNING: Unable to get CUDA device, running on CPU instead!")
-
-        if self._lm_device is None:
+                self._lm_device = torch.device('cpu')
+                self._lm.to(self._lm_device)
+        else:
             self._lm_device = torch.device('cpu')
             self._lm.to(self._lm_device)
 
