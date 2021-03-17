@@ -32,14 +32,6 @@ class BagOfHypotheses:
 
         return string
 
-    def get_lm_scores(self, lm):
-        for i, hyp in enumerate(self._hyps):
-            if len(hyp.transcript) == 0:
-                lm_score = 1.0
-            else:
-                lm_score = lm.single_sentence_nll(hyp.transcript, '</s>')
-            self._hyps[i] = Hypothese(hyp.transcript, hyp.vis_sc, -lm_score)
-
     def __iter__(self):
         for hyp in self._hyps:
             yield hyp
