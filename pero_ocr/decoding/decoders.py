@@ -74,8 +74,8 @@ def reorder_best_inds(best_inds, blank_ind):
     return best_inds[0][order], best_inds[1][order]
 
 
-def build_boh(prefixes, probs, lm_probs=None):
-    bag_of_hyps = BagOfHypotheses()
+def build_boh(prefixes, probs, lm_probs=None, lm_weight=1.0):
+    bag_of_hyps = BagOfHypotheses(lm_weight)
 
     if lm_probs is not None:
         for l, P_l, P_lm in zip(prefixes, probs, lm_probs):
@@ -288,4 +288,4 @@ class CTCPrefixLogRawNumpyDecoder:
             eos_scores = self._lm.eos_scores(h_prev)
             Plm += eos_scores
 
-        return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm)
+        return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm, lm_weight=self._lm_scale)
