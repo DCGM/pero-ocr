@@ -50,9 +50,10 @@ class BagOfHypotheses:
     def recompute_posteriors(self):
         try:
             total_prob = logsumexp([hyp.vis_sc + hyp.lm_sc for hyp in self._hyps])
+            self._posteriors = [(hyp.vis_sc + hyp.lm_sc) - total_prob for hyp in self._hyps]
         except TypeError:  # attempted to sum None
             total_prob = logsumexp([hyp.vis_sc for hyp in self._hyps])
-        self._posteriors = [hyp.vis_sc - total_prob for hyp in self._hyps]
+            self._posteriors = [hyp.vis_sc - total_prob for hyp in self._hyps]
 
     def confidence(self):
         self.recompute_posteriors()
