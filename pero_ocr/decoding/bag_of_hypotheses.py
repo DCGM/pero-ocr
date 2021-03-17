@@ -36,13 +36,16 @@ class BagOfHypotheses:
     def __len__(self):
         return len(self._hyps)
 
-    def posteriors(self):
+    def total_scores(self):
         try:
-            total_prob = logsumexp([hyp.vis_sc + hyp.lm_sc for hyp in self._hyps])
-            return [(hyp.vis_sc + hyp.lm_sc) - total_prob for hyp in self._hyps]
-        except TypeError:  # attempted to sum None
-            total_prob = logsumexp([hyp.vis_sc for hyp in self._hyps])
-            return [hyp.vis_sc - total_prob for hyp in self._hyps]
+            return [hyp.vis_sc + hyp.lm_sc for hyp in self._hyps]
+        except TypeError:
+            return [hyp.vis_sc for hyp in self._hyps]
+
+    def posteriors(self):
+        total_scores = self.total_scores()
+        total_prob = logsumexp(total_scores)
+        return [s - total_prob for s in total_scores]
 
     def confidence(self):
         posteriors = self.posteriors()
