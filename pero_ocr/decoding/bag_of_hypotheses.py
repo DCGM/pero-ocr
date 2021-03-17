@@ -9,8 +9,9 @@ Hypothese = namedtuple('Hypothese', 'transcript vis_sc lm_sc')
 
 
 class BagOfHypotheses:
-    def __init__(self):
+    def __init__(self, lm_weight=1.0):
         self._hyps = []
+        self.lm_weight = lm_weight
 
     def add(self, transcript, visual_sc, lm_sc=None):
         self._hyps.append(Hypothese(transcript, visual_sc, lm_sc))
@@ -36,13 +37,16 @@ class BagOfHypotheses:
     def __len__(self):
         return len(self._hyps)
 
-    def posteriors(self):
+    def total_scores(self):
         try:
-            total_prob = logsumexp([hyp.vis_sc + hyp.lm_sc for hyp in self._hyps])
-            return [(hyp.vis_sc + hyp.lm_sc) - total_prob for hyp in self._hyps]
-        except TypeError:  # attempted to sum None
-            total_prob = logsumexp([hyp.vis_sc for hyp in self._hyps])
-            return [hyp.vis_sc - total_prob for hyp in self._hyps]
+            return [hyp.vis_sc + self.lm_weight * hyp.lm_sc for hyp in self._hyps]
+        except TypeError:
+            return [hyp.vis_sc for hyp in self._hyps]
+
+    def posteriors(self):
+        total_scores = self.total_scores()
+        total_prob = logsumexp(total_scores)
+        return [s - total_prob for s in total_scores]
 
     def confidence(self):
         posteriors = self.posteriors()

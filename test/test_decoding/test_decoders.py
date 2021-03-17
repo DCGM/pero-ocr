@@ -345,6 +345,21 @@ class CTCDecodingWithLMTests:
         for h in boh:
             self.assertEqual(h.lm_sc, lm.single_sentence_nll(list(h.transcript) + ['</s>'], '</s>'))
 
+    def test_archiving_lm_scale(self):
+        lm = self.get_eosing_lm()
+        decoder = self._decoder_constructor(
+            self._decoder_symbols,
+            k=2,
+            lm=lm,
+            lm_scale=0.1
+        )
+        logits = np.asarray([
+            [-80.0, -2.0, -80.0, -1.0],
+        ])
+
+        boh = decoder(logits, model_eos=True, max_unnormalization=np.inf)
+        self.assertEqual(boh.lm_weight, 0.1)
+
     def test_beam_2(self):
         lm = self.get_cying_lm()
         decoder = self._decoder_constructor(
