@@ -11,7 +11,6 @@ Hypothese = namedtuple('Hypothese', 'transcript vis_sc lm_sc')
 class BagOfHypotheses:
     def __init__(self):
         self._hyps = []
-        self._posteriors = []
 
     def add(self, transcript, visual_sc, lm_sc=None):
         self._hyps.append(Hypothese(transcript, visual_sc, lm_sc))
@@ -20,8 +19,6 @@ class BagOfHypotheses:
         self._hyps.sort(key=lambda hyp: hyp.vis_sc, reverse=True)
 
     def __str__(self):
-        self.recompute_posteriors()
-
         longest_len = max(len(hyp.transcript) for hyp in self)
 
         string = ""
@@ -39,24 +36,24 @@ class BagOfHypotheses:
     def __len__(self):
         return len(self._hyps)
 
-    def recompute_posteriors(self):
+    def posteriors(self):
         try:
             total_prob = logsumexp([hyp.vis_sc + hyp.lm_sc for hyp in self._hyps])
-            self._posteriors = [(hyp.vis_sc + hyp.lm_sc) - total_prob for hyp in self._hyps]
+            return [(hyp.vis_sc + hyp.lm_sc) - total_prob for hyp in self._hyps]
         except TypeError:  # attempted to sum None
             total_prob = logsumexp([hyp.vis_sc for hyp in self._hyps])
-            self._posteriors = [hyp.vis_sc - total_prob for hyp in self._hyps]
+            return [hyp.vis_sc - total_prob for hyp in self._hyps]
 
     def confidence(self):
-        self.recompute_posteriors()
-        return math.exp(max(self._posteriors))
+        posteriors = self.posteriors()
+        return math.exp(max(posteriors))
 
     def transcript_confidence(self, transcript):
-        self.recompute_posteriors()
+        posteriors = self.posteriors()
 
         for i, hyp in enumerate(self._hyps):
             if hyp.transcript == transcript:
-                return math.exp(self._posteriors[i])
+                return math.exp(posteriors[i])
 
         return 0.0  # Transcript not found in the bag of hypotheses
 
