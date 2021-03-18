@@ -218,7 +218,7 @@ class LayoutExtractor(object):
                         break
 
         if self.detect_straight_lines_in_regions or self.adjust_heights or self.adjust_baselines:
-            maps, ds = self.engine.get_maps(img)
+            maps, ds = self.engine.parsenet.get_maps_with_optimal_resolution(img)
 
         if self.detect_straight_lines_in_regions:
             for region in page_layout.regions:
