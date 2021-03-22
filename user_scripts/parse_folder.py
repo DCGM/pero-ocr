@@ -96,12 +96,13 @@ class LMDB_writer(object):
             all_lines = list(page_layout.lines_iterator())
             all_lines = sorted(all_lines, key=lambda x: x.id)
             for line in all_lines:
+                key = f'{file_id}-{line.id}.jpg'
+                img = cv2.imencode('.jpg', line.crop.astype(np.uint8), [int(cv2.IMWRITE_JPEG_QUALITY), 95])[1].tobytes()
+                self.data_size += len(img)
+                c_out.put(key.encode(), img)
+
                 if line.transcription:
-                    key = f'{file_id}-{line.id}.jpg'
-                    img = cv2.imencode('.jpg', line.crop.astype(np.uint8), [int(cv2.IMWRITE_JPEG_QUALITY), 95])[1].tobytes()
                     print(key, line.transcription, file=self.file)
-                    self.data_size += len(img)
-                    c_out.put(key.encode(), img)
 
 
 def main():
