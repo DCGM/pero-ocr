@@ -26,13 +26,23 @@ class BaseEngineLineOCR(object):
 
         self.characters = tuple(self.config['characters'])
         self.net_name = self.config['net_name']
+        if "embed_num" in self.config:
+            self.embed_num = int(self.config["embed_num"])
+        else:
+            self.embed_num = None
+        if "embed_id" in self.config:
+            if self.config["embed_id"] != "mean":
+                self.embed_id = int(self.config["embed_id"])
+            else:
+                self.embed_id = "mean"
+        else:
+            self.embed_id = None
         self.gpu_id = gpu_id
 
         self.batch_size = batch_size
 
         self.line_padding_px = 32
         self.max_input_horizontal_pixels = 480 * batch_size
-
 
     def process_lines(self, lines, sparse_logits=True, tight_crop_logits=False):
         """Runs ocr network on multiple lines.
