@@ -32,6 +32,7 @@ def parse_arguments():
     parser.add_argument('--output-line-path', help='')
     parser.add_argument('--output-logit-path', help='')
     parser.add_argument('--output-alto-path', help='')
+    parser.add_argument('--output-transcriptions-file-path', help='')
     parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
     parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
     parser.add_argument('--process-count', type=int, default=1, help='Number of parallel processes (this works mostly only for line cropping and it probably fails and crashes for most other uses cases).')
@@ -291,25 +292,25 @@ def main():
         ids_to_process = filtered_ids_to_process
         images_to_process = filtered_images_to_process
 
-
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
                  output_logit_path, output_alto_path, output_xml_path, output_line_path)
 
     t_start = time.time()
+    results = []
     if args.process_count > 1:
-      with Pool(processes=args.process_count) as pool:
-        tasks = []
-        for index, (file_id, image_file_name) in enumerate(zip(ids_to_process, images_to_process)):
-            tasks.append((image_file_name, file_id, index, len(ids_to_process)))
-        results = pool.starmap(computator, tasks)
-
-        line_annotation_path = os.path.splitext(config_path)[0] + '.ann'
-        with open(line_annotation_path, 'w') as f:
-            for page_lines in results:
-                print('\n'.join(page_lines), file=f)
+        with Pool(processes=args.process_count) as pool:
+            tasks = []
+            for index, (file_id, image_file_name) in enumerate(zip(ids_to_process, images_to_process)):
+                tasks.append((image_file_name, file_id, index, len(ids_to_process)))
+            results = pool.starmap(computator, tasks)
     else:
         for index, (file_id, image_file_name) in enumerate(zip(ids_to_process, images_to_process)):
-            computator(image_file_name, file_id, index, len(ids_to_process))
+            results.append(computator(image_file_name, file_id, index, len(ids_to_process)))
+
+    if args.output_transcriptions_file_path is not None:
+        with open(args.output_transcriptions_file_path, 'w') as f:
+            for page_lines in results:
+                print('\n'.join(page_lines), file=f)
 
     print('AVERAGE PROCESSING TIME', (time.time() - t_start) / len(ids_to_process))
 
