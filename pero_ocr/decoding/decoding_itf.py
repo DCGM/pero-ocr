@@ -1,12 +1,15 @@
+import json
+import logging
+import sys
+import time
+
 import torch
 from torch.nn import functional as F
-import time
-import sys
-import json
-from .decoders import GreedyDecoder, CTCPrefixLogRawNumpyDecoder, BLANK_SYMBOL
-from pero_ocr.utils import compose_path
+
 from brnolm.language_models import language_model
-import logging
+
+from pero_ocr.utils import compose_path
+from .decoders import GreedyDecoder, CTCPrefixLogRawNumpyDecoder, BLANK_SYMBOL
 
 ZERO_LOGITS = -80.0
 
