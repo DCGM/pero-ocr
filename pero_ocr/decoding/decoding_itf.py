@@ -1,10 +1,15 @@
+import json
+import logging
+import sys
+import time
+
 import torch
 from torch.nn import functional as F
-import time
-import sys
-import json
-from .decoders import GreedyDecoder, CTCPrefixLogRawNumpyDecoder, BLANK_SYMBOL
+
+from brnolm.language_models import language_model
+
 from pero_ocr.utils import compose_path
+from .decoders import GreedyDecoder, CTCPrefixLogRawNumpyDecoder, BLANK_SYMBOL
 
 ZERO_LOGITS = -80.0
 
@@ -16,8 +21,15 @@ def get_ocr_charset(fn):
     return chars
 
 
-def construct_lm(path, config_path=''):
-    lm = torch.load(compose_path(path, config_path), map_location=torch.device('cpu'))
+def construct_lm(path, config_path='', logger=logging):
+    try:
+        lm = language_model.torchscript_import(compose_path(path, config_path))
+    except language_model.UnreadableModelError as e:
+        logger.warning('WARNING: Failed to load model as TorchScript file, original error:\n')
+        logger.warning(f'{e}\n')
+        logger.warning('WARNING: Attempting to load as a plain torch-pickled model...\n')
+        lm = torch.load(compose_path(path, config_path), map_location=torch.device('cpu'))
+
     lm._unused_prefix_len = 2
 
     return lm
