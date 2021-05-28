@@ -159,6 +159,7 @@ class LayoutExtractor(object):
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
         self.engine = LayoutEngine(
+            framework=config.get('FRAMEWORK', fallback='tf'),
             model_path=compose_path(config['MODEL_PATH'], config_path),
             downsample=config.getint('DOWNSAMPLE'),
             adaptive_downsample=config.getboolean('ADAPTIVE_DOWNSAMPLE', fallback=True),

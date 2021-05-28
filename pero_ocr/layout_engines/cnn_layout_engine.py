@@ -16,6 +16,7 @@ from shapely.ops import cascaded_union, polygonize
 
 from pero_ocr.layout_engines import layout_helpers as helpers
 from pero_ocr.layout_engines.parsenet import ParseNet, TiltNet
+from pero_ocr.layout_engines.torch_parsenet import TorchParseNet
 
 
 class LineFilterEngine(object):
@@ -62,19 +63,31 @@ class LineFilterEngine(object):
 
 
 class LayoutEngine(object):
-    def __init__(self, model_path, downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
+    def __init__(self, model_path, framework='tf', downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
                  max_mp=5, gpu_fraction=None, detection_threshold=0.2, adaptive_downsample=True):
-        self.parsenet = ParseNet(
-            model_path,
-            downsample=downsample,
-            adaptive_downsample=adaptive_downsample,
-            use_cpu=use_cpu,
-            pad=pad,
-            max_mp=max_mp,
-            gpu_fraction=gpu_fraction,
-            detection_threshold=detection_threshold,
-            prefix=model_prefix
-        )
+        assert framework in ['tf', 'torch'], 'LayoutEngine framework has to be tf or torch.'
+        if framework == 'tf':
+            self.parsenet = ParseNet(
+                model_path,
+                downsample=downsample,
+                adaptive_downsample=adaptive_downsample,
+                use_cpu=use_cpu,
+                pad=pad,
+                max_mp=max_mp,
+                gpu_fraction=gpu_fraction,
+                detection_threshold=detection_threshold,
+                prefix=model_prefix
+            )
+        elif framework == 'torch':
+            self.parsenet = TorchParseNet(
+                model_path,
+                downsample=downsample,
+                adaptive_downsample=adaptive_downsample,
+                use_cpu=use_cpu,
+                max_mp=max_mp,
+                detection_threshold=detection_threshold
+            )
+
         self.line_detection_threshold = detection_threshold
         self.adaptive_downsample = adaptive_downsample
 
