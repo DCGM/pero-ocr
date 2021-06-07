@@ -402,7 +402,7 @@ def main():
     while editor.cursor > -1 and editor.cursor < len(filename_list):
         print('cursor: ', editor.cursor)
         page_filename = os.path.splitext(filename_list[editor.cursor])[0]+'.xml'
-        if not os.path.exists(os.path.join(args.page_dir, page_filename)):
+        if args.page_dir is not None and not os.path.exists(os.path.join(args.page_dir, page_filename)):
             editor.cursor += 1
             print('Cannot find PAGE XML in expected location {}'.format(os.path.join(args.page_dir, page_filename)))
             continue
