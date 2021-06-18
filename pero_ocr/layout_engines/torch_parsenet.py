@@ -6,6 +6,7 @@ class Net(object):
 
     def __init__(self, model_path, use_cpu=False, max_mp=5):
         self.max_megapixels = max_mp if max_mp is not None else 5
+
         if use_cpu:
             self.device = 'cpu'
         else:
@@ -15,27 +16,6 @@ class Net(object):
             self.net = torch.jit.load(model_path, map_location=self.device)
         else:
             self.net = None
-
-    def get_maps(self, img, downsample):
-        '''
-        Parsenet CNN inference
-        '''
-        img = cv2.resize(img, (0,0), fx=1/downsample, fy=1/downsample, interpolation=cv2.INTER_AREA)
-        img = img / np.float32(256.)
-
-        new_shape_x = int(np.ceil(img.shape[0] / 64) * 64)
-        new_shape_y = int(np.ceil(img.shape[1] / 64) * 64)
-        test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3), dtype=np.float32)
-        test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
-        print("LAYOUT_CNN_DOWNSAMPLE", downsample, 'INPUT_SHAPE', test_img_canvas.shape)
-
-        test_img_canvas = torch.from_numpy(test_img_canvas).to(self.device).float().permute(0, 3, 1, 2)
-        out_map, _ = self.net(test_img_canvas)
-        out_map = out_map.permute(0, 2, 3, 1).cpu().numpy()
-
-        out_map = out_map[0, :img.shape[0], :img.shape[1], :]
-
-        return out_map
 
 
 class TorchParseNet(Net):
@@ -55,6 +35,25 @@ class TorchParseNet(Net):
         self.min_downsample = 1
         self.max_downsample = 8
 
+    def get_maps(self, img, downsample):
+        '''
+        ParseNet CNN inference
+        '''
+        img = cv2.resize(img, (0, 0), fx=1/downsample, fy=1/downsample, interpolation=cv2.INTER_AREA)
+        img = img / np.float32(256.)
+
+        new_shape_x = int(np.ceil(img.shape[0] / 64) * 64)
+        new_shape_y = int(np.ceil(img.shape[1] / 64) * 64)
+        test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3), dtype=np.float32)
+        test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
+
+        test_img_canvas = torch.from_numpy(test_img_canvas).to(self.device).float().permute(0, 3, 1, 2)
+        out_map, _ = self.net(test_img_canvas)
+        out_map = out_map.permute(0, 2, 3, 1).cpu().numpy()
+
+        out_map = out_map[0, :img.shape[0], :img.shape[1], :]
+
+        return out_map
 
     def get_maps_with_optimal_resolution(self, img):
         '''
@@ -100,3 +99,27 @@ class TorchParseNet(Net):
 
         return med_height
 
+
+class TorchOrientationNet(Net):
+    def __init__(self, model_path, use_cpu=False, max_mp=5):
+        super().__init__(model_path, use_cpu=use_cpu, max_mp=max_mp)
+
+    def get_maps(self, img, downsample):
+        '''
+        OrientationNet CNN inference
+        '''
+        img = cv2.resize(img, (0, 0), fx=1/downsample, fy=1/downsample, interpolation=cv2.INTER_AREA)
+        img = img / np.float32(256.)
+
+        new_shape_x = int(np.ceil(img.shape[0] / 64) * 64)
+        new_shape_y = int(np.ceil(img.shape[1] / 64) * 64)
+        test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3), dtype=np.float32)
+        test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
+
+        test_img_canvas = torch.from_numpy(test_img_canvas).to(self.device).float().permute(0, 3, 1, 2)
+        out_map = self.net(test_img_canvas)
+        out_map = out_map.permute(0, 2, 3, 1).cpu().numpy()
+
+        out_map = out_map[0, :img.shape[0], :img.shape[1], :]
+
+        return out_map

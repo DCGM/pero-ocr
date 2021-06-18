@@ -1,39 +1,43 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from copy import deepcopy
 import time
 
 import cv2
 from scipy import ndimage
-from scipy.spatial import Delaunay, distance
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
-from skimage.measure import block_reduce
 import skimage.draw
-from sklearn.metrics import pairwise_distances
 import shapely.geometry as sg
-from shapely.ops import cascaded_union, polygonize
 
 from pero_ocr.layout_engines import layout_helpers as helpers
 from pero_ocr.layout_engines.parsenet import ParseNet, TiltNet
-from pero_ocr.layout_engines.torch_parsenet import TorchParseNet
+from pero_ocr.layout_engines.torch_parsenet import TorchParseNet, TorchOrientationNet
 
 
 class LineFilterEngine(object):
 
-    def __init__(self, model_path, downsample=4, use_cpu=False, model_prefix='tiltnet',
+    def __init__(self, model_path, framework='tf', downsample=4, use_cpu=False, model_prefix='tiltnet',
                  pad=52, max_mp=5, gpu_fraction=None):
-        self.tiltnet = TiltNet(
-            model_path,
-            use_cpu=use_cpu,
-            pad=pad,
-            max_mp=max_mp,
-            gpu_fraction=gpu_fraction,
-            prefix=model_prefix
-        )
+        assert framework in ['tf', 'torch'], 'Engine framework has to be tf or torch.'
+        if framework == 'tf':
+            self.tiltnet = TiltNet(
+                model_path,
+                use_cpu=use_cpu,
+                pad=pad,
+                max_mp=max_mp,
+                gpu_fraction=gpu_fraction,
+                prefix=model_prefix
+            )
+        elif framework == 'torch':
+            self.tiltnet = TorchOrientationNet(
+                model_path,
+                use_cpu=use_cpu,
+                max_mp=max_mp
+            )
         self.downsample = downsample
 
-    def get_angle_diff(self, angle_1, angle_2):
+    @staticmethod
+    def get_angle_diff(angle_1, angle_2):
         smaller = np.minimum(angle_1, angle_2)
         larger = np.maximum(angle_1, angle_2)
         diff = np.minimum(
@@ -42,8 +46,9 @@ class LineFilterEngine(object):
         return diff
 
     def predict_directions(self, image):
-        out_map = self.tiltnet.get_maps(image, self.downsample)
-        self.predictions = out_map[:, :, 1:3]
+        self.predictions = self.tiltnet.get_maps(image, self.downsample)
+        if self.framework == 'tf':
+            self.predictions = self.predictions[:, :, 1:3]  # old TF model has line segmentation as first channel
 
     def check_line_rotation(self, polygon, baseline):
         line_mask = skimage.draw.polygon2mask(
@@ -56,8 +61,10 @@ class LineFilterEngine(object):
         predicted_y = np.median(self.predictions[:, :, 1][line_mask > 0])
         predicted_angle = np.arctan2(predicted_y, predicted_x)
 
+        # If line is horizontal, keep it anyway because its safe to assume we want to keep it
         if target_angle < np.pi/4 and target_angle > -np.pi/4:
             return True
+        # If line is not horizontal, check it against the OrientationNet output and keep it if they differ by less than pi/4
         else:
             return self.get_angle_diff(predicted_angle, target_angle) < np.pi/4
 
@@ -119,8 +126,9 @@ class LayoutEngine(object):
         if rot > 0:
             image = np.rot90(image, k=rot)
 
+        tic = time.time()
         maps, ds = self.parsenet.get_maps_with_optimal_resolution(image)
-
+        print(f'GET MAPS TIME: {time.time() - tic}')
 
         b_list, h_list, t_list = self.parse(maps, ds)
 

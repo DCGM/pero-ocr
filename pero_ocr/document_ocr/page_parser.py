@@ -254,6 +254,7 @@ class LineFilter(object):
         if self.filter_directions:
             self.engine = LineFilterEngine(
                 model_path=compose_path(config['MODEL_PATH'], config_path),
+                framework=config['FRAMEWORK'],
                 gpu_fraction=config.getfloat('GPU_FRACTION'),
                 use_cpu=config.getboolean('USE_CPU')
             )
