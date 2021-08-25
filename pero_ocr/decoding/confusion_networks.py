@@ -90,7 +90,7 @@ def sorted_cn_paths(cn):
     if not cn:
         return []
 
-    iters = [iter(pos.items()) for pos in cn]
+    iters = [iter(sorted(pos.items(), key=lambda x: x[1], reverse=True)) for pos in cn]
     current = [next(it) for it in iters]
 
     paths = []

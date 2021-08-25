@@ -185,6 +185,11 @@ class TestConfusionNetworkSortedPaths(TestCase):
 
         self.assertEqual(sorted_cn_paths(cn), [('ab', 0.75), ('bb', 0.25)])
 
+    def test_two_path_reverse_probs(self):
+        cn = [{'a': 0.25, 'b': 0.75}, {'b': 1.0}]
+
+        self.assertEqual(sorted_cn_paths(cn), [('bb', 0.75), ('ab', 0.25)])
+
     def test_epsilon(self):
         cn = [{'a': 0.75, None: 0.25}, {'b': 1.0}]
 
