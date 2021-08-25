@@ -77,6 +77,9 @@ def best_cn_path(cn):
 
 
 def sorted_cn_paths(cn):
+    if not cn:
+        return []
+
     def path_from_arcs(arcs):
         string = ''
         prob = 1.0
@@ -87,11 +90,15 @@ def sorted_cn_paths(cn):
 
         return (string, prob)
 
-    if not cn:
-        return []
+    iters = [None] * len(cn)
+    current = [None] * len(cn)
 
-    iters = [iter(sorted(pos.items(), key=lambda x: x[1], reverse=True)) for pos in cn]
-    current = [next(it) for it in iters]
+    def reset_iter(i):
+        iters[i] = iter(sorted(cn[i].items(), key=lambda x: x[1], reverse=True))
+        current[i] = next(iters[i])
+
+    for i in range(len(cn)):
+        reset_iter(i)
 
     paths = []
 
@@ -104,8 +111,7 @@ def sorted_cn_paths(cn):
                 current[rotor_index] = next(iters[rotor_index])
                 break
             except StopIteration:
-                iters[rotor_index] = iter(cn[rotor_index].items())
-                current[rotor_index] = next(iters[rotor_index])
+                reset_iter(rotor_index)
         else:
             finished = True
 
