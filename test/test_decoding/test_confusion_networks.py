@@ -7,6 +7,7 @@ from pero_ocr.decoding.confusion_networks import get_pivot
 from pero_ocr.decoding.confusion_networks import add_hypothese
 from pero_ocr.decoding.confusion_networks import normalize_cn
 from pero_ocr.decoding.confusion_networks import best_cn_path
+from pero_ocr.decoding.confusion_networks import sorted_cn_paths
 
 
 class TestGettingPivot(TestCase):
@@ -166,3 +167,20 @@ class TestConfusionNetworkGreedyDecoder(TestCase):
     def test_epsilon_removal(self):
         cn = [{'a': 1.0}, {'b': 0.3, None: 0.7}, {'c': 1.0}]
         self.assertEqual(best_cn_path(cn), 'ac')
+
+
+class TestConfusionNetworkSortedPaths(TestCase):
+    def test_empty_cn(self):
+        cn = []
+
+        self.assertEqual(sorted_cn_paths(cn), [])
+
+    def test_single_path_cn(self):
+        cn = [{'a': 1.0}, {'b': 1.0}]
+
+        self.assertEqual(sorted_cn_paths(cn), [('ab', 1.0)])
+
+    def test_two_path_cn(self):
+        cn = [{'a': 0.75, 'b': 0.25}, {'b': 1.0}]
+
+        self.assertEqual(sorted_cn_paths(cn), [('ab', 0.75), ('bb', 0.25)])
