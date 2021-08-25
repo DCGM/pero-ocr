@@ -118,4 +118,4 @@ def sorted_cn_paths(cn):
         if finished:
             break
 
-    return paths
+    return sorted(paths, key=lambda x: x[1], reverse=True)
