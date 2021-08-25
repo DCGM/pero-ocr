@@ -184,3 +184,8 @@ class TestConfusionNetworkSortedPaths(TestCase):
         cn = [{'a': 0.75, 'b': 0.25}, {'b': 1.0}]
 
         self.assertEqual(sorted_cn_paths(cn), [('ab', 0.75), ('bb', 0.25)])
+
+    def test_epsilon(self):
+        cn = [{'a': 0.75, None: 0.25}, {'b': 1.0}]
+
+        self.assertEqual(sorted_cn_paths(cn), [('ab', 0.75), ('b', 0.25)])

@@ -80,9 +80,10 @@ def sorted_cn_paths(cn):
     def path_from_arcs(arcs):
         string = ''
         prob = 1.0
-        for pos in arcs:
-            string += pos[0]
-            prob *= pos[1]
+        for (c, p) in arcs:
+            if c is not None:
+                string += c
+            prob *= p
 
         return (string, prob)
 
