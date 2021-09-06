@@ -74,3 +74,48 @@ def produce_cn_from_boh(boh, visual_weight=1.0, lm_weight=1.0):
 def best_cn_path(cn):
     best_symbols = [sorted(position.keys(), key=lambda symbol: position[symbol], reverse=True)[0] for position in cn]
     return ''.join([s for s in best_symbols if s is not None])
+
+
+def sorted_cn_paths(cn):
+    if not cn:
+        return []
+
+    def path_from_arcs(arcs):
+        string = ''
+        prob = 1.0
+        for (c, p) in arcs:
+            if c is not None:
+                string += c
+            prob *= p
+
+        return (string, prob)
+
+    iters = [None] * len(cn)
+    current = [None] * len(cn)
+
+    def reset_iter(i):
+        iters[i] = iter(sorted(cn[i].items(), key=lambda x: x[1], reverse=True))
+        current[i] = next(iters[i])
+
+    for i in range(len(cn)):
+        reset_iter(i)
+
+    paths = []
+
+    while True:
+        paths.append(path_from_arcs(current))
+
+        finished = False
+        for rotor_index in reversed(range(len(iters))):
+            try:
+                current[rotor_index] = next(iters[rotor_index])
+                break
+            except StopIteration:
+                reset_iter(rotor_index)
+        else:
+            finished = True
+
+        if finished:
+            break
+
+    return sorted(paths, key=lambda x: x[1], reverse=True)

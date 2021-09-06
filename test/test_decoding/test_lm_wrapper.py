@@ -148,24 +148,20 @@ class LMWrapperTemplate:
         self.assertTrue((h_init._h == torch.tensor([[19.0]]).to(self._device)).all())
 
     def test_single_translation(self):
-        wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'])
-        translation = wrapper.translate(np.asarray([0]))
+        translation = self._wrapper.translate(np.asarray([0]))
         self.assertTrue((translation == np.asarray([1])).all())
 
     def test_batch_translation(self):
-        wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'])
-        translation = wrapper.translate(np.asarray([0, 1]))
+        translation = self._wrapper.translate(np.asarray([0, 1]))
         self.assertTrue((translation == np.asarray([1, 2])).all())
 
     def test_prefix_cutting_translation(self):
-        wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'])
-        translation = wrapper.translate(np.asarray([0, 1]))
+        translation = self._wrapper.translate(np.asarray([0, 1]))
         self.assertTrue((translation == np.asarray([1, 2])).all())
 
     def test_eos_score(self):
-        wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'])
         h = HiddenState(torch.tensor([[[0.0], [0.2]]]).to(self._device))
-        eos_scores = wrapper.eos_scores(h)
+        eos_scores = self._wrapper.eos_scores(h)
         self.assertTrue((eos_scores == np.asarray([-100.0, -120.0])).all())
 
 

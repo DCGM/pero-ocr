@@ -12,6 +12,8 @@ import shapely
 
 from pero_ocr.document_ocr.crop_engine import EngineLineCropper
 from pero_ocr.force_alignment import align_text
+from pero_ocr.confidence_estimation import get_line_confidence
+from pero_ocr.document_ocr.arabic_helper import ArabicHelper
 
 
 def log_softmax(x):
@@ -21,7 +23,7 @@ def log_softmax(x):
 
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None, logit_coords=None):
+                 characters=None, logit_coords=None, transcription_confidence=None):
         self.id = id
         self.baseline = baseline
         self.polygon = polygon
@@ -31,6 +33,7 @@ class TextLine(object):
         self.crop = crop
         self.characters = characters
         self.logit_coords = logit_coords
+        self.transcription_confidence = transcription_confidence
 
     def get_dense_logits(self, zero_logit_value=-80):
         dense_logits = self.logits.toarray()
@@ -203,6 +206,9 @@ class PageLayout(object):
                 text_line.set("id", line.id)
                 if line.heights is not None:
                     text_line.set("custom", f"heights_v2:[{line.heights[0]:.1f},{line.heights[1]:.1f}]")
+                if line.transcription_confidence is not None:
+                    text_line.set("conf", f"{line.transcription_confidence:.3f}")
+
                 coords = ET.SubElement(text_line, "Coords")
 
                 if line.polygon is not None:
@@ -230,7 +236,8 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self, ocr_processing=None, page_uuid=None):
+    def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
+        arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
@@ -288,6 +295,9 @@ class PageLayout(object):
             for l, line in enumerate(block.lines):
                 if not line.transcription:
                     continue
+                arabic_line = False
+                if arabic_helper.is_arabic_line(line.transcription):
+                    arabic_line = True
                 text_line = ET.SubElement(text_block, "TextLine")
                 text_line_baseline = int(np.average(np.array(line.baseline)[:, 1]))
                 text_line.set("BASELINE", str(text_line_baseline))
@@ -320,6 +330,7 @@ class PageLayout(object):
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except (ValueError, IndexError) as e:
                     print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
+                    line.transcription_confidence = 0
                     average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
                     for w, word in enumerate(line.transcription.split()):
                         string = ET.SubElement(text_line, "String")
@@ -339,9 +350,12 @@ class PageLayout(object):
                     for i in range(len(space_idxs[1:])):
                         if space_idxs[i] != space_idxs[i+1]-1:
                             words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
-
                     splitted_transcription = line.transcription.split()
                     lm_const = line_coords.shape[1] / logits.shape[0]
+                    letter_counter = 0
+                    confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
+                    if line.transcription_confidence is None:
+                        line.transcription_confidence = np.quantile(confidences, .50)
                     for w, word in enumerate(words):
                         extension = 2
                         while True:
@@ -353,20 +367,38 @@ class PageLayout(object):
                             else:
                                 break
 
+                        word_confidence = None
+                        if line.transcription_confidence == 1:
+                            word_confidence = 1
+                        else:
+                            if confidences.size != 0:
+                                word_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
+
                         string = ET.SubElement(text_line, "String")
-                        string.set("CONTENT", splitted_transcription[w])
+
+                        if arabic_line:
+                            string.set("CONTENT", arabic_helper.label_form_to_string(splitted_transcription[w]))
+                        else:
+                            string.set("CONTENT", splitted_transcription[w])
 
                         string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
                         string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                         string.set("VPOS", str(int(np.min(all_y))))
                         string.set("HPOS", str(int(np.min(all_x))))
+
+                        if word_confidence is not None:
+                            string.set("WC", str(round(word_confidence, 2)))
+
                         if w != (len(line.transcription.split())-1):
                             space = ET.SubElement(text_line, "SP")
 
                             space.set("WIDTH", str(4))
                             space.set("VPOS", str(int(np.min(all_y))))
                             space.set("HPOS", str(int(np.max(all_x))))
-
+                        letter_counter += len(splitted_transcription[w])+1
+                if line.transcription_confidence is not None:
+                    if line.transcription_confidence < min_line_confidence:
+                        text_block.remove(text_line)
         top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
         top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
         top_margin.set("VPOS", "0")
@@ -540,6 +572,77 @@ class PageLayout(object):
         for r in self.regions:
             for l in r.lines:
                 yield l
+
+    def get_quality(self, x=None, y=None, width=None, height=None, power=6):
+        bbox_confidences = []
+        for b, block in enumerate(self.regions):
+            for l, line in enumerate(block.lines):
+                if not line.transcription:
+                    continue
+
+                chars = [i for i in range(len(line.characters))]
+                char_to_num = dict(zip(line.characters, chars))
+
+                blank_idx = line.logits.shape[1] - 1
+
+                label = []
+                for item in line.transcription:
+                    if item in char_to_num.keys():
+                        if char_to_num[item] >= blank_idx:
+                            label.append(0)
+                        else:
+                            label.append(char_to_num[item])
+                    else:
+                        label.append(0)
+
+                logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
+                logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
+                try:
+                    aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
+                except (ValueError, IndexError) as e:
+                    pass
+                else:
+                    crop_engine = EngineLineCropper(poly=2)
+                    line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
+                    space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
+
+                    words = []
+                    space_idxs = [-1] + space_idxs + [len(aligned_letters)]
+
+                    only_letters = dict()
+                    counter = 0
+                    for i, letter in enumerate(aligned_letters):
+                        if i not in space_idxs:
+                            words.append([letter, letter])
+                            only_letters[counter] = i
+                            counter += 1
+
+                    lm_const = line_coords.shape[1] / logits.shape[0]
+                    confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
+                    line.transcription_confidence = np.quantile(confidences, .50)
+                    for w, word in enumerate(words):
+                        extension = 2
+                        while True:
+                            all_x = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 0]
+                            all_y = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 1]
+
+                            if all_x.size == 0 or all_y.size == 0:
+                                extension += 1
+                            else:
+                                break
+
+                        vpos = int(np.min(all_y))
+                        hpos = int(np.min(all_x))
+                        if x and y and height and width:
+                            if vpos >= y and vpos <= (y+height) and hpos >= x and hpos <= (x+width):
+                                bbox_confidences.append(confidences[only_letters[w]])
+                        else:
+                            bbox_confidences.append(confidences[only_letters[w]])
+
+        if len(bbox_confidences) != 0:
+            return (1 / len(bbox_confidences) * (np.power(bbox_confidences, power).sum())) ** (1 / power)
+        else:
+            return -1
 
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):

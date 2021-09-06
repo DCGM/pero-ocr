@@ -1,8 +1,10 @@
 import numpy as np
+import math
 import cv2
 from scipy import interpolate, ndimage
 # from numba import jit
 from pero_ocr.utils import jit
+
 
 class EngineLineCropper(object):
     def __init__(self, correct_slant=False, line_height=32, poly=0, scale=1, blend_border=4):
@@ -12,19 +14,19 @@ class EngineLineCropper(object):
         self.scale = scale
         self.blend_border = blend_border
 
-    def crop(self, img, baseline, heights, return_mapping=False):
+    def crop(self, img, baseline, heights, return_mapping=False, return_forward_mapping=False):
         try:
             line_coords = self.get_crop_inputs(baseline, heights, self.line_height)
-
-            line_crop = cv2.remap(img, line_coords[:, :, 0], line_coords[:, :, 1],
-                                      interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+            line_crop = self.fast_remap(img, line_coords)
         except:
             print("ERROR: line crop failed.", heights, baseline)
-            line_crop = np.zeros([self.line_height, 32, 3], dtype=np.uint8)
+            line_crop = np.zeros([self.line_height, 32, img.shape[2]], dtype=np.uint8)
 
         if return_mapping:
             line_mapping, offset = self.reverse_xy_mapping(line_coords, img.shape)
             return line_crop, line_mapping, offset
+        elif return_forward_mapping:
+            return line_crop, line_coords
         else:
             return line_crop
 
@@ -34,7 +36,7 @@ class EngineLineCropper(object):
         xstart = offset[1]
         xstop = xstart + mapping.shape[1]
 
-        blended_img = img[ystart:ystop,xstart:xstop].copy()
+        blended_img = img[ystart:ystop, xstart:xstop].copy()
         mask = self.get_blend_mask(mapping)
 
         cv2.remap(line_crop, mapping[:, :, 0], mapping[:, :, 1],
@@ -53,24 +55,26 @@ class EngineLineCropper(object):
     def get_crop_inputs(self, baseline, line_heights, target_height):
         line_heights = [line_heights[0] * self.scale, line_heights[1] * self.scale]
         coords = np.asarray(baseline).copy().astype(int)
+        alfa = math.atan2(coords[-1, 1] - coords[0, 1], coords[-1, 0] - coords[0, 0])
+        R = np.array([[np.cos(alfa), np.sin(alfa)], [-np.sin(alfa), np.cos(alfa)]])
+        coords = np.dot(coords, np.linalg.inv(R))
         if self.poly:
             if coords.shape[0] > 2:
                 line_interpf = np.poly1d(np.polyfit(coords[:,0], coords[:,1], self.poly))
             else:
-                line_interpf = interpolate.interp1d(coords[:,0], coords[:,1], kind='linear',)
+                line_interpf = np.poly1d(np.polyfit(coords[:,0], coords[:,1], 1))
         else:
             try:
+                coords[-1, 0] += 0.1 # shift the last point slightly right, prevents interpolation function from failing during computation of normals
                 line_interpf = interpolate.interp1d(coords[:,0], coords[:,1], kind='cubic',)
             except: # fall back to linear interpolation in case y_values fails (usually with very short baselines)
-                line_interpf = interpolate.interp1d(coords[:,0], coords[:,1], kind='linear',)
-
+                line_interpf = np.poly1d(np.polyfit(coords[:,0], coords[:,1], 1))
         left = coords[:, 0].min()
         right = coords[:, 0].max()
         line_x_values = np.arange(left, right)
         line_y_values = line_interpf(line_x_values) # positions in source
         line_length = ((line_x_values[:-1] - line_x_values[1:])**2 + (line_y_values[:-1] - line_y_values[1:])**2) ** 0.5
         mapping_x_to_line_pos = np.concatenate([np.zeros(1), np.cumsum(line_length)]) # mapping of source to t
-
         scale = target_height / (line_heights[0] + line_heights[1])
 
         horizontal_sample_count = int(mapping_x_to_line_pos[-1] * scale) # number of target samples
@@ -78,7 +82,6 @@ class EngineLineCropper(object):
         tmp = np.linspace(0, mapping_x_to_line_pos[-1], horizontal_sample_count)
         output_x_positions = self.reverse_line_mapping( # get source x baseline positions in target pixels
             mapping_x_to_line_pos, tmp, line_x_values)
-
         output_y_positions = line_interpf(output_x_positions) # get source baseline y positions in target pixels
 
         d_x = np.full_like(output_x_positions, 0.1)
@@ -92,8 +95,8 @@ class EngineLineCropper(object):
         vertical_map_x = norm_x.reshape(1, -1) * vertical_map + output_x_positions.reshape(1, -1) # get the rest of source x positions for target pixels computed from normals
         vertical_map_y = norm_y.reshape(1, -1) * vertical_map + output_y_positions.reshape(1, -1) # get the rest of source y positions for target pixels computed from normals
 
-        coords = np.stack((vertical_map_x, vertical_map_y), axis=2).astype(np.float32)
-
+        coords = np.stack((vertical_map_x, vertical_map_y), axis=2)
+        coords = np.dot(coords, R).astype(np.float32)
         return coords
 
     @jit
@@ -110,7 +113,6 @@ class EngineLineCropper(object):
 
     # @jit
     def reverse_xy_mapping(self, forward_mapping, shape):
-
         y_mapping = forward_mapping[:,:,1]
         y_mapping = np.clip(cv2.resize(y_mapping, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR), 0, shape[0]-1)
         y_mapping = np.round(y_mapping).astype(np.int)
@@ -122,19 +124,16 @@ class EngineLineCropper(object):
         x_mapping = np.round(x_mapping).astype(np.int)
         xstart = np.round(np.amin(x_mapping)).astype(np.int)
         xstop = np.round(np.amax(x_mapping)).astype(np.int) + 1
-
         y_map = np.tile(np.arange(0, forward_mapping.shape[0]), (forward_mapping.shape[1], 1)).T.astype(np.float32)
         y_map = cv2.resize(y_map, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR)
         x_map = np.tile(np.arange(0, forward_mapping.shape[1]), (forward_mapping.shape[0], 1)).astype(np.float32)
         x_map = cv2.resize(x_map, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR)
-
         reverse_mapping = np.ones((ystop-ystart, xstop-xstart, 2), dtype=np.float32) * -1
 
         for sx, sy, dx, dy in zip(x_map.flatten(), y_map.flatten(), x_mapping.flatten(), y_mapping.flatten()):
             # print(dy, ystart, dx, xstart)
             reverse_mapping[dy-ystart, dx-xstart, 0] = sx
             reverse_mapping[dy-ystart, dx-xstart, 1] = sy
-
         return reverse_mapping, (ystart, xstart)
 
     def get_blend_mask(self, mapping):
@@ -145,6 +144,24 @@ class EngineLineCropper(object):
         mask = 2 * np.clip(mask-0.5, 0, 1)
         return mask[:, :, np.newaxis]
 
+    def fast_remap(self, img, coords):
+        x_min = int(np.floor(np.amin(coords[:, :, 0])))
+        x_max = int(np.ceil(np.amax(coords[:, :, 0])))
+        y_min = int(np.floor(np.amin(coords[:, :, 1])))
+        y_max = int(np.ceil(np.amax(coords[:, :, 1])))
+
+        if x_min < 0 or y_min < 0 or x_max > img.shape[1]-1 or y_max > img.shape[0]-1:
+            line_crop = cv2.remap(img, coords[:, :, 0], coords[:, :, 1],
+                                       interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        else:
+            x_coords_shifted = coords[:, :, 0] - x_min
+            y_coords_shifted = coords[:, :, 1] - y_min
+
+            img_crop = img[y_min:y_max+1, x_min:x_max+1]
+
+            line_crop = cv2.remap(img_crop, x_coords_shifted, y_coords_shifted,
+                                  interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        return line_crop
 
 def main():
     from pero_ocr.document_ocr import layout

@@ -14,6 +14,8 @@ from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEn
 from pero_ocr.layout_engines.line_postprocessing_engine import PostprocessingEngine
 from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
+from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
+from pero_ocr.layout_engines.baseline_refiner import refine_baseline
 from pero_ocr.layout_engines import layout_helpers as helpers
 
 
@@ -94,7 +96,7 @@ class PageDecoder:
         if line.logits is None:
             raise MissingLogits(f"Line {line.id} has {line.logits} in place of logits")
 
-        return line.get_dense_logits()
+        return line.get_full_logprobs()
 
     def line_confident_enough(self, logits):
         log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
@@ -151,12 +153,16 @@ class LayoutExtractor(object):
     def __init__(self, config, config_path=''):
         self.detect_regions = config.getboolean('DETECT_REGIONS')
         self.detect_lines = config.getboolean('DETECT_LINES')
+        self.detect_straight_lines_in_regions = config.getboolean('DETECT_STRAIGHT_LINES_IN_REGIONS')
         self.merge_lines = config.getboolean('MERGE_LINES')
-        self.adjust_lines = config.getboolean('REFINE_LINES')
+        self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
+        self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
         self.engine = LayoutEngine(
+            framework=config.get('FRAMEWORK', fallback='tf'),
             model_path=compose_path(config['MODEL_PATH'], config_path),
             downsample=config.getint('DOWNSAMPLE'),
+            adaptive_downsample=config.getboolean('ADAPTIVE_DOWNSAMPLE', fallback=True),
             pad=config.getint('PAD'),
             use_cpu=config.getboolean('USE_CPU'),
             detection_threshold=config.getfloat('DETECTION_THRESHOLD'),
@@ -181,7 +187,6 @@ class LayoutExtractor(object):
             for rot in orientations:
                 regions = []
                 p_list, b_list, h_list, t_list = self.engine.detect(img, rot=rot)
-
                 if self.detect_regions:
                     for id, polygon in enumerate(p_list):
                         if rot > 0:
@@ -190,41 +195,52 @@ class LayoutExtractor(object):
                             id = 'r{:03d}'.format(id)
                         region = RegionLayout(id, polygon)
                         regions.append(region)
-
                 if self.detect_lines:
                     if not self.detect_regions:
                         regions = page_layout.regions
-                    # if len(regions) > 4:
-                    #     regions = list(self.pool.map(partial(helpers.assign_lines_to_region, b_list, h_list, t_list),
-                    #                      regions))
-                    # else:
-                    for region in regions:
-                        region = helpers.assign_lines_to_region(
-                            b_list, h_list, t_list, region)
-
+                    regions = helpers.assign_lines_to_regions(
+                        b_list, h_list, t_list, regions)
                 if self.detect_regions:
                     page_layout.regions += regions
 
         if self.merge_lines:
             for region in page_layout.regions:
-                r_b_list, r_h_list = helpers.merge_lines(
-                    [line.baseline for line in region.lines],
-                    [line.heights for line in region.lines]
-                )
-                r_t_list = [helpers.baseline_to_textline(b, h) for b, h in zip(r_b_list, r_h_list)]
-                region.lines = []
-                region = helpers.assign_lines_to_region(
-                    r_b_list, r_h_list, r_t_list, region)
+                while True:
+                    original_line_count = len(region.lines)
+                    r_b_list, r_h_list = helpers.merge_lines(
+                        [line.baseline for line in region.lines],
+                        [line.heights for line in region.lines]
+                    )
+                    r_t_list = [helpers.baseline_to_textline(b, h) for b, h in zip(r_b_list, r_h_list)]
+                    region.lines = []
+                    region = helpers.assign_lines_to_regions(
+                        r_b_list, r_h_list, r_t_list, [region])[0]
+                    if len(region.lines) == original_line_count:
+                        break
 
-        if self.adjust_lines:
-            heights_map, ds = self.engine.get_maps(img)[:, :, :2]
+        if self.detect_straight_lines_in_regions or self.adjust_heights or self.adjust_baselines:
+            maps, ds = self.engine.parsenet.get_maps_with_optimal_resolution(img)
+
+        if self.detect_straight_lines_in_regions:
+            for region in page_layout.regions:
+                pb_list, ph_list, pt_list = detect_lines_in_region(region.polygon, maps, ds)
+                region.lines = []
+                region = helpers.assign_lines_to_regions(pb_list, ph_list, pt_list, [region])[0]
+
+        if self.adjust_heights:
             for line in page_layout.lines_iterator():
                 sample_points = helpers.resample_baselines(
                     [line.baseline], num_points=40)[0]
-                line.heights = self.engine.get_heights(heights_map, ds, sample_points)
+                line.heights = self.engine.get_heights(maps, ds, sample_points)
                 line.polygon = helpers.baseline_to_textline(
                     line.baseline, line.heights)
 
+        if self.adjust_baselines:
+            crop_engine = cropper.EngineLineCropper(
+                line_height=32, poly=0, scale=1)
+            for line in page_layout.lines_iterator():
+                line.baseline = refine_baseline(line.baseline, line.heights, maps, ds, crop_engine)
+                line.polygon = helpers.baseline_to_textline(line.baseline, line.heights)
         return page_layout
 
 
@@ -232,11 +248,15 @@ class LineFilter(object):
     def __init__(self, config, config_path):
         self.filter_directions = config.getboolean('FILTER_DIRECTIONS')
         self.filter_incomplete_pages = config.getboolean('FILTER_INCOMPLETE_PAGES')
+        self.filter_pages_with_short_lines = config.getboolean('FILTER_PAGES_WITH_SHORT_LINES')
+        self.length_threshold = config.getint('LENGTH_THRESHOLD')
 
         if self.filter_directions:
             self.engine = LineFilterEngine(
                 model_path=compose_path(config['MODEL_PATH'], config_path),
-                gpu_fraction=config.getfloat('GPU_FRACTION')
+                framework=config['FRAMEWORK'],
+                gpu_fraction=config.getfloat('GPU_FRACTION'),
+                use_cpu=config.getboolean('USE_CPU')
             )
 
     def process_page(self, img, page_layout: PageLayout):
@@ -248,6 +268,11 @@ class LineFilter(object):
         if self.filter_incomplete_pages:
             for region in page_layout.regions:
                 region.lines = [line for line in region.lines if helpers.check_line_position(line.baseline, page_layout.page_size)]
+
+        if self.filter_pages_with_short_lines:
+            b_list = [line.baseline for line in page_layout.lines_iterator()]
+            if helpers.get_max_line_length(b_list) < self.length_threshold:
+                page_layout.regions = []
 
         page_layout.regions = [region for region in page_layout.regions if region.lines]
 

@@ -33,13 +33,22 @@ def assert_letters_valid(letters, blank_symbol):
         raise ValueError(f"Expected {BLANK_SYMBOL} as the last of letters, it's instead at position {blank_ind}")
 
 
+def logprobs_max_deviation(log_probs):
+    probs = np.exp(log_probs)
+    sums = np.sum(probs, axis=1)
+    return np.max(np.abs(sums - 1))
+
+
 class GreedyDecoder:
     def __init__(self, letters):
         assert_letters_valid(letters, BLANK_SYMBOL)
         self._letters = letters
         self._blank_ind = letters.index(BLANK_SYMBOL)
 
-    def __call__(self, logits):
+    def __call__(self, logits, max_unnormalization=1e-5):
+        if logprobs_max_deviation(logits) > max_unnormalization:
+            raise ValueError('Expected properly normalized logits')
+
         maxes = logits.max(axis=1)
         argmaxes = logits.argmax(axis=1)
 
@@ -65,8 +74,8 @@ def reorder_best_inds(best_inds, blank_ind):
     return best_inds[0][order], best_inds[1][order]
 
 
-def build_boh(prefixes, probs, lm_probs=None):
-    bag_of_hyps = BagOfHypotheses()
+def build_boh(prefixes, probs, lm_probs=None, lm_weight=1.0):
+    bag_of_hyps = BagOfHypotheses(lm_weight)
 
     if lm_probs is not None:
         for l, P_l, P_lm in zip(prefixes, probs, lm_probs):
@@ -208,9 +217,11 @@ class CTCPrefixLogRawNumpyDecoder:
         inv_sel = {v: i for i, v in enumerate(selected_chars)}
         return np.asarray([(inv_sel[l] if l in inv_sel else impossible_index) for l in reduced_last_chars])
 
-    def __call__(self, logits, model_eos=False):
+    def __call__(self, logits, model_eos=False, max_unnormalization=1e-5):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
         '''
+        if logprobs_max_deviation(logits) > max_unnormalization:
+            raise ValueError('Expected properly normalized logits')
 
         empty = ''
         prefixes = [empty]
@@ -277,4 +288,4 @@ class CTCPrefixLogRawNumpyDecoder:
             eos_scores = self._lm.eos_scores(h_prev)
             Plm += eos_scores
 
-        return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm)
+        return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm, lm_weight=self._lm_scale)

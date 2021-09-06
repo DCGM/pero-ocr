@@ -29,7 +29,7 @@ class CTCPrefixDecodersBeam1Tests:
             [-80.0, -80.0, -80.0, -5.0],
         ])
 
-        boh = self.decoder(logits)
+        boh = self.decoder(logits, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, '')
         self.assertEqual(boh._hyps[0].vis_sc, -5.0)
@@ -84,9 +84,16 @@ class CTCPrefixDecodersBeam1Tests:
             [-80.0, -80.0, -80.0, 0.0],
         ])
 
-        boh = self.decoder(logits)
+        boh = self.decoder(logits, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, 'a')
+
+    def test_require_log_probs(self):
+        logits = np.asarray([
+            [-10.0, -80.0, -80.0, -10.0],
+        ])
+
+        self.assertRaises(ValueError, self.decoder, logits)
 
 
 class CTCPrefixDecoderWiderBeamTests:
@@ -98,7 +105,7 @@ class CTCPrefixDecoderWiderBeamTests:
             [-80.0, -80.0, -80.0, 0.0],
         ])
 
-        boh = self.decoder(logits)
+        boh = self.decoder(logits, max_unnormalization=np.inf)
         all_transcripts = list(hyp.transcript for hyp in boh)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, 'a')
@@ -174,7 +181,7 @@ class CTCDecodingWithLMTests:
             [-1, -1, -80.0, -80.0],
         ])
 
-        boh = decoder(logits)
+        boh = decoder(logits, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, 'a')
 
@@ -192,7 +199,7 @@ class CTCDecodingWithLMTests:
             [-1, -1, -80.0, -80.0],
         ])
 
-        boh = decoder(logits)
+        boh = decoder(logits, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, 'b')
 
@@ -212,7 +219,7 @@ class CTCDecodingWithLMTests:
             [-80.0, -0.1, -80.0, -0.7],
         ])
 
-        boh = decoder(logits)
+        boh = decoder(logits, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, 'b')
 
@@ -232,7 +239,7 @@ class CTCDecodingWithLMTests:
             [-1, -1, -80.0, -80.0],
         ])
 
-        boh = decoder(logits)
+        boh = decoder(logits, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, 'b')
 
@@ -264,7 +271,7 @@ class CTCDecodingWithLMTests:
             [-80.0, -1.0, -1.0, -80.0],
         ])
 
-        boh = decoder(logits)
+        boh = decoder(logits, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, 'ab')
 
@@ -296,7 +303,7 @@ class CTCDecodingWithLMTests:
             [-80.0, -1.0, -1.0, -80.0],
         ])
 
-        boh = decoder(logits)
+        boh = decoder(logits, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, 'ac')
 
@@ -331,12 +338,27 @@ class CTCDecodingWithLMTests:
             [-80.0, -2.0, -80.0, -1.0],
         ])
 
-        boh = decoder(logits, model_eos=True)
+        boh = decoder(logits, model_eos=True, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(hyp, 'b')
 
         for h in boh:
             self.assertEqual(h.lm_sc, lm.single_sentence_nll(list(h.transcript) + ['</s>'], '</s>'))
+
+    def test_archiving_lm_scale(self):
+        lm = self.get_eosing_lm()
+        decoder = self._decoder_constructor(
+            self._decoder_symbols,
+            k=2,
+            lm=lm,
+            lm_scale=0.1
+        )
+        logits = np.asarray([
+            [-80.0, -2.0, -80.0, -1.0],
+        ])
+
+        boh = decoder(logits, model_eos=True, max_unnormalization=np.inf)
+        self.assertEqual(boh.lm_weight, 0.1)
 
     def test_beam_2(self):
         lm = self.get_cying_lm()
@@ -350,7 +372,7 @@ class CTCDecodingWithLMTests:
             [-80.0, -1.0, -1.0, -80.0],
         ])
 
-        boh = decoder(logits)
+        boh = decoder(logits, max_unnormalization=np.inf)
         hyp = boh.best_hyp()
         self.assertEqual(len(boh), 2)
         self.assertEqual(hyp, 'ac')
@@ -368,7 +390,7 @@ class CTCDecodingWithLMTests:
             [-0.0, -5.0, -80.0, -80.0],
         ])
 
-        boh = decoder(logits)
+        boh = decoder(logits, max_unnormalization=np.inf)
         a_hyp = [hyp for hyp in boh if hyp.transcript == 'a']
         assert(len(a_hyp) == 1)  # this is really a plain assert. There SHALL NOT be multiple hypotheses of the same text
         a_hyp = a_hyp[0]
