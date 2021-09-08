@@ -10,7 +10,7 @@ def get_long_desc():
 
 setup(
     name='pero-ocr',
-    version='0.4',
+    version='0.5',
     python_requires='>=3.6',
     packages=[
         'pero_ocr',
@@ -33,6 +33,7 @@ setup(
         'shapely',
         'pyamg',
         'imgaug',
+        'arabic_reshaper',
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
