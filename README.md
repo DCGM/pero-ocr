@@ -1,5 +1,14 @@
 # pero-ocr
 
+## Please cite
+
+If you use pero-ocr, please cite:
+
+* O Kodym, M Hradiš: Page Layout Analysis System for Unconstrained Historic Documents. ICDAR, 2021.
+* M Kišš, K Beneš, M Hradiš: AT-ST: Self-Training Adaptation Strategy for OCR in Domains with Limited Transcriptions. ICDAR, 2021.
+* J Kohút, M Hradiš: TS-Net: OCR Trained to Switch Between Text Transcription Styles. ICDAR, 2021.
+
+
 ## Running stuff
 
 
@@ -36,3 +45,4 @@ Currently, only unittests are provided with the code. Some of the code. So simpl
 ```
 ~/pero-ocr $ green
 ```
+
