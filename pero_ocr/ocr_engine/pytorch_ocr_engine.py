@@ -6,6 +6,7 @@ from torch import nn
 import numpy as np
 from functools import partial
 from .line_ocr_engine import BaseEngineLineOCR
+import sys
 
 
 # scores_probs should be N,C,T, blank is last class
@@ -40,11 +41,14 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
         self.net_subsampling = 4
         self.characters = list(self.characters) + [u'\u200B']
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        net = PYTORCH_NETS[self.net_name]
-        self.model = net(num_classes=len(self.characters), in_height=self.line_px_height, num_embeddings=self.embed_num)
-        self.model.load_state_dict(torch.load(self.checkpoint, map_location=self.device))
-        self.model = self.model.to(self.device)
-        self.model = self.model.eval()
+        
+        try:
+            self._load_exported_model()
+            self.scripted_model = True
+
+        except:
+            self._load_checkpoint()
+            self.scripted_model = False
 
         if self.embed_id is not None and self.embed_id == "mean":
             embeddings = self.model.embeddings_layer(torch.LongTensor(list(range(self.model.embeddings_layer.num_embeddings))).to(self.device))
@@ -52,12 +56,30 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
             self.model.embeddings_layer = torch.nn.Embedding.from_pretrained(mean_embedding)
             self.embed_id = 0
 
+    def _load_exported_model(self):
+        self.model = torch.jit.load(self.checkpoint, map_location=self.device)
+
+    def _load_checkpoint(self):
+        net = PYTORCH_NETS[self.net_name]
+        self.model = net(num_classes=len(self.characters), in_height=self.line_px_height, num_embeddings=self.embed_num)
+        self.model.load_state_dict(torch.load(self.checkpoint, map_location=self.device))
+        self.model = self.model.to(self.device)
+        self.model = self.model.eval()
+
     def run_ocr(self, batch_data):
         with torch.no_grad():
             batch_data = torch.from_numpy(batch_data).to(self.device).float() / 255.0
+            
+            if self.scripted_model:
+                batch_data = batch_data.permute(0,3,1,2)
+
             if self.embed_id is not None:
                 ids_embedding = torch.LongTensor([self.embed_id] * batch_data.shape[0]).to(self.device)
                 self.model.embeddings['data'] = self.model.embeddings_layer(ids_embedding)
+
+                print("OUTPUT", self.model.embeddings_layer(ids_embedding), file=sys.stderr)
+                print("SAVED ", self.model.embeddings['data'], file=sys.stderr)
+            
             logits = self.model(batch_data)
             decoded = greedy_decode_ctc(logits, self.characters)
             logits = logits.permute(0, 2, 1).cpu().numpy()
