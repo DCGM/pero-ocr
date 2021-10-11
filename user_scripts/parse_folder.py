@@ -11,7 +11,6 @@ from typing import Set, List, Optional
 import traceback
 import sys
 import time
-import subprocess
 from multiprocessing import Pool
 
 from pero_ocr import utils
@@ -105,6 +104,7 @@ class LMDB_writer(object):
             c_out = txn_out.cursor()
             for key in records_to_write:
                 c_out.put(key.encode(), records_to_write[key])
+
 
 class Computator:
     def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
@@ -293,7 +293,7 @@ def main():
         images_to_process = filtered_images_to_process
 
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                 output_logit_path, output_alto_path, output_xml_path, output_line_path)
+                            output_logit_path, output_alto_path, output_xml_path, output_line_path)
 
     t_start = time.time()
     results = []
