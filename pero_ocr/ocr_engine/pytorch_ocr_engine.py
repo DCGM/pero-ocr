@@ -41,7 +41,7 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
         self.net_subsampling = 4
         self.characters = list(self.characters) + [u'\u200B']
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
+
         if self.exported_model:
             self._load_exported_model()
 
@@ -73,7 +73,7 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
         return self.model.embeddings_layer.weight.shape[0] - 1
 
     def _load_exported_model(self):
-        if self.device == "cpu":
+        if self.device.type == "cpu":
             self.checkpoint += ".cpu"
 
         self.model = torch.jit.load(self.checkpoint, map_location=self.device)
