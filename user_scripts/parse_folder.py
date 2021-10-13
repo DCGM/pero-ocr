@@ -6,6 +6,8 @@ import os
 import configparser
 import argparse
 import cv2
+import logging
+import logging.handlers
 import re
 from typing import Set, List, Optional
 import traceback
@@ -225,6 +227,12 @@ def main():
         config['PARSE_FOLDER']['OUTPUT_LOGIT_PATH'] = args.output_logit_path
     if args.output_alto_path is not None:
         config['PARSE_FOLDER']['OUTPUT_ALTO_PATH'] = args.output_alto_path
+
+    logging.basicConfig(format='[%(levelname)s] %(asctime)s - %(name)s - %(message)s')
+    email_handler = logging.handlers.SMTPHandler('kazi.fit.vutbr.cz', 'ihradis@fit.vutbr.cz', 'ibenes@fit.vutbr.cz', subject='parse-folder log')
+    logger = logging.getLogger('pero_ocr')
+    logger.setLevel(logging.INFO)
+    logger.addHandler(email_handler)
 
     page_parser = PageParser(config, config_path=os.path.dirname(config_path))
 
