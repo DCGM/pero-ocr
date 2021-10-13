@@ -77,20 +77,23 @@ class PageDecoder:
 
     def process_page(self, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
-            self.lines_examined += 1
-            logits = self.prepare_dense_logits(line)
-            if self.line_confidence_threshold is not None:
-                if self.line_confident_enough(logits):
-                    continue
-
-            t0 = time.time()
-            hypotheses = self.decoder(logits)
-            self.seconds_decoding += time.time() - t0
-            self.lines_decoded += 1
-            if hypotheses is not None:
-                line.transcription = hypotheses.best_hyp()
+            line.transcription = self.decode_line(line)
 
         return page_layout
+
+    def decode_line(self, line):
+        self.lines_examined += 1
+        logits = self.prepare_dense_logits(line)
+        if self.line_confidence_threshold is not None:
+            if self.line_confident_enough(logits):
+                return line.transcription
+
+        t0 = time.time()
+        hypotheses = self.decoder(logits)
+        self.seconds_decoding += time.time() - t0
+        self.lines_decoded += 1
+
+        return hypotheses.best_hyp()
 
     def prepare_dense_logits(self, line):
         if line.logits is None:
