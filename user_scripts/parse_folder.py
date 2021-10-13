@@ -260,17 +260,17 @@ def main():
 
     if input_logit_path is not None and input_xml_path is None:
         input_logit_path = None
-        print('Warning: Logit path specified and Page XML path not specified. Logits will be ignored.')
+        logger.warning('Logit path specified and Page XML path not specified. Logits will be ignored.')
 
     if input_image_path is not None:
-        print(f'Reading images from {input_image_path}.')
+        logger.info(f'Reading images from {input_image_path}.')
         ignored_extensions = ['', '.xml', '.logits']
         images_to_process = [f for f in os.listdir(input_image_path) if
                              os.path.splitext(f)[1].lower() not in ignored_extensions]
         images_to_process = sorted(images_to_process)
         ids_to_process = [os.path.splitext(os.path.basename(file))[0] for file in images_to_process]
     elif input_xml_path is not None:
-        print(f'Reading page xml from {input_xml_path}')
+        logger.info(f'Reading page xml from {input_xml_path}')
         xml_to_process = [f for f in os.listdir(input_xml_path) if
                           os.path.splitext(f)[1] == '.xml']
         images_to_process = [None] * len(xml_to_process)
@@ -285,7 +285,7 @@ def main():
         # (i.e. the output is not required) than this directory is omitted.
         already_processed_files = load_already_processed_files([output_xml_path, output_logit_path, output_render_path])
         if len(already_processed_files) > 0:
-            print(f"Already processed {len(already_processed_files)} file(s).")
+            logger.info(f"Already processed {len(already_processed_files)} file(s).")
 
             images_to_process = [image for id, image in zip(ids_to_process, images_to_process) if id not in already_processed_files]
             ids_to_process = [id for id in ids_to_process if id not in already_processed_files]
@@ -321,7 +321,7 @@ def main():
             for page_lines in results:
                 print('\n'.join(page_lines), file=f)
 
-    print('AVERAGE PROCESSING TIME', (time.time() - t_start) / len(ids_to_process))
+    logger.info(f'AVERAGE PROCESSING TIME {(time.time() - t_start) / len(ids_to_process)}')
 
 
 if __name__ == "__main__":
