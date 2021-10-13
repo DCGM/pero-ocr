@@ -1,5 +1,6 @@
 import numpy as np
 
+import logging
 from multiprocessing import Pool
 import math
 import time
@@ -17,6 +18,9 @@ from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
 from pero_ocr.layout_engines.baseline_refiner import refine_baseline
 from pero_ocr.layout_engines import layout_helpers as helpers
+
+
+logger = logging.getLogger(__name__)
 
 
 def layout_parser_factory(config, config_path='', order=1):
@@ -77,20 +81,28 @@ class PageDecoder:
 
     def process_page(self, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
-            self.lines_examined += 1
-            logits = self.prepare_dense_logits(line)
-            if self.line_confidence_threshold is not None:
-                if self.line_confident_enough(logits):
-                    continue
-
-            t0 = time.time()
-            hypotheses = self.decoder(logits)
-            self.seconds_decoding += time.time() - t0
-            self.lines_decoded += 1
-            if hypotheses is not None:
-                line.transcription = hypotheses.best_hyp()
+            try:
+                line.transcription = self.decode_line(line)
+            except Exception:
+                logger.error(f'Failed to process line {line.id} of page {page_layout.id}. The page has been processed no further.', exc_info=True)
+                break
 
         return page_layout
+
+    def decode_line(self, line):
+        self.lines_examined += 1
+
+        logits = self.prepare_dense_logits(line)
+        if self.line_confidence_threshold is not None:
+            if self.line_confident_enough(logits):
+                return line.transcription
+
+        t0 = time.time()
+        hypotheses = self.decoder(logits)
+        self.seconds_decoding += time.time() - t0
+        self.lines_decoded += 1
+
+        return hypotheses.best_hyp()
 
     def prepare_dense_logits(self, line):
         if line.logits is None:

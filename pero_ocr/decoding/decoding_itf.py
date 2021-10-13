@@ -13,6 +13,8 @@ from .decoders import GreedyDecoder, CTCPrefixLogRawNumpyDecoder, BLANK_SYMBOL
 
 ZERO_LOGITS = -80.0
 
+logger = logging.getLogger(__name__)
+
 
 def get_ocr_charset(fn):
     with open(fn) as f:
@@ -21,7 +23,7 @@ def get_ocr_charset(fn):
     return chars
 
 
-def construct_lm(path, config_path='', logger=logging):
+def construct_lm(path, config_path=''):
     try:
         lm = language_model.torchscript_import(compose_path(path, config_path))
     except language_model.UnreadableModelError as e:
@@ -89,13 +91,13 @@ def decode_paragraph(logits, decoder, time_logger):
 
 
 def decode_page(page_logits, decoder, time_logging=False):
-    logger = TimeLogger(loud=time_logging)
+    time_logger = TimeLogger(loud=time_logging)
 
     page_transcripts = []
     for paragraph_logits in page_logits:
-        page_transcripts.append(decode_paragraph(paragraph_logits, decoder, logger))
+        page_transcripts.append(decode_paragraph(paragraph_logits, decoder, time_logger))
 
-    logger.print_final_stats()
+    time_logger.print_final_stats()
     return page_transcripts
 
 
