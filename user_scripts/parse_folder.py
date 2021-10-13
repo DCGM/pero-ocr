@@ -41,14 +41,16 @@ def parse_arguments():
     return args
 
 
-def setup_logging():
+def setup_logging(config):
     logging.basicConfig(format='[%(levelname)s] %(asctime)s - %(name)s - %(message)s', level=logging.INFO)
-    email_handler = logging.handlers.SMTPHandler('kazi.fit.vutbr.cz', 'ihradis@fit.vutbr.cz', 'ibenes@fit.vutbr.cz', subject='parse-folder log')
-    email_handler.setLevel(logging.ERROR)
 
     logger = logging.getLogger('pero_ocr')
     logger.setLevel(logging.INFO)
-    logger.addHandler(email_handler)
+
+    if config.getboolean('SEND_EMAILS'):
+        email_handler = logging.handlers.SMTPHandler('kazi.fit.vutbr.cz', 'ihradis@fit.vutbr.cz', 'ibenes@fit.vutbr.cz', subject='parse-folder log')
+        email_handler.setLevel(logging.ERROR)
+        logger.addHandler(email_handler)
 
 
 def get_value_or_none(config, section, key):
@@ -238,7 +240,7 @@ def main():
     if args.output_alto_path is not None:
         config['PARSE_FOLDER']['OUTPUT_ALTO_PATH'] = args.output_alto_path
 
-    setup_logging()
+    setup_logging(config['PARSE_FOLDER'])
     logger = logging.getLogger()
 
     page_parser = PageParser(config, config_path=os.path.dirname(config_path))
