@@ -48,7 +48,8 @@ def setup_logging(config):
     logger.setLevel(logging.INFO)
 
     if config.getboolean('SEND_EMAILS'):
-        email_handler = logging.handlers.SMTPHandler('kazi.fit.vutbr.cz', 'ihradis@fit.vutbr.cz', 'ibenes@fit.vutbr.cz', subject='parse-folder log')
+        email_target = config['EMAIL_TO']
+        email_handler = logging.handlers.SMTPHandler('kazi.fit.vutbr.cz', 'ihradis@fit.vutbr.cz', email_target, subject='parse-folder log')
         email_handler.setLevel(logging.ERROR)
         logger.addHandler(email_handler)
 
