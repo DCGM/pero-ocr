@@ -230,6 +230,7 @@ def main():
 
     logging.basicConfig(format='[%(levelname)s] %(asctime)s - %(name)s - %(message)s')
     email_handler = logging.handlers.SMTPHandler('kazi.fit.vutbr.cz', 'ihradis@fit.vutbr.cz', 'ibenes@fit.vutbr.cz', subject='parse-folder log')
+    email_handler.setLevel(logging.ERROR)
     logger = logging.getLogger('pero_ocr')
     logger.setLevel(logging.INFO)
     logger.addHandler(email_handler)
