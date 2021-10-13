@@ -15,6 +15,8 @@ import sys
 import time
 from multiprocessing import Pool
 
+from safe_gpu import safe_gpu
+
 from pero_ocr import utils
 from pero_ocr.document_ocr.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
@@ -214,9 +216,6 @@ def main():
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # suppress tensorflow warnings on loading models
     os.environ['TF_CUDNN_USE_AUTOTUNE'] = '0'  # turn off tuning some TF parts based on input size
 
-    if args.set_gpu:
-        utils.setGPU()
-
     if not os.path.isfile(config_path):
         print(f'ERROR: Config file does not exist: "{config_path}".')
         exit(-1)
@@ -243,6 +242,9 @@ def main():
 
     setup_logging(config['PARSE_FOLDER'])
     logger = logging.getLogger()
+
+    if args.set_gpu:
+        gpu_owner = safe_gpu.GPUOwner(logger=logger)  # noqa: F841
 
     page_parser = PageParser(config, config_path=os.path.dirname(config_path))
 
