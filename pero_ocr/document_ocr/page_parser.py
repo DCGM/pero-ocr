@@ -85,7 +85,6 @@ class PageDecoder:
                 line.transcription = self.decode_line(line)
             except Exception:
                 logger.error(f'Failed to process line {line.id} of page {page_layout.id}. The page has been processed no further.', exc_info=True)
-                break
 
         return page_layout
 
