@@ -52,12 +52,6 @@ def setup_logging(config):
     logger = logging.getLogger('pero_ocr')
     logger.setLevel(level)
 
-    if config.getboolean('SEND_EMAILS'):
-        email_target = config['EMAIL_TO']
-        email_handler = logging.handlers.SMTPHandler('kazi.fit.vutbr.cz', 'ihradis@fit.vutbr.cz', email_target, subject='parse-folder log')
-        email_handler.setLevel(logging.ERROR)
-        logger.addHandler(email_handler)
-
 
 def get_value_or_none(config, section, key):
     if config.has_option(section, key):
