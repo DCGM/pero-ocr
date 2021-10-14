@@ -17,7 +17,7 @@ from multiprocessing import Pool
 
 from safe_gpu import safe_gpu
 
-from pero_ocr import utils
+from pero_ocr import utils  # noqa: F401 -- there is code executed upon import here.
 from pero_ocr.document_ocr.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
@@ -44,16 +44,13 @@ def parse_arguments():
 
 
 def setup_logging(config):
-    logging.basicConfig(format='[%(levelname)s] %(asctime)s - %(name)s - %(message)s', level=logging.INFO)
+    level = config.get('LOGGING_LEVEL', fallback='WARNING')
+    level = logging.getLevelName(level)
+
+    logging.basicConfig(format='[%(levelname)s] %(asctime)s - %(name)s - %(message)s', level=level)
 
     logger = logging.getLogger('pero_ocr')
-    logger.setLevel(logging.INFO)
-
-    if config.getboolean('SEND_EMAILS'):
-        email_target = config['EMAIL_TO']
-        email_handler = logging.handlers.SMTPHandler('kazi.fit.vutbr.cz', 'ihradis@fit.vutbr.cz', email_target, subject='parse-folder log')
-        email_handler.setLevel(logging.ERROR)
-        logger.addHandler(email_handler)
+    logger.setLevel(level)
 
 
 def get_value_or_none(config, section, key):
