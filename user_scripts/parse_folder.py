@@ -17,7 +17,7 @@ from multiprocessing import Pool
 
 from safe_gpu import safe_gpu
 
-from pero_ocr import utils
+from pero_ocr import utils  # noqa: F401 -- there is code executed upon import here.
 from pero_ocr.document_ocr.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
