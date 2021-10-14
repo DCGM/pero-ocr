@@ -44,10 +44,13 @@ def parse_arguments():
 
 
 def setup_logging(config):
-    logging.basicConfig(format='[%(levelname)s] %(asctime)s - %(name)s - %(message)s', level=logging.INFO)
+    level = config.get('LOGGING_LEVEL', fallback='WARNING')
+    level = logging.getLevelName(level)
+
+    logging.basicConfig(format='[%(levelname)s] %(asctime)s - %(name)s - %(message)s', level=level)
 
     logger = logging.getLogger('pero_ocr')
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
 
     if config.getboolean('SEND_EMAILS'):
         email_target = config['EMAIL_TO']
