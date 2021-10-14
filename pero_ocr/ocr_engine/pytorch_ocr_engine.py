@@ -6,6 +6,7 @@ from torch import nn
 import numpy as np
 from functools import partial
 from .line_ocr_engine import BaseEngineLineOCR
+import sys
 
 
 # scores_probs should be N,C,T, blank is last class
@@ -39,26 +40,66 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
 
         self.net_subsampling = 4
         self.characters = list(self.characters) + [u'\u200B']
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        if self.exported_model:
+            self._load_exported_model()
+
+        else:
+            self._load_checkpoint()
+
+            if self.embed_id == "mean":
+                self._append_mean_embedding()
+
+        if self.embed_id == "mean":
+            self.embed_id = self.get_mean_embed_id()
+
+    @property
+    def exported_model(self):
+        exported_model = False
+
+        if "exported" in self.config and str(self.config["exported"]).lower() in ['true', 't', 'yes', 'y', '1']:
+            exported_model = True
+
+        return exported_model
+
+    def _append_mean_embedding(self):
+        current_weights = self.model.embeddings_layer.weight
+        mean_embedding = torch.mean(current_weights, 0, keepdim=True)
+        new_weights = torch.cat((current_weights, mean_embedding), 0)
+        self.model.embeddings_layer = torch.nn.Embedding.from_pretrained(new_weights)
+
+    def get_mean_embed_id(self):
+        return self.model.embeddings_layer.weight.shape[0] - 1
+
+    def _load_exported_model(self):
+        if self.device.type == "cpu":
+            self.checkpoint += ".cpu"
+
+        self.model = torch.jit.load(self.checkpoint, map_location=self.device)
+        self.model = self.model.to(self.device)
+
+    def _load_checkpoint(self):
         net = PYTORCH_NETS[self.net_name]
         self.model = net(num_classes=len(self.characters), in_height=self.line_px_height, num_embeddings=self.embed_num)
         self.model.load_state_dict(torch.load(self.checkpoint, map_location=self.device))
         self.model = self.model.to(self.device)
         self.model = self.model.eval()
 
-        if self.embed_id is not None and self.embed_id == "mean":
-            embeddings = self.model.embeddings_layer(torch.LongTensor(list(range(self.model.embeddings_layer.num_embeddings))).to(self.device))
-            mean_embedding = torch.mean(embeddings, 0, keepdim=True)
-            self.model.embeddings_layer = torch.nn.Embedding.from_pretrained(mean_embedding)
-            self.embed_id = 0
-
     def run_ocr(self, batch_data):
         with torch.no_grad():
             batch_data = torch.from_numpy(batch_data).to(self.device).float() / 255.0
+            
+            if self.exported_model:
+                batch_data = batch_data.permute(0,3,1,2)
+
             if self.embed_id is not None:
                 ids_embedding = torch.LongTensor([self.embed_id] * batch_data.shape[0]).to(self.device)
-                self.model.embeddings['data'] = self.model.embeddings_layer(ids_embedding)
-            logits = self.model(batch_data)
+                logits = self.model(batch_data, ids_embedding)
+            
+            else:
+                logits = self.model(batch_data)
+
             decoded = greedy_decode_ctc(logits, self.characters)
             logits = logits.permute(0, 2, 1).cpu().numpy()
 
