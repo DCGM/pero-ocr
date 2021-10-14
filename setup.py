@@ -31,6 +31,7 @@ setup(
         'scikit-image',
         'tensorflow-gpu==1.14',
         'shapely',
+        'safe-gpu',
         'pyamg',
     ],
     classifiers=[
