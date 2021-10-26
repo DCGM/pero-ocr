@@ -417,6 +417,27 @@ class CTCDecodingWithLMTests:
         self.assertEqual(len(boh), 2)
         self.assertEqual(hyp, 'ab')
 
+    def test_decoder_hidden_state_propagates(self):
+        lm = self.get_cying_lm()
+        decoder = self._decoder_constructor(
+            self._decoder_symbols,
+            k=2,
+            lm=lm
+        )
+
+        logits_1 = np.asarray([
+            [-1, -80.0, -80.0, -80.0],
+        ])
+        logits_2 = np.asarray([
+            [-80.0, -2.0, -1.0, -80.0],
+        ])
+
+        _, last_h = decoder(logits_1, max_unnormalization=np.inf, return_h=True)
+        boh = decoder(logits_2, max_unnormalization=np.inf, init_h=torch.tensor([[1.0]]))
+        hyp = boh.best_hyp()
+        self.assertEqual(len(boh), 2)
+        self.assertEqual(hyp, 'b')
+
     def test_wide_beam_regression(self):
         decoder = self._decoder_constructor(
             self._decoder_symbols,
