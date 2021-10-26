@@ -1,6 +1,7 @@
 import unittest
 
 import numpy as np
+import torch
 
 from pero_ocr.decoding.decoders import BLANK_SYMBOL
 from pero_ocr.decoding.decoders import find_new_prefixes
@@ -379,6 +380,25 @@ class CTCDecodingWithLMTests:
 
         for h in boh:
             self.assertEqual(h.lm_sc, lm.single_sentence_nll(list(h.transcript), '</s>'))
+
+    def test_decoder_returns_hidden_state_of_best_hyp(self):
+        lm = self.get_cying_lm()
+        decoder = self._decoder_constructor(
+            self._decoder_symbols,
+            k=2,
+            lm=lm
+        )
+        logits = np.asarray([
+            [-1, -80.0, -80.0, -80.0],
+            [-80.0, -1.0, -1.0, -80.0],
+        ])
+
+        boh, last_h = decoder(logits, max_unnormalization=np.inf, return_h=True)
+        hyp = boh.best_hyp()
+        self.assertEqual(len(boh), 2)
+        self.assertEqual(hyp, 'ac')
+
+        self.assertEqual(last_h, torch.tensor([85.0]))
 
     def test_wide_beam_regression(self):
         decoder = self._decoder_constructor(

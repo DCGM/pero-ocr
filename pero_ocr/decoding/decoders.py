@@ -217,7 +217,7 @@ class CTCPrefixLogRawNumpyDecoder:
         inv_sel = {v: i for i, v in enumerate(selected_chars)}
         return np.asarray([(inv_sel[l] if l in inv_sel else impossible_index) for l in reduced_last_chars])
 
-    def __call__(self, logits, model_eos=False, max_unnormalization=1e-5):
+    def __call__(self, logits, model_eos=False, max_unnormalization=1e-5, return_h=False):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
         '''
         if logprobs_max_deviation(logits) > max_unnormalization:
@@ -288,4 +288,10 @@ class CTCPrefixLogRawNumpyDecoder:
             eos_scores = self._lm.eos_scores(h_prev)
             Plm += eos_scores
 
-        return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm, lm_weight=self._lm_scale)
+        Pom = np.logaddexp(Pb, Pnb)
+        bag_of_hypotheses = build_boh(prefixes, Pom, Plm, lm_weight=self._lm_scale)
+        if return_h:
+            idx_of_best = np.argmax(Pom + Plm*self._lm_scale)
+            return bag_of_hypotheses, h_prev[idx_of_best]._h
+        else:
+            return bag_of_hypotheses
