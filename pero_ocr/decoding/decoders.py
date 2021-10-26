@@ -4,7 +4,7 @@ import numpy as np
 from .bag_of_hypotheses import BagOfHypotheses, logsumexp
 from .multisort import top_k
 
-from .lm_wrapper import LMWrapper
+from .lm_wrapper import LMWrapper, HiddenState
 
 
 BLANK_SYMBOL = '<BLANK>'
@@ -217,7 +217,7 @@ class CTCPrefixLogRawNumpyDecoder:
         inv_sel = {v: i for i, v in enumerate(selected_chars)}
         return np.asarray([(inv_sel[l] if l in inv_sel else impossible_index) for l in reduced_last_chars])
 
-    def __call__(self, logits, model_eos=False, max_unnormalization=1e-5, return_h=False):
+    def __call__(self, logits, model_eos=False, max_unnormalization=1e-5, return_h=False, init_h=None):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
         '''
         if logprobs_max_deviation(logits) > max_unnormalization:
@@ -227,7 +227,10 @@ class CTCPrefixLogRawNumpyDecoder:
         prefixes = [empty]
 
         if self._lm:
-            h_prev = self._lm.initial_h(1)
+            if init_h is None:
+                h_prev = self._lm.initial_h(1)
+            else:
+                h_prev = HiddenState(init_h.unsqueeze(0))
             lm_preds = self._lm.log_probs(h_prev)
         else:  # just to have them defined
             h_prev = None
