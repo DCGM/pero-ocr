@@ -230,7 +230,7 @@ class CTCPrefixLogRawNumpyDecoder:
             if init_h is None:
                 h_prev = self._lm.initial_h(1)
             else:
-                h_prev = HiddenState(init_h.unsqueeze(0))
+                h_prev = HiddenState((init_h[0].unsqueeze(1), init_h[1].unsqueeze(1)))
             lm_preds = self._lm.log_probs(h_prev)
         else:  # just to have them defined
             h_prev = None

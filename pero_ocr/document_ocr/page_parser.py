@@ -78,6 +78,8 @@ class PageDecoder:
         self.lines_examined = 0
         self.lines_decoded = 0
         self.seconds_decoding = 0.0
+        self.continue_lines = False
+        self.last_h = None
 
     def process_page(self, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
@@ -92,12 +94,17 @@ class PageDecoder:
         self.lines_examined += 1
 
         logits = self.prepare_dense_logits(line)
-        if self.line_confidence_threshold is not None:
+        if self.line_confidence_threshold is not None and not self.continue_lines:
             if self.line_confident_enough(logits):
                 return line.transcription
 
         t0 = time.time()
-        hypotheses = self.decoder(logits)
+        if self.continue_lines:
+            hypotheses, last_h = self.decoder(logits, return_h=True, init_h=self.last_h)
+            self.last_h = last_h
+        else:
+            hypotheses = self.decoder(logits)
+
         self.seconds_decoding += time.time() - t0
         self.lines_decoded += 1
 
@@ -180,7 +187,7 @@ class LayoutExtractor(object):
             max_mp=config.getfloat('MAX_MEGAPIXELS'),
             gpu_fraction=config.getfloat('GPU_FRACTION')
         )
-        self.pool = Pool()
+        self.pool = Pool(1)
 
     def process_page(self, img, page_layout: PageLayout):
         if self.detect_regions or self.detect_lines:
