@@ -72,6 +72,14 @@ class MissingLogits(Exception):
     pass
 
 
+def line_confident_enough(logits, confidence_threshold):
+    log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
+    best_probs = np.max(log_probs, axis=-1)
+    worst_best_prob = np.exp(np.min(best_probs))
+
+    return worst_best_prob > confidence_threshold
+
+
 class PageDecoder:
     def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False):
         self.decoder = decoder
@@ -96,7 +104,7 @@ class PageDecoder:
 
         logits = self.prepare_dense_logits(line)
         if self.line_confidence_threshold is not None and not self.continue_lines:
-            if self.line_confident_enough(logits):
+            if line_confident_enough(logits, self.line_confidence_threshold):
                 return line.transcription
 
         t0 = time.time()
@@ -116,13 +124,6 @@ class PageDecoder:
             raise MissingLogits(f"Line {line.id} has {line.logits} in place of logits")
 
         return line.get_full_logprobs()
-
-    def line_confident_enough(self, logits):
-        log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
-        best_probs = np.max(log_probs, axis=-1)
-        worst_best_prob = np.exp(np.min(best_probs))
-
-        return worst_best_prob > self.line_confidence_threshold
 
 
 class WholePageRegion(object):
