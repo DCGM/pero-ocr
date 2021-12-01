@@ -80,6 +80,13 @@ def line_confident_enough(logits, confidence_threshold):
     return worst_best_prob > confidence_threshold
 
 
+def prepare_dense_logits(line):
+    if line.logits is None:
+        raise MissingLogits(f"Line {line.id} has {line.logits} in place of logits")
+
+    return line.get_full_logprobs()
+
+
 class PageDecoder:
     def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False):
         self.decoder = decoder
@@ -102,7 +109,7 @@ class PageDecoder:
     def decode_line(self, line):
         self.lines_examined += 1
 
-        logits = self.prepare_dense_logits(line)
+        logits = prepare_dense_logits(line)
         if self.line_confidence_threshold is not None and not self.continue_lines:
             if line_confident_enough(logits, self.line_confidence_threshold):
                 return line.transcription
@@ -118,12 +125,6 @@ class PageDecoder:
         self.lines_decoded += 1
 
         return hypotheses.best_hyp()
-
-    def prepare_dense_logits(self, line):
-        if line.logits is None:
-            raise MissingLogits(f"Line {line.id} has {line.logits} in place of logits")
-
-        return line.get_full_logprobs()
 
 
 class WholePageRegion(object):
