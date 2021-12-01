@@ -64,7 +64,8 @@ def page_decoder_factory(config, config_path=''):
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True,
                                            config_path=config_path)
     confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
-    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold)
+    carry_h_over = config['DECODER'].getboolean('CARRY_H_OVER')
+    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over)
 
 
 class MissingLogits(Exception):
@@ -72,13 +73,13 @@ class MissingLogits(Exception):
 
 
 class PageDecoder:
-    def __init__(self, decoder, line_confidence_threshold=None):
+    def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False):
         self.decoder = decoder
         self.line_confidence_threshold = line_confidence_threshold
         self.lines_examined = 0
         self.lines_decoded = 0
         self.seconds_decoding = 0.0
-        self.continue_lines = False
+        self.continue_lines = carry_h_over
         self.last_h = None
 
     def process_page(self, page_layout: PageLayout):
