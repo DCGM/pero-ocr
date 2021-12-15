@@ -21,6 +21,10 @@ def log_softmax(x):
     return x - a
 
 
+def export_id(id, validate_change_id):
+    return 'id_' + id if validate_change_id else id
+
+
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
                  characters=None, logit_coords=None, transcription_confidence=None):
@@ -52,10 +56,10 @@ class RegionLayout(object):
         self.lines = []
         self.transcription = None
 
-    def to_page_xml(self, page_element):
+    def to_page_xml(self, page_element, validate_id=False):
         region_element = ET.SubElement(page_element, "TextRegion")
         coords = ET.SubElement(region_element, "Coords")
-        region_element.set("id", self.id)
+        region_element.set("id", export_id(self.id, validate_id))
         points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in self.polygon]
         points = " ".join(points)
         coords.set("points", points)
@@ -116,7 +120,6 @@ def guess_line_heights_from_polygon(text_line: TextLine):
     except:
         height = text_line.polygon[:, 1].max() - text_line.polygon[:, 1].min()
         text_line.heights = [height * 0.8, height * 0.2]
-
 
 
 class PageLayout(object):
@@ -189,9 +192,22 @@ class PageLayout(object):
 
             self.regions.append(region_layout)
 
-    def to_pagexml_string(self):
-        root = ET.Element("PcGts")
-        root.set("xmlns", "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15")
+
+    def to_pagexml_string(self, creator='Pero OCR', validate_id=False):
+        attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
+        root = ET.Element(
+            'PcGts',
+            {attr_qname: 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15/pagecontent.xsd'},
+            nsmap={
+                None: 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15',
+                'xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+                })
+
+        metadata = ET.SubElement(root, "Metadata")
+        ET.SubElement(metadata, "Creator").text = creator
+        now = datetime.now()
+        ET.SubElement(metadata, "Created").text = now.isoformat()
+        ET.SubElement(metadata, "LastChange").text = now.isoformat()
 
         page = ET.SubElement(root, "Page")
         page.set("imageFilename", self.id)
@@ -199,15 +215,13 @@ class PageLayout(object):
         page.set("imageHeight", str(self.page_size[0]))
 
         for region_layout in self.regions:
-            text_region = region_layout.to_page_xml(page)
+            text_region = region_layout.to_page_xml(page, validate_id=validate_id)
 
             for line in region_layout.lines:
                 text_line = ET.SubElement(text_region, "TextLine")
-                text_line.set("id", line.id)
+                text_line.set("id", export_id(line.id, validate_id))
                 if line.heights is not None:
                     text_line.set("custom", f"heights_v2:[{line.heights[0]:.1f},{line.heights[1]:.1f}]")
-                if line.transcription_confidence is not None:
-                    text_line.set("conf", f"{line.transcription_confidence:.3f}")
 
                 coords = ET.SubElement(text_line, "Coords")
 
@@ -226,6 +240,8 @@ class PageLayout(object):
 
                 if line.transcription is not None:
                     text_element = ET.SubElement(text_line, "TextEquiv")
+                    if line.transcription_confidence is not None:
+                        text_element.set("conf", f"{line.transcription_confidence:.3f}")
                     text_element = ET.SubElement(text_element, "Unicode")
                     text_element.text = line.transcription
 
