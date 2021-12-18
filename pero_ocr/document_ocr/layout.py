@@ -483,9 +483,10 @@ class PageLayout(object):
 
             self.regions.append(region_layout)
 
-    def save_logits(self, file_name):
-        """Save page logits as a pickled dictionary of sparse matrices.
-        :param file_name: to pickle into.
+    def _gen_logits(self):
+        """
+        Generates logits as dictionary of sparse matrices
+        :return: logit dictionary
         """
         logits = []
         characters = []
@@ -504,15 +505,33 @@ class PageLayout(object):
         logits_dict = dict(logits)
         logits_dict['line_characters'] = dict(characters)
         logits_dict['logit_coords'] = dict(logit_coords)
-        with open(file_name, 'wb') as f:
-            pickle.dump(logits_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+        return logits_dict
 
-    def load_logits(self, file_name):
-        """Load pagelogits as a pickled dictionary of sparse matrices.
+    def save_logits(self, file_name):
+        """Save page logits as a pickled dictionary of sparse matrices.
         :param file_name: to pickle into.
         """
-        with open(file_name, 'rb') as f:
-            logits_dict = pickle.load(f)
+        logits_dict = self._gen_logits()
+        with open(file_name, 'wb') as f:
+            pickle.dump(logits_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    def save_logits_bytes(self):
+        """
+        Return page logits as pickled dictionary bytes.
+        :return: pickled logits as bytes like object
+        """
+        logist_dict = self._gen_logits()
+        return pickle.dumps(logist_dict, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load_logits(self, file):
+        """Load pagelogits as a pickled dictionary of sparse matrices.
+        :param file: file name to pickle into, or already loaded bytes like object
+        """
+        if isinstance(file, bytes):
+            logits_dict = pickle.loads(file)
+        else:
+            with open(file, 'rb') as f:
+                logits_dict = pickle.load(f)
 
         if 'line_characters' in logits_dict:
             characters = logits_dict['line_characters']
@@ -527,7 +546,10 @@ class PageLayout(object):
         for region in self.regions:
             for line in region.lines:
                 if line.id not in logits_dict:
-                    raise Exception(f'Missing line id {line.id} in logits {file_name}.')
+                    if isinstance(file, str):
+                        raise Exception(f'Missing line id {line.id} in logits {file}.')
+                    else:
+                        raise Exception(f'Missing line id {line.id} in logits.')
                 line.logits = logits_dict[line.id]
                 line.characters = characters[line.id]
                 line.logit_coords = logit_coords[line.id]
