@@ -329,6 +329,8 @@ def main():
             for page_lines in results:
                 print('\n'.join(page_lines), file=f)
 
+    if page_parser.decoder:
+        logger.info(page_parser.decoder.decoding_summary())
     logger.info(f'AVERAGE PROCESSING TIME {(time.time() - t_start) / len(ids_to_process)}')
 
 

@@ -125,6 +125,10 @@ class PageDecoder:
         self.lines_decoded += 1
 
         return hypotheses.best_hyp()
+    def decoding_summary(self):
+        decoded_pct = 100.0 * self.lines_decoded / self.lines_examined
+        ms_per_line_decoded = 1000.0 * self.seconds_decoding / self.lines_decoded
+        return f'Ran on {self.lines_examined}, decoded {self.lines_decoded} lines ({decoded_pct:.1f} %) in {self.seconds_decoding:.2f}s ({ms_per_line_decoded:.1f}ms per line)'
 
 
 class WholePageRegion(object):
