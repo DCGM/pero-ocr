@@ -83,6 +83,16 @@ class LMWrapper:
             _, h_new = self._lm.model(pyth_x, pyth_h)
         return HiddenState(h_new)
 
+    def add_line_end(self, h):
+        with torch.no_grad():
+            pyth_h = h.prepare_for_torch()
+
+            line_break = self._lm.vocab[self._start_symbol]
+            batch_size = pyth_h[0].shape[1]
+            pyth_x = torch.tensor([line_break] * batch_size).to(dtype=torch.long, device=self._lm_device).unsqueeze(1)
+            _, h_new = self._lm.model(pyth_x, pyth_h)
+        return HiddenState(h_new)
+
     def log_probs(self, h):
         with torch.no_grad():
             pyth_h = h.output()
@@ -110,6 +120,15 @@ class LMWrapper:
             h0 = self._lm.model.init_hidden(batch_size)
             start_input = self._lm.vocab[self._start_symbol]
             x1 = torch.tensor([[start_input]]).to(self._lm_device)
+            _, h1 = self._lm.model(x1, h0)
+        return HiddenState(h1)
+
+    def initial_h_from_line(self, line):
+        with torch.no_grad():
+            h0 = self._lm.model.init_hidden(1)
+            symbols = [self._start_symbol] + list(line) + [self._start_symbol]
+            inputs = [self._lm.vocab[s] for s in symbols]
+            x1 = torch.tensor([inputs]).to(self._lm_device)
             _, h1 = self._lm.model(x1, h0)
         return HiddenState(h1)
 

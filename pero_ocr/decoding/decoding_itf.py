@@ -26,7 +26,7 @@ def get_ocr_charset(fn):
 def construct_lm(path, config_path=''):
     try:
         lm = language_model.torchscript_import(compose_path(path, config_path))
-    except language_model.UnreadableModelError as e:
+    except Exception as e:
         logger.warning('WARNING: Failed to load model as TorchScript file, original error:\n')
         logger.warning(f'{e}\n')
         logger.warning('WARNING: Attempting to load as a plain torch-pickled model...\n')

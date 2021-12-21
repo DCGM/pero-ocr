@@ -95,9 +95,12 @@ class PageDecoder:
         self.lines_decoded = 0
         self.seconds_decoding = 0.0
         self.continue_lines = carry_h_over
+
         self.last_h = None
+        self.last_line = None
 
     def process_page(self, page_layout: PageLayout):
+        self.last_h = None
         for line in page_layout.lines_iterator():
             try:
                 line.transcription = self.decode_line(line)
@@ -110,13 +113,19 @@ class PageDecoder:
         self.lines_examined += 1
 
         logits = prepare_dense_logits(line)
-        if self.line_confidence_threshold is not None and not self.continue_lines:
+        if self.line_confidence_threshold is not None:
             if line_confident_enough(logits, self.line_confidence_threshold):
+                self.last_h = None
+                self.last_line = line.transcription
                 return line.transcription
 
         t0 = time.time()
         if self.continue_lines:
+            if not self.last_h and self.last_line:
+                self.last_h = self.decoder._lm.initial_h_from_line(self.last_line)
+
             hypotheses, last_h = self.decoder(logits, return_h=True, init_h=self.last_h)
+            last_h = self.decoder._lm.add_line_end(last_h)
             self.last_h = last_h
         else:
             hypotheses = self.decoder(logits)
@@ -124,7 +133,11 @@ class PageDecoder:
         self.seconds_decoding += time.time() - t0
         self.lines_decoded += 1
 
-        return hypotheses.best_hyp()
+        transcription = hypotheses.best_hyp()
+        self.last_line = transcription
+
+        return transcription
+
     def decoding_summary(self):
         decoded_pct = 100.0 * self.lines_decoded / self.lines_examined
         ms_per_line_decoded = 1000.0 * self.seconds_decoding / self.lines_decoded
