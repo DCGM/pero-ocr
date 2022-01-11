@@ -1,5 +1,6 @@
 import numpy as np
 
+import logging
 from multiprocessing import Pool
 import math
 import time
@@ -17,6 +18,9 @@ from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
 from pero_ocr.layout_engines.baseline_refiner import refine_baseline
 from pero_ocr.layout_engines import layout_helpers as helpers
+
+
+logger = logging.getLogger(__name__)
 
 
 def layout_parser_factory(config, config_path='', order=1):
@@ -60,50 +64,84 @@ def page_decoder_factory(config, config_path=''):
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True,
                                            config_path=config_path)
     confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
-    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold)
+    carry_h_over = config['DECODER'].getboolean('CARRY_H_OVER')
+    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over)
 
 
 class MissingLogits(Exception):
     pass
 
 
+def line_confident_enough(logits, confidence_threshold):
+    log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
+    best_probs = np.max(log_probs, axis=-1)
+    worst_best_prob = np.exp(np.min(best_probs))
+
+    return worst_best_prob > confidence_threshold
+
+
+def prepare_dense_logits(line):
+    if line.logits is None:
+        raise MissingLogits(f"Line {line.id} has {line.logits} in place of logits")
+
+    return line.get_full_logprobs()
+
+
 class PageDecoder:
-    def __init__(self, decoder, line_confidence_threshold=None):
+    def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False):
         self.decoder = decoder
         self.line_confidence_threshold = line_confidence_threshold
         self.lines_examined = 0
         self.lines_decoded = 0
         self.seconds_decoding = 0.0
+        self.continue_lines = carry_h_over
+
+        self.last_h = None
+        self.last_line = None
 
     def process_page(self, page_layout: PageLayout):
+        self.last_h = None
         for line in page_layout.lines_iterator():
-            self.lines_examined += 1
-            logits = self.prepare_dense_logits(line)
-            if self.line_confidence_threshold is not None:
-                if self.line_confident_enough(logits):
-                    continue
-
-            t0 = time.time()
-            hypotheses = self.decoder(logits)
-            self.seconds_decoding += time.time() - t0
-            self.lines_decoded += 1
-            if hypotheses is not None:
-                line.transcription = hypotheses.best_hyp()
+            try:
+                line.transcription = self.decode_line(line)
+            except Exception:
+                logger.error(f'Failed to process line {line.id} of page {page_layout.id}. The page has been processed no further.', exc_info=True)
 
         return page_layout
 
-    def prepare_dense_logits(self, line):
-        if line.logits is None:
-            raise MissingLogits(f"Line {line.id} has {line.logits} in place of logits")
+    def decode_line(self, line):
+        self.lines_examined += 1
 
-        return line.get_full_logprobs()
+        logits = prepare_dense_logits(line)
+        if self.line_confidence_threshold is not None:
+            if line_confident_enough(logits, self.line_confidence_threshold):
+                self.last_h = None
+                self.last_line = line.transcription
+                return line.transcription
 
-    def line_confident_enough(self, logits):
-        log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
-        best_probs = np.max(log_probs, axis=-1)
-        worst_best_prob = np.exp(np.min(best_probs))
+        t0 = time.time()
+        if self.continue_lines:
+            if not self.last_h and self.last_line:
+                self.last_h = self.decoder._lm.initial_h_from_line(self.last_line)
 
-        return worst_best_prob > self.line_confidence_threshold
+            hypotheses, last_h = self.decoder(logits, return_h=True, init_h=self.last_h)
+            last_h = self.decoder._lm.add_line_end(last_h)
+            self.last_h = last_h
+        else:
+            hypotheses = self.decoder(logits)
+
+        self.seconds_decoding += time.time() - t0
+        self.lines_decoded += 1
+
+        transcription = hypotheses.best_hyp()
+        self.last_line = transcription
+
+        return transcription
+
+    def decoding_summary(self):
+        decoded_pct = 100.0 * self.lines_decoded / self.lines_examined
+        ms_per_line_decoded = 1000.0 * self.seconds_decoding / self.lines_decoded
+        return f'Ran on {self.lines_examined}, decoded {self.lines_decoded} lines ({decoded_pct:.1f} %) in {self.seconds_decoding:.2f}s ({ms_per_line_decoded:.1f}ms per line)'
 
 
 class WholePageRegion(object):
@@ -169,7 +207,7 @@ class LayoutExtractor(object):
             max_mp=config.getfloat('MAX_MEGAPIXELS'),
             gpu_fraction=config.getfloat('GPU_FRACTION')
         )
-        self.pool = Pool()
+        self.pool = Pool(1)
 
     def process_page(self, img, page_layout: PageLayout):
         if self.detect_regions or self.detect_lines:
