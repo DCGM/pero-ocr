@@ -139,6 +139,12 @@ class PageDecoder:
         return transcription
 
     def decoding_summary(self):
+        if self.lines_examined == 0:
+            return 'This PageDecoder has not processed a single line yet'
+
+        if self.lines_decoded == 0:
+            return f'Processed {self.lines_examined} lines, but none required actual decoding'
+
         decoded_pct = 100.0 * self.lines_decoded / self.lines_examined
         ms_per_line_decoded = 1000.0 * self.seconds_decoding / self.lines_decoded
         return f'Ran on {self.lines_examined}, decoded {self.lines_decoded} lines ({decoded_pct:.1f} %) in {self.seconds_decoding:.2f}s ({ms_per_line_decoded:.1f}ms per line)'
