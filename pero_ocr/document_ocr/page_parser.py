@@ -380,6 +380,16 @@ class LineCropper(object):
                 print(f"WARNING: Failed to crop line {line.id} in page {page_layout.id}. Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
         return page_layout
 
+    def crop_lines(self, img, lines: list):
+        for line in lines:
+            try:
+                line.crop = self.crop_engine.crop(
+                    img, line.baseline, line.heights)
+            except ValueError:
+                line.crop = np.zeros(
+                    (self.crop_engine.line_height, self.crop_engine.line_height, 3))
+                print(f"WARNING: Failed to crop line {line.id}. Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
+
 
 class PageOCR(object):
     def __init__(self, config, config_path=''):

@@ -1,32 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-import numpy as np
+import json
 import os
 import configparser
 import argparse
 import cv2
-import logging
-import logging.handlers
-import re
-from typing import Set, List, Optional
-import traceback
-import sys
+
 import time
-from multiprocessing import Pool
 import random
+import sys
 import Levenshtein
+import numpy as np
+from sklearn.cluster import KMeans
 
 from safe_gpu import safe_gpu
 
-from pero_ocr import utils  # noqa: F401 -- there is code executed upon import here.
 from pero_ocr.document_ocr.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
-
-from user_scripts.parse_folder import setup_logging
-from user_scripts.parse_folder import get_value_or_none
-from user_scripts.parse_folder import create_dir_if_not_exists
-from user_scripts.parse_folder import Computator
+from pero_ocr.utils import compose_path
 
 
 def parse_arguments():
@@ -34,7 +25,8 @@ def parse_arguments():
     parser.add_argument('-c', '--config', required=True, help='Path to input config file.')
     parser.add_argument('-i', '--input-image-path', help='')
     parser.add_argument('-x', '--input-xml-path', help='')
-    parser.add_argument('--max-lines', type=int, help='')
+    parser.add_argument('--n-clusters', type=int, help='')
+    parser.add_argument('--n-lines', type=int, help='')
     parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
     args = parser.parse_args()
     return args
@@ -45,28 +37,25 @@ def main():
 
     config = configparser.ConfigParser()
     config.read(args.config)
-    config['PARSE_FOLDER']['INPUT_IMAGE_PATH'] = args.input_image_path
-    config['PARSE_FOLDER']['INPUT_XML_PATH'] = args.input_xml_path
-
-    setup_logging(config['PARSE_FOLDER'])
-    logger = logging.getLogger()
 
     if args.set_gpu:
-        gpu_owner = safe_gpu.GPUOwner(logger=logger)  # noqa: F841
+        gpu_owner = safe_gpu.GPUOwner()
 
     page_parser = PageParser(config, config_path=os.path.dirname(args.config))
 
-    logger.info(f'Reading images from {args.input_image_path}.')
-
-    images, page_layouts = load_images_and_page_layouts(args.input_image_path, args.input_xml_path)
-    line_crops, gts = get_line_crops_and_transcriptions(page_parser, images, page_layouts, args.max_lines)
+    line_crops, gts = get_line_crops_and_transcriptions(page_parser, args.input_image_path, args.input_xml_path, args.n_lines)
     print(len(line_crops), len(gts))
-    #for line, trans in zip(line_crops_to_process, transcriptions):
-    #    print(line, trans)
 
     t_start = time.time()
 
-    for embed_id in range(page_parser.ocr.ocr_engine.embed_num):
+    if args.n_clusters < page_parser.ocr.ocr_engine.embed_num:
+        representative_embeddings_ids = select_representative_embeddings(page_parser.ocr.ocr_engine, args.n_clusters)
+    else:
+        representative_embeddings_ids = list(range(page_parser.ocr.ocr_engine.embed_num))
+    print(representative_embeddings_ids)
+
+    embed_id_cers = []
+    for embed_id in representative_embeddings_ids:
         page_parser.ocr.ocr_engine.embed_id = embed_id
 
         t1 = time.time()
@@ -78,43 +67,77 @@ def main():
             ref_char_sum += len(gt)
             ref_gt_char_dist += Levenshtein.distance(gt, trans)
         if ref_char_sum > 0:
-            print(f'{embed_id + 1}/{page_parser.ocr.ocr_engine.embed_num} {100.0 * ref_gt_char_dist / ref_char_sum:.2f} % CER [ {ref_gt_char_dist} / {ref_char_sum} ] Time: {time.time() - t1:.2f}')
+            embed_id_cers.append(100.0 * ref_gt_char_dist / ref_char_sum)
+            print(f'{embed_id} {embed_id_cers[-1]:.2f} % CER [ {ref_gt_char_dist} / {ref_char_sum} ] Time: {time.time() - t1:.2f}')
         else:
-            print(f'{embed_id + 1}/{page_parser.ocr.ocr_engine.embed_num} N/A % CER [ {ref_gt_char_dist} / {ref_char_sum} ] Time: {time.time() - t1:.2f}')
+            embed_id_cers.append(1000000000000)
+            print(f'{embed_id} N/A % CER [ {ref_gt_char_dist} / {ref_char_sum} ] Time: {time.time() - t1:.2f}')
 
+    embed_id_with_minimal_cer = representative_embeddings_ids[np.argmin(embed_id_cers)]
+
+    print(f'EMBED ID WITH MIN CER: {embed_id_with_minimal_cer}')
     print(f'PROCESSING TIME {(time.time() - t_start)}')
 
+    page_parser.ocr.ocr_engine.config["embed_id"] = str(embed_id_with_minimal_cer)
+    with open(compose_path(config['OCR']['OCR_JSON'], os.path.dirname(args.config)), 'w', encoding='utf8') as f:
+        json.dump(page_parser.ocr.ocr_engine.config, f, indent=4)
 
-def get_line_crops_and_transcriptions(page_parser, images, page_layouts, max_lines):
-    num_lines = 0
-    for page_layout in page_layouts:
-        for region in page_layout.regions:
-            num_lines += len(region.lines)
 
-    lines_to_keep = list(range(num_lines))
-    random.shuffle(lines_to_keep)
-    lines_to_keep = lines_to_keep[:max_lines]
+def select_representative_embeddings(ocr_engine, n_clusters):
+    for name, child in ocr_engine.model.named_modules():
+        if name == "embeddings_layer" and child.original_name == "Embedding":
+            embeddings_layer = child
+            break
+    embeddings = next(embeddings_layer.parameters())
+    embeddings = embeddings.cpu().detach().numpy()
+    print(embeddings.shape)
+    representative_embeddings_ids = []
+    kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(embeddings)
+    for i in range(n_clusters):
+        representative_embeddings_ids.append(np.random.choice(np.where(kmeans.labels_ == i)[0]))
+    return representative_embeddings_ids
 
-    line_index = 0
-    for page_layout in page_layouts:
-        for region in page_layout.regions:
-            new_lines = []
-            for line in region.lines:
-                if line_index in lines_to_keep:
-                    new_lines.append(line)
-                line_index += 1
-            region.lines = new_lines
 
-    for i in range(len(page_layouts)):
-        page_layouts[i] = page_parser.line_cropper.process_page(images[i], page_layouts[i])
+def get_line_crops_and_transcriptions(page_parser, input_image_path, input_xml_path, n_lines, max_lines=5000):
+    ignored_extensions = ['', '.xml', '.logits']
+    images_to_process = [f for f in os.listdir(input_image_path) if os.path.splitext(f)[1].lower() not in ignored_extensions]
+    page_ids_to_process = [os.path.splitext(os.path.basename(file))[0] for file in images_to_process]
+
+    valid_lines = []
+    valid_lines_counter = 0
+    for image_file, page_id in zip(images_to_process, page_ids_to_process):
+        page_layout = PageLayout(file=os.path.join(input_xml_path, page_id + '.xml'))
+        for line in page_layout.lines_iterator():
+            if line.transcription != "" and line.transcription is not None:
+                valid_lines.append([image_file, line])
+                valid_lines_counter += 1
+                if valid_lines_counter == max_lines:
+                    break
+        if valid_lines_counter == max_lines:
+            break
+    random.shuffle(valid_lines)
+    valid_lines = valid_lines[:n_lines]
+
+    image_file_to_lines = {}
+    for valid_line in valid_lines:
+        image_file, line = valid_line
+        if image_file in image_file_to_lines:
+            image_file_to_lines[image_file].append(line)
+        else:
+            image_file_to_lines[image_file] = [line]
 
     line_crops = []
     transcriptions = []
-    for page_layout in page_layouts:
-        for region in page_layout.regions:
-            for line in region.lines:
-                line_crops.append(line.crop)
-                transcriptions.append(line.transcription)
+    for image_file, lines in image_file_to_lines.items():
+        print(image_file, len(lines))
+        image = cv2.imread(os.path.join(input_image_path, image_file), 1)
+        if image is None:
+            raise Exception(f'Unable to read image "{os.path.join(input_image_path, image_file)}"')
+
+        page_parser.line_cropper.crop_lines(image, lines)
+        for line in lines:
+            line_crops.append(line.crop)
+            transcriptions.append(line.transcription)
 
     return line_crops, transcriptions
 
