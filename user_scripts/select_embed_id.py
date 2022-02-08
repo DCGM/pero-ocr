@@ -25,8 +25,9 @@ def parse_arguments():
     parser.add_argument('-c', '--config', required=True, help='Path to input config file.')
     parser.add_argument('-i', '--input-image-path', help='')
     parser.add_argument('-x', '--input-xml-path', help='')
-    parser.add_argument('--n-clusters', type=int, help='')
-    parser.add_argument('--n-lines', type=int, help='')
+    parser.add_argument('-b', '--batch-size', default=32)
+    parser.add_argument('--n-clusters', type=int, default=100, help='')
+    parser.add_argument('--n-lines', type=int, default=100, help='')
     parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
     args = parser.parse_args()
     return args
@@ -42,9 +43,11 @@ def main():
         gpu_owner = safe_gpu.GPUOwner()
 
     page_parser = PageParser(config, config_path=os.path.dirname(args.config))
+    page_parser.ocr.ocr_engine.batch_size = args.batch_size
+    page_parser.ocr.ocr_engine.max_input_horizontal_pixels = 480 * args.batch_size
 
-    line_crops, gts = get_line_crops_and_transcriptions(page_parser, args.input_image_path, args.input_xml_path, args.n_lines)
-    print(len(line_crops), len(gts))
+    line_crops, gts = get_line_crops_and_transcriptions(page_parser, args.input_image_path, args.input_xml_path,
+                                                        args.n_lines)
 
     t_start = time.time()
 
@@ -52,7 +55,8 @@ def main():
         representative_embeddings_ids = select_representative_embeddings(page_parser.ocr.ocr_engine, args.n_clusters)
     else:
         representative_embeddings_ids = list(range(page_parser.ocr.ocr_engine.embed_num))
-    print(representative_embeddings_ids)
+    print("REPRESENTATIVE EMBEDDING IDS: {}".format(representative_embeddings_ids))
+    print()
 
     embed_id_cers = []
     for embed_id in representative_embeddings_ids:
@@ -60,7 +64,7 @@ def main():
 
         t1 = time.time()
 
-        transcriptions, _, _ = page_parser.ocr.ocr_engine.process_lines(line_crops)
+        transcriptions, _, _ = page_parser.ocr.ocr_engine.process_lines(line_crops, no_logits=True)
         ref_char_sum = 0
         ref_gt_char_dist = 0
         for gt, trans in zip(gts, transcriptions):
@@ -75,7 +79,8 @@ def main():
 
     embed_id_with_minimal_cer = representative_embeddings_ids[np.argmin(embed_id_cers)]
 
-    print(f'EMBED ID WITH MIN CER: {embed_id_with_minimal_cer}')
+    print()
+    print(f'SELECTED EMBED ID WITH MIN CER: {embed_id_with_minimal_cer}')
     print(f'PROCESSING TIME {(time.time() - t_start)}')
 
     page_parser.ocr.ocr_engine.config["embed_id"] = str(embed_id_with_minimal_cer)
@@ -90,7 +95,7 @@ def select_representative_embeddings(ocr_engine, n_clusters):
             break
     embeddings = next(embeddings_layer.parameters())
     embeddings = embeddings.cpu().detach().numpy()
-    print(embeddings.shape)
+    print("EMBEDDINGS SHAPE: {}".format(embeddings.shape))
     representative_embeddings_ids = []
     kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(embeddings)
     for i in range(n_clusters):
@@ -129,7 +134,6 @@ def get_line_crops_and_transcriptions(page_parser, input_image_path, input_xml_p
     line_crops = []
     transcriptions = []
     for image_file, lines in image_file_to_lines.items():
-        print(image_file, len(lines))
         image = cv2.imread(os.path.join(input_image_path, image_file), 1)
         if image is None:
             raise Exception(f'Unable to read image "{os.path.join(input_image_path, image_file)}"')

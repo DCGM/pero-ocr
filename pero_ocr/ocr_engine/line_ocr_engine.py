@@ -44,7 +44,7 @@ class BaseEngineLineOCR(object):
         self.line_padding_px = 32
         self.max_input_horizontal_pixels = 480 * batch_size
 
-    def process_lines(self, lines, sparse_logits=True, tight_crop_logits=False):
+    def process_lines(self, lines, sparse_logits=True, tight_crop_logits=False, no_logits=False):
         """Runs ocr network on multiple lines.
         Args:
             lines (iterable): contains cropped lines as numpy arrays.
@@ -86,26 +86,31 @@ class BaseEngineLineOCR(object):
 
             out_transcriptions, out_logits = self.run_ocr(batch_data)
 
-            for ids, transcription, line_logits in zip(batch_line_ids, out_transcriptions, out_logits):
-                all_transcriptions[ids] = transcription
-                if tight_crop_logits:
-                    line_logits = line_logits[
-                                  int(self.line_padding_px // self.net_subsampling):int(
-                                     (self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
-                    all_logit_coords[ids] = [None, None]
-                    #else:
-                #    line_logits = line_logits[
-                #              int(self.line_padding_px // self.net_subsampling - 2):int(
-                #                  lines[ids].shape[1] // self.net_subsampling + 8)]
-                else:
-                    all_logit_coords[ids] = [
-                        int(self.line_padding_px // self.net_subsampling),
-                        int((self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
-                if sparse_logits:
-                    line_probs = softmax(line_logits, axis=1)
-                    line_logits[line_probs < 0.0001] = 0
-                    line_logits = sparse.csc_matrix(line_logits)
-                all_logits[ids] = line_logits
+            if no_logits:
+                for ids, transcription in zip(batch_line_ids, out_transcriptions):
+                    all_transcriptions[ids] = transcription
+            else:
+                for ids, transcription, line_logits in zip(batch_line_ids, out_transcriptions, out_logits):
+                    all_transcriptions[ids] = transcription
+
+                    if tight_crop_logits:
+                        line_logits = line_logits[
+                                      int(self.line_padding_px // self.net_subsampling):int(
+                                         (self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
+                        all_logit_coords[ids] = [None, None]
+                        #else:
+                    #    line_logits = line_logits[
+                    #              int(self.line_padding_px // self.net_subsampling - 2):int(
+                    #                  lines[ids].shape[1] // self.net_subsampling + 8)]
+                    else:
+                        all_logit_coords[ids] = [
+                            int(self.line_padding_px // self.net_subsampling),
+                            int((self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
+                    if sparse_logits:
+                        line_probs = softmax(line_logits, axis=1)
+                        line_logits[line_probs < 0.0001] = 0
+                        line_logits = sparse.csc_matrix(line_logits)
+                    all_logits[ids] = line_logits
 
         return all_transcriptions, all_logits, all_logit_coords
 
