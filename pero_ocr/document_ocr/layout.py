@@ -325,10 +325,12 @@ class PageLayout(object):
                 text_line.set("HEIGHT", str(int(text_line_height)))
                 text_line.set("WIDTH", str(int(text_line_width)))
 
-                chars = [i for i in range(len(line.characters))]
-                char_to_num = dict(zip(line.characters, chars))
+
 
                 try:
+                    chars = [i for i in range(len(line.characters))]
+                    char_to_num = dict(zip(line.characters, chars))
+
                     blank_idx = line.logits.shape[1] - 1
 
                     label = []
