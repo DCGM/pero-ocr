@@ -325,8 +325,6 @@ class PageLayout(object):
                 text_line.set("HEIGHT", str(int(text_line_height)))
                 text_line.set("WIDTH", str(int(text_line_width)))
 
-
-
                 try:
                     chars = [i for i in range(len(line.characters))]
                     char_to_num = dict(zip(line.characters, chars))
@@ -346,7 +344,7 @@ class PageLayout(object):
                     logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
                     logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
-                except (ValueError, IndexError) as e:
+                except (ValueError, IndexError, TypeError) as e:
                     print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
                     line.transcription_confidence = 0
                     average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
