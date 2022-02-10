@@ -328,21 +328,21 @@ class PageLayout(object):
                 chars = [i for i in range(len(line.characters))]
                 char_to_num = dict(zip(line.characters, chars))
 
-                blank_idx = line.logits.shape[1] - 1
-
-                label = []
-                for item in line.transcription:
-                    if item in char_to_num.keys():
-                        if char_to_num[item] >= blank_idx:
-                            label.append(0)
-                        else:
-                            label.append(char_to_num[item])
-                    else:
-                        label.append(0)
-
-                logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
-                logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                 try:
+                    blank_idx = line.logits.shape[1] - 1
+
+                    label = []
+                    for item in line.transcription:
+                        if item in char_to_num.keys():
+                            if char_to_num[item] >= blank_idx:
+                                label.append(0)
+                            else:
+                                label.append(char_to_num[item])
+                        else:
+                            label.append(0)
+
+                    logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
+                    logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except (ValueError, IndexError) as e:
                     print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
@@ -543,7 +543,7 @@ class PageLayout(object):
         for region in self.regions:
             for line in region.lines:
                 if line.id not in logits_dict:
-                    raise Exception(f'Missing line id {line.id} in logits {file_name}.')
+                    continue
                 line.logits = logits_dict[line.id]
                 line.characters = characters[line.id]
                 line.logit_coords = logit_coords[line.id]
