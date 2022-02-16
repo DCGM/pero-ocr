@@ -4,6 +4,7 @@
 import os
 import argparse
 import Levenshtein
+import sys
 
 from pero_ocr.document_ocr.layout import PageLayout
 
@@ -40,9 +41,11 @@ def compare_page_layouts(hyp_fn, ref_fn):
     line_ids = set(hyp_lines.keys()) | set(ref_lines.keys())
     for line_id in line_ids:
         if line_id not in hyp_lines:
-            print(f'Warning: Line "{line_id}" missing in "{hyp_fn}"')
+            sys.stderr.write(f'Warning: Line "{line_id}" missing in "{hyp_fn}"\n')
+            continue
         if line_id not in ref_lines:
-            print(f'Warning: Line "{line_id}" missing in "{ref_fn}"')
+            # sys.stderr.write(f'Warning: Line "{line_id}" missing in "{ref_fn}"\n')
+            continue
 
         char_sum += len(ref_lines[line_id])
         char_dist += Levenshtein.distance(ref_lines[line_id], hyp_lines[line_id])
