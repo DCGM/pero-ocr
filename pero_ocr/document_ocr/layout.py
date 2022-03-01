@@ -27,8 +27,9 @@ def export_id(id, validate_change_id):
 
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None, logit_coords=None, transcription_confidence=None):
+                 characters=None, logit_coords=None, transcription_confidence=None, index=None):
         self.id = id
+        self.index = index
         self.baseline = baseline
         self.polygon = polygon
         self.heights = heights
@@ -144,7 +145,7 @@ class PageLayout(object):
         for region in page_tree.iter(schema + 'TextRegion'):
             region_layout = get_region_from_page_xml(region, schema)
 
-            for line in region.iter(schema + 'TextLine'):
+            for line_i, line in enumerate(region.iter(schema + 'TextLine')):
                 new_textline = TextLine(id=line.attrib['id'])
                 if 'custom' in line.attrib:
                     custom_str = line.attrib['custom']
@@ -167,6 +168,15 @@ class PageLayout(object):
                             else:
                                 heights = heights_array
                             new_textline.heights = heights.tolist()
+
+                if 'index' in line.attrib:
+                    try:
+                        new_textline.index = int(line.attrib['custom'])
+                    except ValueError:
+                        pass
+
+                if new_textline.index is None:
+                    new_textline.index = line_i
 
                 baseline = line.find(schema + 'Baseline')
                 if baseline is not None:
@@ -192,7 +202,6 @@ class PageLayout(object):
 
             self.regions.append(region_layout)
 
-
     def to_pagexml_string(self, creator='Pero OCR', validate_id=False):
         attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
         root = ET.Element(
@@ -217,9 +226,13 @@ class PageLayout(object):
         for region_layout in self.regions:
             text_region = region_layout.to_page_xml(page, validate_id=validate_id)
 
-            for line in region_layout.lines:
+            for i, line in enumerate(region_layout.lines):
                 text_line = ET.SubElement(text_region, "TextLine")
                 text_line.set("id", export_id(line.id, validate_id))
+                if line.index is not None:
+                    text_line.set("index", f'{line.index:d}')
+                else:
+                    text_line.set("index", f'{i:d}')
                 if line.heights is not None:
                     text_line.set("custom", f"heights_v2:[{line.heights[0]:.1f},{line.heights[1]:.1f}]")
 
