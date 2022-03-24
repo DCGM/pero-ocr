@@ -4,6 +4,7 @@ import pickle
 import json
 from io import BytesIO
 from datetime import datetime
+from enum import Enum
 
 import numpy as np
 import lxml.etree as ET
@@ -14,6 +15,11 @@ from pero_ocr.document_ocr.crop_engine import EngineLineCropper
 from pero_ocr.force_alignment import align_text
 from pero_ocr.confidence_estimation import get_line_confidence
 from pero_ocr.document_ocr.arabic_helper import ArabicHelper
+
+
+class PAGEVersion(Enum):
+    PAGE_2019_07_15 = 1
+    PAGE_2013_07_15 = 2
 
 
 def log_softmax(x):
@@ -202,21 +208,29 @@ class PageLayout(object):
 
             self.regions.append(region_layout)
 
-    def to_pagexml_string(self, creator='Pero OCR', validate_id=False):
-        attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
-        root = ET.Element(
-            'PcGts',
-            {attr_qname: 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15/pagecontent.xsd'},
-            nsmap={
-                None: 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15',
-                'xsi': 'http://www.w3.org/2001/XMLSchema-instance',
-                })
+    def to_pagexml_string(self, creator='Pero OCR', validate_id=False, version=PAGEVersion.PAGE_2019_07_15):
+        if version == PAGEVersion.PAGE_2019_07_15:
+            attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
+            root = ET.Element(
+                'PcGts',
+                {attr_qname: 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15/pagecontent.xsd'},
+                nsmap={
+                    None: 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15',
+                    'xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+                    })
 
-        metadata = ET.SubElement(root, "Metadata")
-        ET.SubElement(metadata, "Creator").text = creator
-        now = datetime.now()
-        ET.SubElement(metadata, "Created").text = now.isoformat()
-        ET.SubElement(metadata, "LastChange").text = now.isoformat()
+            metadata = ET.SubElement(root, "Metadata")
+            ET.SubElement(metadata, "Creator").text = creator
+            now = datetime.now()
+            ET.SubElement(metadata, "Created").text = now.isoformat()
+            ET.SubElement(metadata, "LastChange").text = now.isoformat()
+
+        elif version == PAGEVersion.PAGE_2013_07_15:
+            root = ET.Element("PcGts")
+            root.set("xmlns", "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15")
+
+        else:
+            raise ValueError(f"Unknown PAGE Version: '{version}'")
 
         page = ET.SubElement(root, "Page")
         page.set("imageFilename", self.id)
@@ -260,8 +274,8 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
 
-    def to_pagexml(self, file_name):
-        xml_string = self.to_pagexml_string()
+    def to_pagexml(self, file_name, version=PAGEVersion.PAGE_2019_07_15):
+        xml_string = self.to_pagexml_string(version=version)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
