@@ -46,8 +46,9 @@ class Net(object):
         '''
         Parsenet CNN inference
         '''
-        img = cv2.resize(img, (0,0), fx=1/downsample, fy=1/downsample, interpolation=cv2.INTER_AREA)
-        img = np.pad(img, [(self.pad, self.pad), (self.pad, self.pad), (0, 0)], 'constant')
+        img = cv2.resize(img, (0,0), fx=1.0/downsample, fy=1.0/downsample, interpolation=cv2.INTER_AREA)
+        if self.pad > 0:
+            img = np.pad(img, [(self.pad, self.pad), (self.pad, self.pad), (0, 0)], 'constant')
 
         new_shape_x = int(np.ceil(img.shape[0] / 64) * 64)
         new_shape_y = int(np.ceil(img.shape[1] / 64) * 64)
@@ -67,6 +68,13 @@ class Net(object):
         out_map = out_map[0, self.pad:img.shape[0] - self.pad, self.pad:img.shape[1] - self.pad, :]
 
         return out_map
+
+
+def get_min_downsample(w, h, max_px):
+    ar = w / float(h)
+    h_2 = (max_px / ar) ** 0.5
+    min_downsample = h / h_2
+    return min_downsample
 
 
 class ParseNet(Net):
@@ -97,8 +105,7 @@ class ParseNet(Net):
         # check that big images are rescaled before first CNN run
 
         first_downsample = max(
-            self.last_downsample,
-            np.sqrt((img.shape[0] * img.shape[1]) / (self.max_megapixels * 10e5)))
+            self.last_downsample, get_min_downsample(img.shape[1], img.shape[0], self.max_megapixels * 10e5))
 
         # first run with default downsample
         net_downsample = first_downsample
@@ -106,7 +113,6 @@ class ParseNet(Net):
         if not self.adaptive_downsample:
             return out_map, net_downsample
 
-        second_downsample = first_downsample
         if (out_map[:, :, 2] > self.detection_threshold).sum() > self.downsample_line_pixel_adapt_threshold:
             med_height = self.get_med_height(out_map)
             #print('MEDIAN HEIGHT', med_height, med_height * first_downsample)
@@ -117,7 +123,7 @@ class ParseNet(Net):
                 self.last_downsample = second_downsample
                 second_downsample = max(
                     self.last_downsample,
-                    np.sqrt((img.shape[0] * img.shape[1]) / (self.max_megapixels * 10e5)))
+                    get_min_downsample(img.shape[1], img.shape[0], self.max_megapixels * 10e5))
 
                 if second_downsample / first_downsample < 0.8 or second_downsample / first_downsample > 1.2:
                     net_downsample = second_downsample

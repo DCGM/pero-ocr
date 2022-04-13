@@ -71,7 +71,8 @@ class LineFilterEngine(object):
 
 class LayoutEngine(object):
     def __init__(self, model_path, framework='tf', downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
-                 max_mp=5, gpu_fraction=None, detection_threshold=0.2, adaptive_downsample=True):
+                 max_mp=5, gpu_fraction=None, detection_threshold=0.2, adaptive_downsample=True,
+                 line_end_weight=1.0, vertical_line_connection_range=5, smooth_line_predictions=True):
         assert framework in ['tf', 'torch'], 'LayoutEngine framework has to be tf or torch.'
         if framework == 'tf':
             self.parsenet = ParseNet(
@@ -95,9 +96,15 @@ class LayoutEngine(object):
                 detection_threshold=detection_threshold
             )
 
+        self.line_end_weight = line_end_weight
+        self.vertical_line_connection_range = vertical_line_connection_range
+        self.smooth_line_predictions = smooth_line_predictions
         self.line_detection_threshold = detection_threshold
         self.adaptive_downsample = adaptive_downsample
 
+        params = ' '.join([f'{name}:{str(getattr(self, name))}'
+                  for name in ['line_end_weight', 'vertical_line_connection_range', 'smooth_line_predictions', 'line_detection_threshold', 'adaptive_downsample']])
+        print(f'LayoutEngine params are {params}')
 
     def get_heights(self, heights_map, ds, inds):
 
@@ -153,27 +160,24 @@ class LayoutEngine(object):
         """
         b_list = []
         h_list = []
-        structure = np.asarray(
-            [
-                [1, 1, 1],
-                [1, 1, 1],
-                [1, 1, 1],
-                [1, 1, 1],
-                [1, 1, 1],
-            ])
 
+        print('MAP RES:', out_map.shape)
         out_map[:, :, 4][out_map[:, :, 4] < 0] = 0
-        baselines_map = ndimage.convolve(out_map[:, :, 2], np.ones((3, 3))/9)
-        baselines_map = nonmaxima_suppression(
-            baselines_map, element_size=(7, 1))
-        baselines_map = (baselines_map - out_map[:, :, 3]) > self.line_detection_threshold
-        heights_map = ndimage.morphology.grey_dilation(
-            out_map[:, :, :2], size=(7, 1, 1))
 
+        # expand line heights verticaly
+        heights_map = ndimage.morphology.grey_dilation(
+            out_map[:, :, :2], size=(5, 1, 1))
+
+        baselines_map = out_map[:, :, 2]
+        if self.smooth_line_predictions:
+            baselines_map = ndimage.convolve(baselines_map, np.ones((3, 3))/9)
+        baselines_map = nonmaxima_suppression(baselines_map, element_size=(5, 1))
+        baselines_map = (baselines_map - self.line_end_weight * out_map[:, :, 3]) > self.line_detection_threshold
+
+        # connect vertically disconnected lines - any effect? Parameter is vertical connection distance in pixels.
         baselines_map_dilated = ndimage.morphology.binary_dilation(
-            baselines_map, structure=structure)
-        baselines_img, num_detections = ndimage.measurements.label(
-            baselines_map_dilated, structure=np.ones([3, 3]))
+            baselines_map, structure=np.asarray([[1, 1, 1] for i in range(self.vertical_line_connection_range)]))
+        baselines_img, num_detections = ndimage.measurements.label(baselines_map_dilated, structure=np.ones([3, 3]))
         baselines_img *= baselines_map
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
