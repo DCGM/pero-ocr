@@ -225,7 +225,7 @@ def main():
     if args.input_xml_path is not None:
         config['PARSE_FOLDER']['INPUT_XML_PATH'] = args.input_xml_path
     if args.input_logit_path is not None:
-        config['PARSE_FOLDER']['INPUT_LOGIT_PATH'] = args.input_xml_path
+        config['PARSE_FOLDER']['INPUT_LOGIT_PATH'] = args.input_logit_path
     if args.output_xml_path is not None:
         config['PARSE_FOLDER']['OUTPUT_XML_PATH'] = args.output_xml_path
     if args.output_render_path is not None:
