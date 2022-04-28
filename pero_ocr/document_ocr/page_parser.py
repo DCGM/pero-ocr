@@ -461,22 +461,26 @@ class PageParser(object):
             self.decoder = page_decoder_factory(config, config_path=config_path)
 
     @staticmethod
-    def compute_line_confidence(line, threshold):
+    def compute_line_confidence(line, threshold=None):
         logits = line.get_dense_logits()
         log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
         best_ids = np.argmax(log_probs, axis=-1)
         best_probs = np.exp(np.max(log_probs, axis=-1))
         worst_best_prob = get_prob(best_ids, best_probs)
-        print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape, np.nonzero(np.exp(best_probs) < threshold))
+        # print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape, np.nonzero(np.exp(best_probs) < threshold))
         # for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
         #     print(best_probs[i-1:i+2], best_ids[i-1:i+2])
 
         return worst_best_prob
 
+    def update_confidences(self, page_layout):
+        for line in page_layout.lines_iterator():
+            if line.logits is not None:
+                line.transcription_confidence = self.compute_line_confidence(line)
+
     def filter_confident_lines(self, page_layout):
         for region in page_layout.regions:
-            region.lines = [line for line in region.lines
-                            if PageParser.compute_line_confidence(line, self.filter_confident_lines_threshold) > self.filter_confident_lines_threshold]
+            region.lines = [line for line in region.lines if line.transcription_confidence > self.filter_confident_lines_threshold]
         return page_layout
 
     def process_page(self, image, page_layout):
@@ -489,6 +493,9 @@ class PageParser(object):
             page_layout = self.ocr.process_page(image, page_layout)
         if self.run_decoder:
             page_layout = self.decoder.process_page(page_layout)
+
+        self.update_confidences(page_layout)
+
         if self.filter_confident_lines_threshold > 0:
             page_layout = self.filter_confident_lines(page_layout)
 
