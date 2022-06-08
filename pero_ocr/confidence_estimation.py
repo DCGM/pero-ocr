@@ -10,7 +10,7 @@ def get_letter_confidence(logits: np.ndarray, alignment: typing.List[int], blank
 
     Args:
         logits: numpy array of (unnormalized) log-probabilities of symbols, organized as (time, symbol).
-        alignment: a list of symbols assigned to indivudual time frames
+        alignment: a list of symbols assigned to individual time frames
         blank_symbol: index of CTC blank in logits, also its representation in alignment
 
     Returns:

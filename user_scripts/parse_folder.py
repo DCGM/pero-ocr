@@ -37,7 +37,7 @@ def parse_arguments():
     parser.add_argument('--output-logit-path', help='')
     parser.add_argument('--output-alto-path', help='')
     parser.add_argument('--output-transcriptions-file-path', help='')
-    parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
+    parser.add_argument('--skipp-missing-xml', action='store_true', help='Skip images which have missing xml.')
 
     parser.add_argument('--device', choices=["gpu", "cpu"], default="gpu")
     parser.add_argument('--gpu-id', type=int, default=None, help='If set, the computation runs of the specified GPU, otherwise safe-gpu is used to allocate first unused GPU.')
