@@ -220,6 +220,9 @@ def main():
     config = configparser.ConfigParser()
     config.read(config_path)
 
+    if 'PARSE_FOLDER' not in config:
+        config.add_section('PARSE_FOLDER')
+
     if args.input_image_path is not None:
         config['PARSE_FOLDER']['INPUT_IMAGE_PATH'] = args.input_image_path
     if args.input_xml_path is not None:
