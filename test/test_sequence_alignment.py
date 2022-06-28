@@ -215,3 +215,19 @@ class TestLevenshteinDistanceSubstring(unittest.TestCase):
         a = []
         b = [1, 2, 3]
         self.assertEqual(levenshtein_distance_substring(a, b), 0)
+
+    def test_substitution_in_the_middle(self):
+        a = [1, 2, 3]
+        b = [2]
+        self.assertEqual(levenshtein_distance_substring(a, b), 0)
+
+    def test_false_start(self):
+        a = [1, 2, -1, 1, 2, 3]
+        b = [1, 2, 3]
+        self.assertEqual(levenshtein_distance_substring(a, b), 0)
+
+    # questionable behaviour -- symmetricity?
+    def test_inevitable_error(self):
+        a = [1, -1]
+        b = [1, 2, 3]
+        self.assertEqual(levenshtein_distance_substring(a, b), 1)
