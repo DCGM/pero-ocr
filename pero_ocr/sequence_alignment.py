@@ -33,8 +33,10 @@ def levenshtein_alignment(source, target, sub_cost=1, ins_cost=1, del_cost=1, em
     alig = []
     while tar_pos > 0 or src_pos > 0:
         where = backtrack[src_pos, tar_pos]
-        if where >= 0: src_pos -= 1
-        if where <= 0: tar_pos -= 1
+        if where >= 0:
+            src_pos -= 1
+        if where <= 0:
+            tar_pos -= 1
         alig.insert(0, (empty_symbol if where < 0 else source[src_pos],
                         empty_symbol if where > 0 else target[tar_pos]))
     return alig
@@ -61,8 +63,10 @@ def levenshtein_alignment_path(source, target, sub_cost=1, ins_cost=1, del_cost=
     align = []
     while tar_pos > 0 or src_pos > 0:
         where = backtrack[src_pos, tar_pos]
-        if where >= 0: src_pos -= 1
-        if where <= 0: tar_pos -= 1
+        if where >= 0:
+            src_pos -= 1
+        if where <= 0:
+            tar_pos -= 1
         align.append(where)
     return list(reversed(align))
 
