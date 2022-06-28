@@ -11,6 +11,8 @@ from pero_ocr.decoding.decoders import CTCPrefixLogRawNumpyDecoder
 from pero_ocr.decoding.decoders import get_old_prefixes_positions, get_new_prefixes_positions
 from pero_ocr.decoding.decoders import update_lm_things
 
+from pero_ocr.decoding.lm_wrapper import HiddenState
+
 from .test_lm_wrapper import DummyLm
 
 
@@ -398,7 +400,7 @@ class CTCDecodingWithLMTests:
         self.assertEqual(len(boh), 2)
         self.assertEqual(hyp, 'ac')
 
-        self.assertEqual(last_h, torch.tensor([85.0]))
+        self.assertEqual(last_h._h, torch.tensor([85.0]))
 
     def test_decoder_accepts_hidden_state(self):
         lm = self.get_cying_lm()
@@ -412,7 +414,8 @@ class CTCDecodingWithLMTests:
             [-80.0, -2.0, -1.0, -80.0],
         ])
 
-        boh = decoder(logits, max_unnormalization=np.inf, init_h=torch.tensor([[1.0]]))
+        init_h = HiddenState(torch.tensor([[[1.0]]]))
+        boh = decoder(logits, max_unnormalization=np.inf, init_h=init_h)
         hyp = boh.best_hyp()
         self.assertEqual(len(boh), 2)
         self.assertEqual(hyp, 'ab')
@@ -429,14 +432,14 @@ class CTCDecodingWithLMTests:
             [-1, -80.0, -80.0, -80.0],
         ])
         logits_2 = np.asarray([
-            [-80.0, -2.0, -1.0, -80.0],
+            [-80.0, -0.8, -1.0, -80.0],
         ])
 
         _, last_h = decoder(logits_1, max_unnormalization=np.inf, return_h=True)
-        boh = decoder(logits_2, max_unnormalization=np.inf, init_h=torch.tensor([[1.0]]))
+        boh = decoder(logits_2, max_unnormalization=np.inf, init_h=last_h)
         hyp = boh.best_hyp()
         self.assertEqual(len(boh), 2)
-        self.assertEqual(hyp, 'b')
+        self.assertEqual(hyp, 'c')
 
     def test_wide_beam_regression(self):
         decoder = self._decoder_constructor(
