@@ -82,3 +82,22 @@ def edit_stats_for_alignment(alig, empty_symbol=None):
     nins = len(alig) - nphn
     nsub = nphn - ncor - ndel
     return nphn, ncor, nins, ndel, nsub
+
+
+def levenshtein_distance_substring(source, target, sub_cost=1, ins_cost=1, del_cost=1):
+    if len(target) > len(source):
+        target, source = source, target
+
+    target = np.array(target)
+    dist = np.ones((1 + len(target) + 1)) * float('inf')
+    dist[0] = 0
+    for s in source:
+        dist[1:-1] = np.minimum(dist[1:-1] + del_cost, dist[:-2] + (target != s) * sub_cost)
+
+        for ii in range(len(dist) - 2):
+            if dist[ii + 1] > dist[ii] + ins_cost:
+                dist[ii + 1] = dist[ii] + ins_cost
+
+        dist[-1] = np.minimum(dist[-1], dist[-2])
+
+    return dist[-1]
