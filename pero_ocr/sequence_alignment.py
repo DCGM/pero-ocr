@@ -101,3 +101,61 @@ def levenshtein_distance_substring(source, target, sub_cost=1, ins_cost=1, del_c
         dist[-1] = np.minimum(dist[-1], dist[-2])
 
     return dist[-1]
+
+def levenshtein_alignment_substring(source, target, sub_cost=1, ins_cost=1, del_cost=1, empty_symbol=None):
+    swapped = False
+    if len(target) > len(source):
+        target, source = source, target
+        swapped = True
+
+    target = np.array(target)
+    backtrack = np.ones((len(source) + 1, 1 + len(target) + 1))
+    backtrack[0] = -1
+    dist = np.ones((1 + len(target) + 1)) * float('inf')
+    dist[0] = 0
+
+    for ii, s in enumerate(source):
+        cost4sub = dist[:-2] + (target != s) * sub_cost
+        dist[1:-1] += del_cost
+        where_sub = cost4sub < dist[1:-1]
+        dist[1:-1][where_sub] = cost4sub[where_sub]
+        backtrack[ii + 1, 1:-1][where_sub] = 0
+        for jj in range(len(dist) - 2):
+            if dist[jj + 1] > dist[jj] + ins_cost:
+                dist[jj + 1] = dist[jj] + ins_cost
+                backtrack[ii + 1, jj + 1] = -1
+
+        if dist[-1] == dist[-2]:
+            backtrack[ii + 1, -1] = 0
+        elif dist[-1] > dist[-2]:
+            dist[-1] = dist[-2]
+            backtrack[ii + 1, -1] = -1
+        else:
+            pass
+
+    suffix_beginning = backtrack.shape[0]
+    if np.any(backtrack[:, -1] > 0):
+        suffix_beginning = np.where(backtrack[:, -1] < 1)[0][-1] + 1
+
+    backtrack = backtrack[:suffix_beginning, :-1]
+
+    src_pos = backtrack.shape[0] - 1
+    tar_pos = len(target)
+    alig = []
+
+    for char in source[suffix_beginning - 1:]:
+        alig.append((char, empty_symbol))
+
+    while tar_pos > 0 or src_pos > 0:
+        where = backtrack[src_pos, tar_pos]
+        if where >= 0:
+            src_pos -= 1
+        if where <= 0:
+            tar_pos -= 1
+        alig.insert(0, (empty_symbol if where < 0 else source[src_pos],
+                        empty_symbol if where > 0 else target[tar_pos]))
+
+    if swapped:
+        alig = [(pair[1], pair[0]) for pair in alig]
+
+    return alig
