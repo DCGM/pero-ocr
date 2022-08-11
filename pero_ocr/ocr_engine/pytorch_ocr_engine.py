@@ -48,15 +48,6 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
             self._append_mean_embedding()
             self.embed_id = self.get_mean_embed_id()
 
-    @property
-    def exported_model(self):
-        exported_model = False
-
-        if "exported" in self.config and str(self.config["exported"]).lower() in ['true', 't', 'yes', 'y', '1']:
-            exported_model = True
-
-        return exported_model
-
     def _append_mean_embedding(self):
         current_weights = self.model.embeddings_layer.weight
         mean_embedding = torch.mean(current_weights, 0, keepdim=True)
