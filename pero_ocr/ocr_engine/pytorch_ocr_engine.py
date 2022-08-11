@@ -67,9 +67,7 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
     def run_ocr(self, batch_data):
         with torch.no_grad():
             batch_data = torch.from_numpy(batch_data).to(self.device).float() / 255.0
-            
-            if self.exported_model:
-                batch_data = batch_data.permute(0,3,1,2)
+            batch_data = batch_data.permute(0, 3, 1, 2)
 
             if self.embed_id is not None:
                 ids_embedding = torch.LongTensor([self.embed_id] * batch_data.shape[0]).to(self.device)
