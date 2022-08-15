@@ -368,7 +368,6 @@ class PageLayout(object):
                         else:
                             label.append(0)
 
-                    logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
                     logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except (ValueError, IndexError, TypeError) as e:
@@ -394,7 +393,7 @@ class PageLayout(object):
                         if space_idxs[i] != space_idxs[i+1]-1:
                             words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
                     splitted_transcription = line.transcription.split()
-                    lm_const = line_coords.shape[1] / logits.shape[0]
+                    lm_const = line_coords.shape[1] / logprobs.shape[0]
                     letter_counter = 0
                     confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
                     if True:  # line.transcription_confidence is None:
