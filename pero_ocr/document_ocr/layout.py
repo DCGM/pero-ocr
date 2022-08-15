@@ -427,7 +427,7 @@ class PageLayout(object):
                 except (ValueError, IndexError, TypeError) as e:
                     print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
                     line.transcription_confidence = 0
-                    average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
+                    average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())  # TODO: should be difference??
                     for w, word in enumerate(line.transcription.split()):
                         string = ET.SubElement(text_line, "String")
                         string.set("CONTENT", word)
