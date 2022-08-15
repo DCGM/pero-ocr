@@ -308,6 +308,22 @@ class PageLayout(object):
                 word_confidence = np.quantile(confidences[word_start:word_start + word_len], .50)
 
         return word_confidence 
+
+    def alto_create_word_child(self, parent, word, confidence, x_min, x_max, y_min, y_max, is_arabic, arabic_helper):
+        string = ET.SubElement(parent, "String")
+
+        if is_arabic:
+            string.set("CONTENT", arabic_helper.label_form_to_string(word))
+        else:
+            string.set("CONTENT", word)
+
+        string.set("HEIGHT", str(int((y_max - y_min))))
+        string.set("WIDTH", str(int((x_max - x_min))))
+        string.set("VPOS", str(int(y_min)))
+        string.set("HPOS", str(int(x_min)))
+        
+        if confidence is not None:
+            string.set("WC", str(round(confidence, 2)))
         
 
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
@@ -431,21 +447,7 @@ class PageLayout(object):
                     for w_id, (aligned_word, text_word) in enumerate(zip(words, splitted_transcription)):
                         x_min, x_max, y_min, y_max = self.alto_get_visual_span(line, logprobs.shape[0], crop_engine, aligned_word)
                         word_confidence = self.alto_get_word_confidence(confidences, line, letter_counter, len(text_word))
-
-                        string = ET.SubElement(text_line, "String")
-
-                        if arabic_line:
-                            string.set("CONTENT", arabic_helper.label_form_to_string(text_word))
-                        else:
-                            string.set("CONTENT", text_word)
-
-                        string.set("HEIGHT", str(int((y_max - y_min))))
-                        string.set("WIDTH", str(int((x_max - x_min))))
-                        string.set("VPOS", str(int(y_min)))
-                        string.set("HPOS", str(int(x_min)))
-
-                        if word_confidence is not None:
-                            string.set("WC", str(round(word_confidence, 2)))
+                        self.alto_create_word_child(text_line, text_word, word_confidence, x_min, x_max, y_min, y_max, arabic_line, arabic_helper)
 
                         if w_id != len(line.transcription.split()) - 1:
                             space = ET.SubElement(text_line, "SP")
