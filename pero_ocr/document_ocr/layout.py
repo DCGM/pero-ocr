@@ -347,6 +347,15 @@ class PageLayout(object):
 
         return label
         
+    def alto_get_aligned_words(self, line, aligned_letters):
+        words = []
+        space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
+        space_idxs = [-1] + space_idxs + [len(aligned_letters)]
+        for i in range(len(space_idxs[1:])):
+            if space_idxs[i] != space_idxs[i+1]-1:
+                words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
+        
+        return words
 
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
         arabic_helper = ArabicHelper()
@@ -440,13 +449,8 @@ class PageLayout(object):
                         string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
                 else:
                     crop_engine = EngineLineCropper(poly=2)
-                    space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
 
-                    words = []
-                    space_idxs = [-1] + space_idxs + [len(aligned_letters)]
-                    for i in range(len(space_idxs[1:])):
-                        if space_idxs[i] != space_idxs[i+1]-1:
-                            words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
+                    words = self.alto_get_aligned_words(line, aligned_letters)
                     splitted_transcription = line.transcription.split()
                     letter_counter = 0
                     confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
