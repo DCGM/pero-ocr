@@ -398,11 +398,12 @@ class PageLayout(object):
                     confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
                     if True:  # line.transcription_confidence is None:
                         line.transcription_confidence = np.quantile(confidences, .50)
-                    for w, word in enumerate(words):
+
+                    for w_id, (aligned_word, text_word) in enumerate(zip(words, splitted_transcription)):
                         extension = 2
                         while line_coords.size > 0 and extension < 40:
-                            all_x = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 0]
-                            all_y = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 1]
+                            all_x = line_coords[:, max(0, int((aligned_word[0]-extension) * lm_const)):int((aligned_word[1]+extension) * lm_const), 0]
+                            all_y = line_coords[:, max(0, int((aligned_word[0]-extension) * lm_const)):int((aligned_word[1]+extension) * lm_const), 1]
 
                             if all_x.size == 0 or all_y.size == 0:
                                 extension += 1
@@ -418,14 +419,14 @@ class PageLayout(object):
                             word_confidence = 1
                         else:
                             if confidences.size != 0:
-                                word_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
+                                word_confidence = np.quantile(confidences[letter_counter:letter_counter+len(text_word)], .50)
 
                         string = ET.SubElement(text_line, "String")
 
                         if arabic_line:
-                            string.set("CONTENT", arabic_helper.label_form_to_string(splitted_transcription[w]))
+                            string.set("CONTENT", arabic_helper.label_form_to_string(text_word))
                         else:
-                            string.set("CONTENT", splitted_transcription[w])
+                            string.set("CONTENT", text_word)
 
                         string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
                         string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
@@ -435,13 +436,13 @@ class PageLayout(object):
                         if word_confidence is not None:
                             string.set("WC", str(round(word_confidence, 2)))
 
-                        if w != (len(line.transcription.split())-1):
+                        if w_id != (len(line.transcription.split())-1):
                             space = ET.SubElement(text_line, "SP")
 
                             space.set("WIDTH", str(4))
                             space.set("VPOS", str(int(np.min(all_y))))
                             space.set("HPOS", str(int(np.max(all_x))))
-                        letter_counter += len(splitted_transcription[w])+1
+                        letter_counter += len(text_word) + 1
                 if line.transcription_confidence is not None:
                     if line.transcription_confidence < min_line_confidence:
                         text_block.remove(text_line)
