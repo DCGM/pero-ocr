@@ -331,6 +331,21 @@ class PageLayout(object):
         space.set("WIDTH", str(4))
         space.set("VPOS", str(int(y_min)))
         space.set("HPOS", str(int(x_max)))
+
+    def alto_get_numeric_labels(self, line):
+        blank_idx = line.logits.shape[1] - 1
+        label = []
+        char_to_num = {c: i for i, c in enumerate(line.characters)}
+        for item in line.transcription:
+            if item in char_to_num.keys():
+                if char_to_num[item] >= blank_idx:
+                    label.append(0)
+                else:
+                    label.append(char_to_num[item])
+            else:
+                label.append(0)
+
+        return label
         
 
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
@@ -407,21 +422,8 @@ class PageLayout(object):
                 text_line.set("WIDTH", str(int(text_line_width)))
 
                 try:
-                    chars = [i for i in range(len(line.characters))]
-                    char_to_num = dict(zip(line.characters, chars))
-
                     blank_idx = line.logits.shape[1] - 1
-
-                    label = []
-                    for item in line.transcription:
-                        if item in char_to_num.keys():
-                            if char_to_num[item] >= blank_idx:
-                                label.append(0)
-                            else:
-                                label.append(char_to_num[item])
-                        else:
-                            label.append(0)
-
+                    label = self.alto_get_numeric_labels(line)
                     logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except (ValueError, IndexError, TypeError) as e:
