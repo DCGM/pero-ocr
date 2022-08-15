@@ -324,6 +324,13 @@ class PageLayout(object):
         
         if confidence is not None:
             string.set("WC", str(round(confidence, 2)))
+
+    def alto_create_space_child(self, parent, x_max, y_min):
+        space = ET.SubElement(parent, "SP")
+
+        space.set("WIDTH", str(4))
+        space.set("VPOS", str(int(y_min)))
+        space.set("HPOS", str(int(x_max)))
         
 
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
@@ -450,11 +457,8 @@ class PageLayout(object):
                         self.alto_create_word_child(text_line, text_word, word_confidence, x_min, x_max, y_min, y_max, arabic_line, arabic_helper)
 
                         if w_id != len(line.transcription.split()) - 1:
-                            space = ET.SubElement(text_line, "SP")
+                            self.alto_create_space_child(text_line, x_max, y_min)
 
-                            space.set("WIDTH", str(4))
-                            space.set("VPOS", str(int(y_min)))
-                            space.set("HPOS", str(int(x_max)))
                         letter_counter += len(text_word) + 1
                 if line.transcription_confidence is not None:
                     if line.transcription_confidence < min_line_confidence:
