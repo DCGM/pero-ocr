@@ -401,7 +401,7 @@ class PageLayout(object):
                         line.transcription_confidence = np.quantile(confidences, .50)
                     for w, word in enumerate(words):
                         extension = 2
-                        while True:
+                        while line_coords.size > 0 and extension < 40:
                             all_x = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 0]
                             all_y = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 1]
 
@@ -409,6 +409,10 @@ class PageLayout(object):
                                 extension += 1
                             else:
                                 break
+
+                        if line_coords.size == 0 or all_x.size == 0 or all_y.size == 0:
+                           all_x = line.baseline[:, 0]
+                           all_y = np.concatenate([line.baseline[:, 1] - line.heights[0], line.baseline[:, 1] + line.heights[1]])
 
                         word_confidence = None
                         if line.transcription_confidence == 1:
@@ -548,7 +552,7 @@ class PageLayout(object):
         logits_dict['line_characters'] = dict(characters)
         logits_dict['logit_coords'] = dict(logit_coords)
         with open(file_name, 'wb') as f:
-            pickle.dump(logits_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(logits_dict, f, protocol=4)
 
     def load_logits(self, file_name):
         """Load pagelogits as a pickled dictionary of sparse matrices.
