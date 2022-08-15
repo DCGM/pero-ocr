@@ -279,6 +279,27 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
+    def alto_get_visual_span(self, line, logprob_len, crop_engine, aligned_word):
+        line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
+        lm_const = line_coords.shape[1] / logprob_len
+        extension = 2
+
+        while line_coords.size > 0 and extension < 40:
+            all_x = line_coords[:, max(0, int((aligned_word[0]-extension) * lm_const)):int((aligned_word[1]+extension) * lm_const), 0]
+            all_y = line_coords[:, max(0, int((aligned_word[0]-extension) * lm_const)):int((aligned_word[1]+extension) * lm_const), 1]
+
+            if all_x.size == 0 or all_y.size == 0:
+                extension += 1
+            else:
+                break
+
+        if line_coords.size == 0 or all_x.size == 0 or all_y.size == 0:
+           all_x = line.baseline[:, 0]
+           all_y = np.concatenate([line.baseline[:, 1] - line.heights[0], line.baseline[:, 1] + line.heights[1]])
+
+        return np.min(all_x), np.max(all_x), np.min(all_y), np.max(all_y)
+        
+
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
@@ -384,7 +405,6 @@ class PageLayout(object):
                         string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
                 else:
                     crop_engine = EngineLineCropper(poly=2)
-                    line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
                     space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
 
                     words = []
@@ -393,26 +413,13 @@ class PageLayout(object):
                         if space_idxs[i] != space_idxs[i+1]-1:
                             words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
                     splitted_transcription = line.transcription.split()
-                    lm_const = line_coords.shape[1] / logprobs.shape[0]
                     letter_counter = 0
                     confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
                     if True:  # line.transcription_confidence is None:
                         line.transcription_confidence = np.quantile(confidences, .50)
 
                     for w_id, (aligned_word, text_word) in enumerate(zip(words, splitted_transcription)):
-                        extension = 2
-                        while line_coords.size > 0 and extension < 40:
-                            all_x = line_coords[:, max(0, int((aligned_word[0]-extension) * lm_const)):int((aligned_word[1]+extension) * lm_const), 0]
-                            all_y = line_coords[:, max(0, int((aligned_word[0]-extension) * lm_const)):int((aligned_word[1]+extension) * lm_const), 1]
-
-                            if all_x.size == 0 or all_y.size == 0:
-                                extension += 1
-                            else:
-                                break
-
-                        if line_coords.size == 0 or all_x.size == 0 or all_y.size == 0:
-                           all_x = line.baseline[:, 0]
-                           all_y = np.concatenate([line.baseline[:, 1] - line.heights[0], line.baseline[:, 1] + line.heights[1]])
+                        x_min, x_max, y_min, y_max = self.alto_get_visual_span(line, logprobs.shape[0], crop_engine, aligned_word)
 
                         word_confidence = None
                         if line.transcription_confidence == 1:
@@ -428,20 +435,20 @@ class PageLayout(object):
                         else:
                             string.set("CONTENT", text_word)
 
-                        string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
-                        string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
-                        string.set("VPOS", str(int(np.min(all_y))))
-                        string.set("HPOS", str(int(np.min(all_x))))
+                        string.set("HEIGHT", str(int((y_max - y_min))))
+                        string.set("WIDTH", str(int((x_max - x_min))))
+                        string.set("VPOS", str(int(y_min)))
+                        string.set("HPOS", str(int(x_min)))
 
                         if word_confidence is not None:
                             string.set("WC", str(round(word_confidence, 2)))
 
-                        if w_id != (len(line.transcription.split())-1):
+                        if w_id != len(line.transcription.split()) - 1:
                             space = ET.SubElement(text_line, "SP")
 
                             space.set("WIDTH", str(4))
-                            space.set("VPOS", str(int(np.min(all_y))))
-                            space.set("HPOS", str(int(np.max(all_x))))
+                            space.set("VPOS", str(int(y_min)))
+                            space.set("HPOS", str(int(x_max)))
                         letter_counter += len(text_word) + 1
                 if line.transcription_confidence is not None:
                     if line.transcription_confidence < min_line_confidence:
