@@ -397,8 +397,8 @@ class PageLayout(object):
                     lm_const = line_coords.shape[1] / logits.shape[0]
                     letter_counter = 0
                     confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
-                    if line.transcription_confidence is None:
-                        line.transcription_confidence = np.quantile(confidences, .50)
+                    #if line.transcription_confidence is None:
+                    line.transcription_confidence = np.quantile(confidences, .50)
                     for w, word in enumerate(words):
                         extension = 2
                         while line_coords.size > 0 and extension < 40:
