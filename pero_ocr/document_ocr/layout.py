@@ -298,6 +298,16 @@ class PageLayout(object):
            all_y = np.concatenate([line.baseline[:, 1] - line.heights[0], line.baseline[:, 1] + line.heights[1]])
 
         return np.min(all_x), np.max(all_x), np.min(all_y), np.max(all_y)
+
+    def alto_get_word_confidence(self, confidences, line, word_start, word_len):
+        word_confidence = None
+        if line.transcription_confidence == 1:
+            word_confidence = 1
+        else:
+            if confidences.size != 0:
+                word_confidence = np.quantile(confidences[word_start:word_start + word_len], .50)
+
+        return word_confidence 
         
 
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
@@ -420,13 +430,7 @@ class PageLayout(object):
 
                     for w_id, (aligned_word, text_word) in enumerate(zip(words, splitted_transcription)):
                         x_min, x_max, y_min, y_max = self.alto_get_visual_span(line, logprobs.shape[0], crop_engine, aligned_word)
-
-                        word_confidence = None
-                        if line.transcription_confidence == 1:
-                            word_confidence = 1
-                        else:
-                            if confidences.size != 0:
-                                word_confidence = np.quantile(confidences[letter_counter:letter_counter+len(text_word)], .50)
+                        word_confidence = self.alto_get_word_confidence(confidences, line, letter_counter, len(text_word))
 
                         string = ET.SubElement(text_line, "String")
 
