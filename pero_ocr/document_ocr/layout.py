@@ -365,6 +365,8 @@ class PageLayout(object):
 
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
         arabic_helper = ArabicHelper()
+        crop_engine = EngineLineCropper(poly=2)
+
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
@@ -381,6 +383,7 @@ class PageLayout(object):
         else:
             ocr_processing = create_ocr_processing_element()
             description.append(ocr_processing)
+
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
         if page_uuid is not None:
@@ -402,7 +405,7 @@ class PageLayout(object):
         print_space_vpos = self.page_size[0]
         print_space_hpos = self.page_size[1]
 
-        for b, block in enumerate(self.regions):
+        for block in self.regions:
             text_block = ET.SubElement(print_space, "TextBlock")
             text_block.set("ID", 'block_{}' .format(block.id))
 
@@ -416,12 +419,12 @@ class PageLayout(object):
             print_space_height = print_space_height - print_space_vpos
             print_space_width = print_space_width - print_space_hpos
 
-            for l, line in enumerate(block.lines):
+            for line in block.lines:
                 if not line.transcription:
                     continue
-                arabic_line = False
-                if arabic_helper.is_arabic_line(line.transcription):
-                    arabic_line = True
+
+                arabic_line = arabic_helper.is_arabic_line(line.transcription)
+
                 text_line = ET.SubElement(text_block, "TextLine")
                 text_line_baseline = int(np.average(np.array(line.baseline)[:, 1]))
                 text_line.set("BASELINE", str(text_line_baseline))
@@ -438,13 +441,11 @@ class PageLayout(object):
                     print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
                     line.transcription_confidence = 0
                     average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())  # TODO: should be difference??
-                    for w, word in enumerate(line.transcription.split()):
+                    for w_id, word in enumerate(line.transcription.split()):
                         string = ET.SubElement(text_line, "String")
                         string.set("CONTENT", word)
-                        self.alto_set_hwvh(string, text_line_height, average_word_width, text_line_vpos, text_line_hpos + (w*average_word_width))
+                        self.alto_set_hwvh(string, text_line_height, average_word_width, text_line_vpos, text_line_hpos + (w_id*average_word_width))
                 else:
-                    crop_engine = EngineLineCropper(poly=2)
-
                     words = self.alto_get_aligned_words(line, aligned_letters)
                     splitted_transcription = line.transcription.split()
                     letter_counter = 0
@@ -461,6 +462,7 @@ class PageLayout(object):
                             self.alto_create_space_child(text_line, x_max, y_min)
 
                         letter_counter += len(text_word) + 1
+
                 if line.transcription_confidence is not None:
                     if line.transcription_confidence < min_line_confidence:
                         text_block.remove(text_line)
