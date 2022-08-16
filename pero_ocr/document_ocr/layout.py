@@ -357,6 +357,12 @@ class PageLayout(object):
         
         return words
 
+    def alto_set_hwvh(self, elem, height, width, v_pos, h_pos):
+        elem.set("HEIGHT", str(int(height)))
+        elem.set("WIDTH", str(int(width)))
+        elem.set("VPOS", str(int(v_pos)))
+        elem.set("HPOS", str(int(h_pos)))
+
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
@@ -401,10 +407,7 @@ class PageLayout(object):
             text_block.set("ID", 'block_{}' .format(block.id))
 
             text_block_height, text_block_width, text_block_vpos, text_block_hpos = get_hwvh(block.polygon)
-            text_block.set("HEIGHT", str(int(text_block_height)))
-            text_block.set("WIDTH", str(int(text_block_width)))
-            text_block.set("VPOS", str(int(text_block_vpos)))
-            text_block.set("HPOS", str(int(text_block_hpos)))
+            self.alto_set_hwvh(text_block, text_block_height, text_block_width, text_block_vpos, text_block_hpos)
 
             print_space_height = max([print_space_vpos + print_space_height, text_block_vpos + text_block_height])
             print_space_width = max([print_space_hpos + print_space_width, text_block_hpos + text_block_width])
@@ -424,11 +427,7 @@ class PageLayout(object):
                 text_line.set("BASELINE", str(text_line_baseline))
 
                 text_line_height, text_line_width, text_line_vpos, text_line_hpos = get_hwvh(line.polygon)
-
-                text_line.set("VPOS", str(int(text_line_vpos)))
-                text_line.set("HPOS", str(int(text_line_hpos)))
-                text_line.set("HEIGHT", str(int(text_line_height)))
-                text_line.set("WIDTH", str(int(text_line_width)))
+                self.alto_set_hwvh(text_line, text_line_height, text_line_width, text_line_vpos, text_line_hpos)
 
                 try:
                     blank_idx = line.logits.shape[1] - 1
@@ -442,11 +441,7 @@ class PageLayout(object):
                     for w, word in enumerate(line.transcription.split()):
                         string = ET.SubElement(text_line, "String")
                         string.set("CONTENT", word)
-
-                        string.set("HEIGHT", str(int(text_line_height)))
-                        string.set("WIDTH", str(int(average_word_width)))
-                        string.set("VPOS", str(int(text_line_vpos)))
-                        string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
+                        self.alto_set_hwvh(string, text_line_height, average_word_width, text_line_vpos, text_line_hpos + (w*average_word_width))
                 else:
                     crop_engine = EngineLineCropper(poly=2)
 
@@ -469,30 +464,12 @@ class PageLayout(object):
                 if line.transcription_confidence is not None:
                     if line.transcription_confidence < min_line_confidence:
                         text_block.remove(text_line)
-        top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
-        top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
-        top_margin.set("VPOS", "0")
-        top_margin.set("HPOS", "0")
 
-        left_margin.set("HEIGHT", "{}" .format(int(self.page_size[0])))
-        left_margin.set("WIDTH", "{}" .format(int(print_space_hpos)))
-        left_margin.set("VPOS", "0")
-        left_margin.set("HPOS", "0")
-
-        right_margin.set("HEIGHT", "{}" .format(int(self.page_size[0])))
-        right_margin.set("WIDTH", "{}" .format(int(self.page_size[1] - (print_space_hpos + print_space_width))))
-        right_margin.set("VPOS", "0")
-        right_margin.set("HPOS", "{}" .format(int(print_space_hpos + print_space_width)))
-
-        bottom_margin.set("HEIGHT", "{}" .format(int(self.page_size[0] - (print_space_vpos + print_space_height))))
-        bottom_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
-        bottom_margin.set("VPOS", "{}" .format(int(print_space_vpos + print_space_height)))
-        bottom_margin.set("HPOS", "0")
-
-        print_space.set("HEIGHT", str(int(print_space_height)))
-        print_space.set("WIDTH", str(int(print_space_width)))
-        print_space.set("VPOS", str(int(print_space_vpos)))
-        print_space.set("HPOS", str(int(print_space_hpos)))
+        self.alto_set_hwvh(top_margin, print_space_vpos, self.page_size[1], 0, 0)
+        self.alto_set_hwvh(left_margin, self.page_size[0], print_space_hpos, 0, 0)
+        self.alto_set_hwvh(right_margin, self.page_size[0], self.page_size[1] - (print_space_hpos + print_space_width), 0, print_space_hpos + print_space_width)
+        self.alto_set_hwvh(bottom_margin, self.page_size[0] - (print_space_vpos + print_space_height), self.page_size[1], print_space_vpos + print_space_height, 0)
+        self.alto_set_hwvh(print_space, print_space_height, print_space_width, print_space_vpos, print_space_hpos)
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
 
