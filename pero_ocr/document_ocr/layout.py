@@ -439,7 +439,7 @@ class PageLayout(object):
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except (ValueError, IndexError, TypeError) as e:
                     print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
-                    line.transcription_confidence = 0
+                    line_transcription_confidence = 0
                     average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())  # TODO: should be difference??
                     for w_id, word in enumerate(line.transcription.split()):
                         string = ET.SubElement(text_line, "String")
@@ -450,8 +450,7 @@ class PageLayout(object):
                     splitted_transcription = line.transcription.split()
                     letter_counter = 0
                     confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
-                    if True:  # line.transcription_confidence is None:
-                        line.transcription_confidence = np.quantile(confidences, .50)
+                    line_transcription_confidence = np.quantile(confidences, .50)
 
                     for w_id, (aligned_word, text_word) in enumerate(zip(words, splitted_transcription)):
                         x_min, x_max, y_min, y_max = self.alto_get_visual_span(line, logprobs.shape[0], crop_engine, aligned_word)
@@ -462,10 +461,6 @@ class PageLayout(object):
                             self.alto_create_space_child(text_line, x_max, y_min)
 
                         letter_counter += len(text_word) + 1
-
-                if line.transcription_confidence is not None:
-                    if line.transcription_confidence < min_line_confidence:
-                        text_block.remove(text_line)
 
         self.alto_set_hwvh(top_margin, print_space_vpos, self.page_size[1], 0, 0)
         self.alto_set_hwvh(left_margin, self.page_size[0], print_space_hpos, 0, 0)
