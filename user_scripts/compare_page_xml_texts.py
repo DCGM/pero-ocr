@@ -48,7 +48,7 @@ def compare_page_layouts(hyp_fn, ref_fn):
             continue
 
         char_sum += len(ref_lines[line_id])
-        char_dist += Levenshtein.distance(ref_lines[line_id], hyp_lines[line_id])
+        char_dist += Levenshtein.distance(ref_lines[line_id].strip(), hyp_lines[line_id].strip())
 
     return char_sum, char_dist
 
