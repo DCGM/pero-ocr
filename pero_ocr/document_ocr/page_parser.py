@@ -462,16 +462,14 @@ class PageParser(object):
 
     @staticmethod
     def compute_line_confidence(line, threshold=None):
-        logits = line.get_dense_logits()
-        log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
+        log_probs = line.get_full_logprobs()
         best_ids = np.argmax(log_probs, axis=-1)
         best_probs = np.exp(np.max(log_probs, axis=-1))
-        worst_best_prob = get_prob(best_ids, best_probs)
-        # print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape, np.nonzero(np.exp(best_probs) < threshold))
-        # for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
-        #     print(best_probs[i-1:i+2], best_ids[i-1:i+2])
 
-        return worst_best_prob
+        blank_id = log_probs.shape[1] - 1
+        char_probs = [p for p, c in zip(best_ids, best_probs) if c != blank_id]
+
+        return np.mean(char_probs)
 
     def update_confidences(self, page_layout):
         for line in page_layout.lines_iterator():
