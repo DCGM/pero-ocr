@@ -25,10 +25,11 @@ def parse_arguments():
     parser.add_argument('-c', '--config', required=True, help='Path to input config file.')
     parser.add_argument('-i', '--input-image-path', help='')
     parser.add_argument('-x', '--input-xml-path', help='')
-    parser.add_argument('-b', '--batch-size', default=32)
+    parser.add_argument('-b', '--batch-size', type=int, default=32)
     parser.add_argument('--n-clusters', type=int, default=100, help='')
     parser.add_argument('--n-lines', type=int, default=100, help='')
     parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
+    parser.add_argument('--out', type=str)
     args = parser.parse_args()
     return args
 
@@ -67,6 +68,11 @@ def main():
         transcriptions, _, _ = page_parser.ocr.ocr_engine.process_lines(line_crops, no_logits=True)
         ref_char_sum = 0
         ref_gt_char_dist = 0
+        if args.out is not None:
+            with open(os.path.join(args.out, "{}.gt".format(embed_id)), "w") as f:
+                f.writelines(["{}\n".format(x) for x in gts])
+            with open(os.path.join(args.out, "{}.trans".format(embed_id)), "w") as f:
+                f.writelines(["{}\n".format(x) for x in transcriptions])
         for gt, trans in zip(gts, transcriptions):
             ref_char_sum += len(gt)
             ref_gt_char_dist += Levenshtein.distance(gt, trans)
