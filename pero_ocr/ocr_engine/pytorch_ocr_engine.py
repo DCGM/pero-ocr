@@ -45,14 +45,7 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
         self._load_exported_model()
 
         if self.embed_id == "mean":
-            self._append_mean_embedding()
             self.embed_id = self.get_mean_embed_id()
-
-    def _append_mean_embedding(self):
-        current_weights = self.model.embeddings_layer.weight
-        mean_embedding = torch.mean(current_weights, 0, keepdim=True)
-        new_weights = torch.cat((current_weights, mean_embedding), 0)
-        self.model.embeddings_layer = torch.nn.Embedding.from_pretrained(new_weights)
 
     def get_mean_embed_id(self):
         return self.model.embeddings_layer.weight.shape[0] - 1
@@ -72,7 +65,7 @@ class PytorchEngineLineOCR(BaseEngineLineOCR):
             if self.embed_id is not None:
                 ids_embedding = torch.LongTensor([self.embed_id] * batch_data.shape[0]).to(self.device)
                 logits = self.model(batch_data, ids_embedding)
-            
+
             else:
                 logits = self.model(batch_data)
 
