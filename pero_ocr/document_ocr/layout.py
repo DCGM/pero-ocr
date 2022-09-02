@@ -784,7 +784,7 @@ def create_ocr_processing_element(id="IdOcr", software_creator_str="Project PERO
     if processing_datetime is not None:
         processing_date_time.text = processing_datetime
     else:
-        processing_date_time.text = datetime.today().strftime('%Y-%m-%d')
+        processing_date_time.text = datetime.today().isoformat()
     processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
     processing_creator = ET.SubElement(processing_software, "softwareCreator")
     processing_creator.text = software_creator_str
