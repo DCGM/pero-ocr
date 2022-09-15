@@ -8,9 +8,10 @@ import cv2
 
 import time
 import random
-import sys
 import Levenshtein
 import numpy as np
+import lmdb
+import sys
 from sklearn.cluster import KMeans
 
 from safe_gpu import safe_gpu
@@ -25,9 +26,15 @@ def parse_arguments():
     parser.add_argument('-c', '--config', required=True, help='Path to input config file.')
     parser.add_argument('-i', '--input-image-path', help='')
     parser.add_argument('-x', '--input-xml-path', help='')
+    parser.add_argument('-l', '--input-lmdb-path', help='')
+    parser.add_argument('-t', '--input-data-path', help='')
     parser.add_argument('-b', '--batch-size', type=int, default=32)
     parser.add_argument('--n-clusters', type=int, default=100, help='')
     parser.add_argument('--n-lines', type=int, default=100, help='')
+    parser.add_argument('--mean-cluster-embed', action='store_true', help='Do not pick representative embed for'
+                                                                          'cluster randomly, instead pick the nearest'
+                                                                          'to the cluster center.')
+    parser.add_argument('--representative-embed-ids', type=str, help='Clustering is not performed.')
     parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
     parser.add_argument('--out', type=str)
     args = parser.parse_args()
@@ -47,16 +54,25 @@ def main():
     page_parser.ocr.ocr_engine.batch_size = args.batch_size
     page_parser.ocr.ocr_engine.max_input_horizontal_pixels = 480 * args.batch_size
 
-    line_crops, gts = get_line_crops_and_transcriptions(page_parser, args.input_image_path, args.input_xml_path,
-                                                        args.n_lines)
+    if args.input_image_path is not None and args.input_xml_path is not None:
+        line_crops, gts = get_line_crops_and_transcriptions_from_images_and_xmls(page_parser, args.input_image_path,
+                                                                                 args.input_xml_path, args.n_lines)
+    elif args.input_lmdb_path is not None and args.input_data_path is not None:
+        line_crops, gts = get_line_crops_and_transcriptions_from_lmdb_and_data(args.input_lmdb_path,
+                                                                               args.input_data_path, args.n_lines)
+    else:
+        print("Invalid inputs.")
+        sys.exit(-1)
 
     t_start = time.time()
 
-    if args.n_clusters < page_parser.ocr.ocr_engine.embed_num:
+    if args.representative_embed_ids is not None:
+        representative_embeddings_ids = [int(x) for x in args.representative_embed_ids.split(",")]
+    elif args.n_clusters < page_parser.ocr.ocr_engine.embed_num:
         representative_embeddings_ids = select_representative_embeddings(page_parser.ocr.ocr_engine, args.n_clusters)
     else:
         representative_embeddings_ids = list(range(page_parser.ocr.ocr_engine.embed_num))
-    print("REPRESENTATIVE EMBEDDING IDS: {}".format(representative_embeddings_ids))
+    print("REPRESENTATIVE EMBEDDING IDS: {}".format(",".join([str(x) for x in representative_embeddings_ids])))
     print()
 
     embed_id_cers = []
@@ -78,7 +94,8 @@ def main():
             ref_gt_char_dist += Levenshtein.distance(gt, trans)
         if ref_char_sum > 0:
             embed_id_cers.append(100.0 * ref_gt_char_dist / ref_char_sum)
-            print(f'{embed_id} {embed_id_cers[-1]:.2f} % CER [ {ref_gt_char_dist} / {ref_char_sum} ] Time: {time.time() - t1:.2f}')
+            print(
+                f'{embed_id} {embed_id_cers[-1]:.2f} % CER [ {ref_gt_char_dist} / {ref_char_sum} ] Time: {time.time() - t1:.2f}')
         else:
             embed_id_cers.append(1000000000000)
             print(f'{embed_id} N/A % CER [ {ref_gt_char_dist} / {ref_char_sum} ] Time: {time.time() - t1:.2f}')
@@ -94,7 +111,7 @@ def main():
         json.dump(page_parser.ocr.ocr_engine.config, f, indent=4)
 
 
-def select_representative_embeddings(ocr_engine, n_clusters):
+def select_representative_embeddings(ocr_engine, n_clusters, mean_cluster_embedding=False):
     for name, child in ocr_engine.model.named_modules():
         if name == "embeddings_layer" and child.original_name == "Embedding":
             embeddings_layer = child
@@ -105,13 +122,18 @@ def select_representative_embeddings(ocr_engine, n_clusters):
     representative_embeddings_ids = []
     kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(embeddings)
     for i in range(n_clusters):
-        representative_embeddings_ids.append(np.random.choice(np.where(kmeans.labels_ == i)[0]))
+        if mean_cluster_embedding:
+            representative_embeddings_ids.append(np.argmin(embeddings - embeddings[np.where(kmeans.labels_ == i)[0]].mean()))
+        else:
+            representative_embeddings_ids.append(np.random.choice(np.where(kmeans.labels_ == i)[0]))
     return representative_embeddings_ids
 
 
-def get_line_crops_and_transcriptions(page_parser, input_image_path, input_xml_path, n_lines, max_lines=5000):
+def get_line_crops_and_transcriptions_from_images_and_xmls(page_parser, input_image_path, input_xml_path, n_lines,
+                                                           max_lines=5000):
     ignored_extensions = ['', '.xml', '.logits']
-    images_to_process = [f for f in os.listdir(input_image_path) if os.path.splitext(f)[1].lower() not in ignored_extensions]
+    images_to_process = [f for f in os.listdir(input_image_path) if
+                         os.path.splitext(f)[1].lower() not in ignored_extensions]
     page_ids_to_process = [os.path.splitext(os.path.basename(file))[0] for file in images_to_process]
 
     valid_lines = []
@@ -148,6 +170,42 @@ def get_line_crops_and_transcriptions(page_parser, input_image_path, input_xml_p
         for line in lines:
             line_crops.append(line.crop)
             transcriptions.append(line.transcription)
+
+    return line_crops, transcriptions
+
+
+def get_line_crops_and_transcriptions_from_lmdb_and_data(input_lmdb_path, input_data_path, n_lines,
+                                                         max_lines=5000):
+    print(input_lmdb_path)
+    print(input_data_path)
+    line_crops_and_transcriptions = []
+    valid_lines_counter = 0
+    txn = lmdb.open(input_lmdb_path, readonly=True).begin()
+    with open(input_data_path) as f:
+        lines = f.readlines()
+    for l in lines:
+        line_id, embed_id, transcription = l.split(" ", 2)
+        data = txn.get(line_id.encode())
+        if data is None:
+            print(f"Unable to load image '{line_id}' specified in '{input_data_path}' from DB '{input_lmdb_path}'.")
+        line_crop = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), 1)
+        if line_crop is None:
+            print(f"Unable to decode image '{line_id}'.")
+        else:
+            if transcription != "":
+                line_crops_and_transcriptions.append((line_crop, transcription))
+                valid_lines_counter += 1
+                if valid_lines_counter == max_lines:
+                    break
+
+    random.shuffle(line_crops_and_transcriptions)
+    line_crops_and_transcriptions = line_crops_and_transcriptions[:n_lines]
+
+    line_crops = []
+    transcriptions = []
+    for line_crop, transcription in line_crops_and_transcriptions:
+        line_crops.append(line_crop)
+        transcriptions.append(transcription)
 
     return line_crops, transcriptions
 
