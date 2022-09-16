@@ -1,5 +1,5 @@
 # pero-ocr
-The package provides a full OCR pipeline including text paragraph detection,  text line detection, text transcription, and text refinement using a language model.
+The package provides a full OCR pipeline including text paragraph detection, text line detection, text transcription, and text refinement using a language model.
 The package can be used as a command line application or as a python package which provides a document processing class and a class which represents document page content.
 
 The layout analysis uses segmentation-style fully convolutional networks with hand-coded post-processing as described in 
@@ -12,7 +12,7 @@ Visual OCR models are trained using CTC and they combine convolutional networks 
 Kohút, J. and Hradiš, M. TS-Net: OCR Trained to Switch Between Text Transcription Styles. ICDAR 2021.  [arxiv](https://arxiv.org/abs/2103.05489)
 ```
 
-Language models are fairly standard charqacter-level autoregressive recurrent networks. The code provides an efficient implementation of beam serch on the probs. from OCR model and the probabilities from a language model.
+Language models are fairly standard charaacter-level autoregressive recurrent networks. The code provides an efficient implementation of beam serch on the probabilities from an OCR model and the probabilities from a language model.
 
 ## Running stuff
 
