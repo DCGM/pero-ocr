@@ -3,16 +3,28 @@ The package provides a full OCR pipeline including text paragraph detection, tex
 The package can be used as a command line application or as a python package which provides a document processing class and a class which represents document page content.
 
 The layout analysis uses segmentation-style fully convolutional networks with hand-coded post-processing as described in 
-```
-Kodym, O. and Hradiš, M. TG2: text-guided transformer GAN for restoring document readability and perceived quality. IJDAR (2021). Additional links: [arxiv](https://arxiv.org/abs/2102.11838v1)
-```
+
+> Kodym, O. and Hradiš, M. TG2: text-guided transformer GAN for restoring document readability and perceived quality. IJDAR (2021). [arxiv](https://arxiv.org/abs/2102.11838v1)
+
 
 Visual OCR models are trained using CTC and they combine convolutional networks with recurrent layers and special Transcription Style Blocks with allow the network to learn different transcription styles and switch between them during inference.
-```
-Kohút, J. and Hradiš, M. TS-Net: OCR Trained to Switch Between Text Transcription Styles. ICDAR 2021.  [arxiv](https://arxiv.org/abs/2103.05489)
-```
+
+> Kohút, J. and Hradiš, M. TS-Net: OCR Trained to Switch Between Text Transcription Styles. ICDAR 2021.  [arxiv](https://arxiv.org/abs/2103.05489)
+
 
 Language models are fairly standard charaacter-level autoregressive recurrent networks. The code provides an efficient implementation of beam serch on the probabilities from an OCR model and the probabilities from a language model.
+
+## Please cite
+If you use pero-ocr, please cite:
+
+> Kodym, O. and Hradiš, M. TG2: text-guided transformer GAN for restoring document readability and perceived quality. IJDAR (2021).
+
+> Kodym, O. and Hradiš, M. Page Layout Analysis System for Unconstrained Historic Documents. ICDAR, 2021.
+
+> Kišš, M., Beneš, K., and Hradiš, M. AT-ST: Self-Training Adaptation Strategy for OCR in Domains with Limited Transcriptions. ICDAR, 2021.
+
+> Kohút, J. and Hradiš, M. TS-Net: OCR Trained to Switch Between Text Transcription Styles. ICDAR, 2021.
+
 
 ## Running stuff
 
@@ -40,11 +52,17 @@ The package provides command line tool (user_scripts/parse_folder.py.) which can
 ```
 python user_scripts/parse_folder.py -c PATH_TO_config_file_for_OCR_ENGINE.ini -i path_to_image_directory --output-xml-path PATH_TO_OUTPUT_DIRECTORY
 ```
+
 ## Available models
-General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://www.fit.vut.cz/~ihradis/pero/pero_eu_cz_print_newspapers_2020-10-09.tar.gz). These models are compatible with the develop branch.
+General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://www.fit.vut.cz/~ihradis/pero/pero_eu_cz_print_newspapers_2020-10-09.tar.gz). The OCR engine is suitable for most european printed documents. It is specialized for low-quality czech newspapers digitized from microfilms, but it provides very good results for almast all types of printed documents in most languages. If you are interested in processing printed fraktur fonts, handwritten documents or medieval manuscripts, feel free to contact the authors. The newest OCR engines are available at [pero-ocr.fit.vutbr.cz](https://pero-ocr.fit.vutbr.cz). OCR engines are available also through API runing at [pero-ocr.fit.vutbr.cz/api](https://pero-ocr.fit.vutbr.cz/api), [github repository](https://github.com/DCGM/pero-ocr-api).
 
 ## Using the python package
-The package provides two main classes: (1) PageLayout which represents page content, can be exported to PAGE XML, ALTO XML, text and rendered (and also loded from PAGE XML), (2) PageParser which can load OCR engine from a configuration file and process images. A basic example how to load an OCR engine, process an image, export results and render the layou follows:
+The package provides two main classes: 
+
+1. PageLayout which represents page content, can be exported to PAGE XML, ALTO XML, text and rendered (and also loded from PAGE XML), 
+2. PageParser which can load OCR engine from a configuration file and process images. 
+
+A basic example how to load an OCR engine, process an image, export results and render the layou follows:
 ```
 import os
 import configparser
@@ -90,7 +108,7 @@ for region in page_layout.regions:
 ```
 
 
-## Developing
+## Developing & Contributing
 Working changes are expected to happen on `develop` branch, so if you plan to contribute, you better check it out right during cloning:
 
 ```
