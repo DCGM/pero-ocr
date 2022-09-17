@@ -347,7 +347,8 @@ def main():
 
     if page_parser.decoder:
         logger.info(page_parser.decoder.decoding_summary())
-    logger.info(f'AVERAGE PROCESSING TIME {(time.time() - t_start) / len(ids_to_process)}')
+        if len(ids_to_process) > 0:
+            logger.info(f'AVERAGE PROCESSING TIME {(time.time() - t_start) / len(ids_to_process)}')
 
 
 if __name__ == "__main__":
