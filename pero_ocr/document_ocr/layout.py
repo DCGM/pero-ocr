@@ -3,7 +3,7 @@ import re
 import pickle
 import json
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 import numpy as np
@@ -221,7 +221,7 @@ class PageLayout(object):
 
             metadata = ET.SubElement(root, "Metadata")
             ET.SubElement(metadata, "Creator").text = creator
-            now = datetime.now(datetime.timezone.utc)
+            now = datetime.now(timezone.utc)
             ET.SubElement(metadata, "Created").text = now.isoformat()
             ET.SubElement(metadata, "LastChange").text = now.isoformat()
 
@@ -784,7 +784,7 @@ def create_ocr_processing_element(id="IdOcr", software_creator_str="Project PERO
     if processing_datetime is not None:
         processing_date_time.text = processing_datetime
     else:
-        processing_date_time.text = datetime.now(datetime.timezone.utc).isoformat()
+        processing_date_time.text = datetime.now(timezone.utc).isoformat()
     processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
     processing_creator = ET.SubElement(processing_software, "softwareCreator")
     processing_creator.text = software_creator_str
