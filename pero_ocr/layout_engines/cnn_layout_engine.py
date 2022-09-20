@@ -10,30 +10,18 @@ import skimage.draw
 import shapely.geometry as sg
 
 from pero_ocr.layout_engines import layout_helpers as helpers
-from pero_ocr.layout_engines.parsenet import ParseNet, TiltNet
 from pero_ocr.layout_engines.torch_parsenet import TorchParseNet, TorchOrientationNet
 
 
 class LineFilterEngine(object):
 
-    def __init__(self, model_path, framework='tf', downsample=4, use_cpu=False, model_prefix='tiltnet',
+    def __init__(self, model_path, downsample=4, use_cpu=False, model_prefix='tiltnet',
                  pad=52, max_mp=5, gpu_fraction=None):
-        assert framework in ['tf', 'torch'], 'Engine framework has to be tf or torch.'
-        if framework == 'tf':
-            self.tiltnet = TiltNet(
-                model_path,
-                use_cpu=use_cpu,
-                pad=pad,
-                max_mp=max_mp,
-                gpu_fraction=gpu_fraction,
-                prefix=model_prefix
-            )
-        elif framework == 'torch':
-            self.tiltnet = TorchOrientationNet(
-                model_path,
-                use_cpu=use_cpu,
-                max_mp=max_mp
-            )
+        self.tiltnet = TorchOrientationNet(
+            model_path,
+            use_cpu=use_cpu,
+            max_mp=max_mp
+        )
         self.downsample = downsample
 
     @staticmethod
@@ -47,8 +35,6 @@ class LineFilterEngine(object):
 
     def predict_directions(self, image):
         self.predictions = self.tiltnet.get_maps(image, self.downsample)
-        if self.framework == 'tf':
-            self.predictions = self.predictions[:, :, 1:3]  # old TF model has line segmentation as first channel
 
     def check_line_rotation(self, polygon, baseline):
         line_mask = skimage.draw.polygon2mask(
@@ -70,31 +56,17 @@ class LineFilterEngine(object):
 
 
 class LayoutEngine(object):
-    def __init__(self, model_path, framework='tf', downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
+    def __init__(self, model_path, downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
                  max_mp=5, gpu_fraction=None, detection_threshold=0.2, adaptive_downsample=True,
                  line_end_weight=1.0, vertical_line_connection_range=5, smooth_line_predictions=True):
-        assert framework in ['tf', 'torch'], 'LayoutEngine framework has to be tf or torch.'
-        if framework == 'tf':
-            self.parsenet = ParseNet(
-                model_path,
-                downsample=downsample,
-                adaptive_downsample=adaptive_downsample,
-                use_cpu=use_cpu,
-                pad=pad,
-                max_mp=max_mp,
-                gpu_fraction=gpu_fraction,
-                detection_threshold=detection_threshold,
-                prefix=model_prefix
-            )
-        elif framework == 'torch':
-            self.parsenet = TorchParseNet(
-                model_path,
-                downsample=downsample,
-                adaptive_downsample=adaptive_downsample,
-                use_cpu=use_cpu,
-                max_mp=max_mp,
-                detection_threshold=detection_threshold
-            )
+        self.parsenet = TorchParseNet(
+            model_path,
+            downsample=downsample,
+            adaptive_downsample=adaptive_downsample,
+            use_cpu=use_cpu,
+            max_mp=max_mp,
+            detection_threshold=detection_threshold
+        )
 
         self.line_end_weight = line_end_weight
         self.vertical_line_connection_range = vertical_line_connection_range

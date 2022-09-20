@@ -8,7 +8,7 @@ import time
 from pero_ocr.utils import compose_path
 from .layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import crop_engine as cropper
-from pero_ocr.ocr_engine import line_ocr_engine
+from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
 from pero_ocr.layout_engines.simple_baseline_engine import EngineLineDetectorSimple
 from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEngine
@@ -203,7 +203,6 @@ class LayoutExtractor(object):
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
         self.engine = LayoutEngine(
-            framework=config.get('FRAMEWORK', fallback='tf'),
             model_path=compose_path(config['MODEL_PATH'], config_path),
             downsample=config.getint('DOWNSAMPLE'),
             adaptive_downsample=config.getboolean('ADAPTIVE_DOWNSAMPLE', fallback=True),
@@ -301,7 +300,6 @@ class LineFilter(object):
         if self.filter_directions:
             self.engine = LineFilterEngine(
                 model_path=compose_path(config['MODEL_PATH'], config_path),
-                framework=config['FRAMEWORK'],
                 gpu_fraction=config.getfloat('GPU_FRACTION'),
                 use_cpu=config.getboolean('USE_CPU')
             )
@@ -397,11 +395,8 @@ class LineCropper(object):
 class PageOCR(object):
     def __init__(self, config, config_path=''):
         json_file = compose_path(config['OCR_JSON'], config_path)
-        if 'METHOD' in config and config['METHOD'] == 'pytorch_ocr':
-            from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
-            self.ocr_engine = PytorchEngineLineOCR(json_file, gpu_id=0)
-        else:
-            self.ocr_engine = line_ocr_engine.EngineLineOCR(json_file, gpu_id=0)
+
+        self.ocr_engine = PytorchEngineLineOCR(json_file, gpu_id=0)
 
     def process_page(self, img, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
