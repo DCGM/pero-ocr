@@ -213,7 +213,8 @@ class LayoutExtractor(object):
             gpu_fraction=config.getfloat('GPU_FRACTION'),
             line_end_weight=config.getfloat('LINE_END_WEIGHT', fallback=1.0),
             vertical_line_connection_range=config.getint('VERTICAL_LINE_CONNECTION_RANGE', fallback=5),
-            smooth_line_predictions=config.getboolean('SMOOTH_LINE_PREDICTIONS', fallback=True)
+            smooth_line_predictions=config.getboolean('SMOOTH_LINE_PREDICTIONS', fallback=True),
+            paragraph_line_threshold=config.getfloat('PARAGRAPH_LINE_THRESHOLD', fallback=0.3),
         )
         self.pool = Pool(1)
 

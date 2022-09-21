@@ -58,7 +58,8 @@ class LineFilterEngine(object):
 class LayoutEngine(object):
     def __init__(self, model_path, downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
                  max_mp=5, gpu_fraction=None, detection_threshold=0.2, adaptive_downsample=True,
-                 line_end_weight=1.0, vertical_line_connection_range=5, smooth_line_predictions=True):
+                 line_end_weight=1.0, vertical_line_connection_range=5, smooth_line_predictions=True,
+                 paragraph_line_threshold=0.3):
         self.parsenet = TorchParseNet(
             model_path,
             downsample=downsample,
@@ -73,6 +74,8 @@ class LayoutEngine(object):
         self.smooth_line_predictions = smooth_line_predictions
         self.line_detection_threshold = detection_threshold
         self.adaptive_downsample = adaptive_downsample
+
+        self.paragraph_line_threshold = paragraph_line_threshold
 
         params = ' '.join([f'{name}:{str(getattr(self, name))}'
                   for name in ['line_end_weight', 'vertical_line_connection_range', 'smooth_line_predictions', 'line_detection_threshold', 'adaptive_downsample']])
@@ -322,7 +325,7 @@ class LayoutEngine(object):
                 p_list.append(region_poly.simplify(5))
         return [np.array(poly.exterior.coords) for poly in p_list]
 
-    def make_clusters(self, b_list, h_list, t_list, layout_separator_map, ds, lower_threshold=0.3):
+    def make_clusters(self, b_list, h_list, t_list, layout_separator_map, ds):
         if len(t_list) > 1:
 
             min_pos = np.zeros([len(t_list), 2], dtype=np.float32)
@@ -355,9 +358,9 @@ class LayoutEngine(object):
                     distances[i, j] = penalty
                     distances[j, i] = penalty
 
-            adjacency = (distances < lower_threshold).astype(np.int)
+            adjacency = (distances < self.paragraph_line_threshold).astype(np.int)
             adjacency = adjacency * (1 - np.eye(adjacency.shape[0]))  # put zeros on diagonal
-            graph = csr_matrix(adjacency>0)
+            graph = csr_matrix(adjacency > 0)
             _, clusters_array = connected_components(
                 csgraph=graph, directed=False, return_labels=True)
 
