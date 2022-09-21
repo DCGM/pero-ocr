@@ -32,6 +32,11 @@ class Region:
         else:
             raise Exception("Wrong Region parameter type.")
 
+        self.x_min = self.x_arr.min()
+        self.x_max = self.x_arr.max()
+        self.y_min = self.y_arr.min()
+        self.y_max = self.y_arr.max()
+
     def get_middle_coords(self) -> Dict[str, List]:
         return {self.id: [(self.x_arr.max() + self.x_arr.min()) // 2, (self.y_arr.min() + self.y_arr.max()) // 2]}
 
@@ -55,29 +60,13 @@ class Region:
         return False
 
     def get_corners(self):
-        return self.x_arr.min(), self.y_arr.min(), self.x_arr.max(), self.y_arr.max()
+        return self.x_min, self.y_min, self.x_max, self.y_max
 
     def pretty_print(self, indent):
         print(" " * indent + self.id)
 
     def __eq__(self, other: "Region"):
         return self.id == other.id
-
-    @property
-    def x_min(self):
-        return self.x_arr.min()
-
-    @property
-    def x_max(self):
-        return self.x_arr.max()
-
-    @property
-    def y_min(self):
-        return self.y_arr.min()
-
-    @property
-    def y_max(self):
-        return self.y_arr.max()
 
 
 class CoupledRegions:
@@ -224,8 +213,8 @@ class CoupledRegions:
         for idx, coupled in enumerate(self.region_list):
             if len(coupled.region_list) > 1:
                 self.region_list[idx].divide_and_order(not vertical)
-            else:
-                self.region_list[idx] = coupled.region_list[0]
+            # else:
+            #     self.region_list[idx] = coupled.region_list[0]
 
         if vertical:
             self.region_list = sorted(self.region_list, key=lambda reg: reg.x_min)
@@ -251,10 +240,15 @@ class CoupledRegions:
         y_diffs = 0
 
         for u, d in pairwise(y_sort):
-            x_diffs += np.abs(u.y_min - d.y_min)
+            y_diffs += np.abs(u.y_min - d.y_min)
 
         # sort coupled components by axis with larger differences between min points
-        key = lambda x: x.x_min if x_diffs > y_diffs else lambda x: x.y_min
+        # key = lambda x: x.x_min if x_diffs > y_diffs else lambda x: x.y_min
+        if x_diffs > y_diffs:
+            key = lambda r: r.x_min
+        else:
+            key = lambda r: r.y_min
+
         aligned = sorted(regions, key=key)
 
         # sort by x axis and compute local diffs, sort by y axis and compute local diffs
