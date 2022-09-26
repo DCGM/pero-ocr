@@ -35,12 +35,12 @@ def greedy_decode_ctc(scores_probs, chars):
 
 
 class PytorchEngineLineOCR(BaseEngineLineOCR):
-    def __init__(self, json_def, gpu_id=0, batch_size=8):
+    def __init__(self, json_def, gpu_id=0, batch_size=8, use_cpu=False):
         super(PytorchEngineLineOCR, self).__init__(json_def, gpu_id=gpu_id, batch_size=8)
 
         self.net_subsampling = 4
         self.characters = list(self.characters) + [u'\u200B']
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() and not use_cpu else "cpu")
 
         self._load_exported_model()
 
