@@ -9,6 +9,7 @@ class Net(object):
 
         if use_cpu:
             self.device = 'cpu'
+            model_path += ".cpu"
         else:
             self.device = 'cuda'
 
