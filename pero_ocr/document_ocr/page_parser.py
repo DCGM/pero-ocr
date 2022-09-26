@@ -396,8 +396,9 @@ class LineCropper(object):
 class PageOCR(object):
     def __init__(self, config, config_path=''):
         json_file = compose_path(config['OCR_JSON'], config_path)
+        use_cpu = config.getboolean('USE_CPU')
 
-        self.ocr_engine = PytorchEngineLineOCR(json_file, gpu_id=0)
+        self.ocr_engine = PytorchEngineLineOCR(json_file, gpu_id=0, use_cpu=use_cpu)
 
     def process_page(self, img, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
