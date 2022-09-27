@@ -12,7 +12,7 @@ from .softmax import softmax
 
 
 class BaseEngineLineOCR(object):
-    def __init__(self, json_def, gpu_id=0, batch_size=8):
+    def __init__(self, json_def, device, batch_size=8):
         with open(json_def, 'r', encoding='utf8') as f:
             self.config = json.load(f)
 
@@ -37,7 +37,8 @@ class BaseEngineLineOCR(object):
                 self.embed_id = "mean"
         else:
             self.embed_id = None
-        self.gpu_id = gpu_id
+
+        self.device = device
 
         self.batch_size = batch_size
 

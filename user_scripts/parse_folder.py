@@ -15,6 +15,7 @@ import sys
 import time
 from multiprocessing import Pool
 
+import torch
 from safe_gpu import safe_gpu
 
 from pero_ocr import utils  # noqa: F401 -- there is code executed upon import here.
@@ -37,7 +38,10 @@ def parse_arguments():
     parser.add_argument('--output-alto-path', help='')
     parser.add_argument('--output-transcriptions-file-path', help='')
     parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
-    parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
+
+    parser.add_argument('--device', choices=["gpu", "cpu"], default="gpu")
+    parser.add_argument('--gpu-id', type=int, default=None, help='If set, the computation runs of the specified GPU, otherwise safe-gpu is used to allocate first unused GPU.')
+
     parser.add_argument('--process-count', type=int, default=1, help='Number of parallel processes (this works mostly only for line cropping and it probably fails and crashes for most other uses cases).')
     args = parser.parse_args()
     return args
@@ -96,6 +100,19 @@ def load_already_processed_files(directories: List[Optional[str]]) -> Set[str]:
                 already_processed = already_processed.intersection(files)
 
     return already_processed
+
+
+def get_device(device, gpu_index=None, logger=None):
+    if gpu_index is None:
+        if device == "gpu":
+            gpu_owner = safe_gpu.GPUOwner(logger=logger)  # noqa: F841
+            torch_device = torch.device("cuda")
+        else:
+            torch_device = torch.device("cpu")
+    else:
+        torch_device = torch.device(f"cuda:{gpu_index}")
+
+    return torch_device
 
 
 class LMDB_writer(object):
@@ -240,10 +257,9 @@ def main():
     setup_logging(config['PARSE_FOLDER'])
     logger = logging.getLogger()
 
-    if args.set_gpu:
-        gpu_owner = safe_gpu.GPUOwner(logger=logger)  # noqa: F841
+    device = get_device(args.device, args.gpu_id, logger)
 
-    page_parser = PageParser(config, config_path=os.path.dirname(config_path))
+    page_parser = PageParser(config, config_path=os.path.dirname(config_path), device=device)
 
     input_image_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_IMAGE_PATH')
     input_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_XML_PATH')

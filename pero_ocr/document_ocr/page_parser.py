@@ -5,6 +5,7 @@ from multiprocessing import Pool
 import math
 import time
 
+import torch.cuda
 from pero_ocr.utils import compose_path
 from .layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import crop_engine as cropper
@@ -23,18 +24,18 @@ from pero_ocr.layout_engines import layout_helpers as helpers
 logger = logging.getLogger(__name__)
 
 
-def layout_parser_factory(config, config_path='', order=1):
+def layout_parser_factory(config, device, config_path='', order=1):
     config = config['LAYOUT_PARSER_{}'.format(order)]
     if config['METHOD'] == 'REGION_WHOLE_PAGE':
         layout_parser = WholePageRegion(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SIMPLE_THRESHOLD':
         layout_parser = SimpleThresholdRegion(config, config_path=config_path)
     elif config['METHOD'] == 'LAYOUT_CNN':
-        layout_parser = LayoutExtractor(config, config_path=config_path)
+        layout_parser = LayoutExtractor(config, device, config_path=config_path)
     elif config['METHOD'] == 'LINES_SIMPLE_THRESHOLD':
         layout_parser = TextlineExtractorSimple(config, config_path=config_path)
     elif config['METHOD'] == 'LINE_FILTER':
-        layout_parser = LineFilter(config, config_path=config_path)
+        layout_parser = LineFilter(config, device, config_path=config_path)
     elif config['METHOD'] == 'LINE_POSTPROCESSING':
         layout_parser = LinePostprocessor(config, config_path=config_path)
     elif config['METHOD'] == 'LAYOUT_POSTPROCESSING':
@@ -53,14 +54,18 @@ def line_cropper_factory(config, config_path=''):
     return LineCropper(config, config_path=config_path)
 
 
-def ocr_factory(config, config_path=''):
+def ocr_factory(config, device, config_path=''):
     config = config['OCR']
-    return PageOCR(config, config_path=config_path)
+    return PageOCR(config, device, config_path=config_path)
 
 
-def page_decoder_factory(config, config_path=''):
+def page_decoder_factory(config, device, config_path=''):
     from pero_ocr.decoding import decoding_itf
     ocr_chars = decoding_itf.get_ocr_charset(compose_path(config['OCR']['OCR_JSON'], config_path))
+
+    use_cpu = config['DECODER'].getboolean('USE_CPU')
+    device = device if not use_cpu else torch.device("cpu")
+
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True,
                                            config_path=config_path)
     confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
@@ -194,7 +199,7 @@ class TextlineExtractorSimple(object):
 
 
 class LayoutExtractor(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, device, config_path=''):
         self.detect_regions = config.getboolean('DETECT_REGIONS')
         self.detect_lines = config.getboolean('DETECT_LINES')
         self.detect_straight_lines_in_regions = config.getboolean('DETECT_STRAIGHT_LINES_IN_REGIONS')
@@ -202,15 +207,17 @@ class LayoutExtractor(object):
         self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
+
+        use_cpu = config.getboolean('USE_CPU')
+        self.device = device if not use_cpu else torch.device("cpu")
+
         self.engine = LayoutEngine(
             model_path=compose_path(config['MODEL_PATH'], config_path),
+            device=self.device,
             downsample=config.getint('DOWNSAMPLE'),
             adaptive_downsample=config.getboolean('ADAPTIVE_DOWNSAMPLE', fallback=True),
-            pad=config.getint('PAD'),
-            use_cpu=config.getboolean('USE_CPU'),
             detection_threshold=config.getfloat('DETECTION_THRESHOLD'),
             max_mp=config.getfloat('MAX_MEGAPIXELS'),
-            gpu_fraction=config.getfloat('GPU_FRACTION'),
             line_end_weight=config.getfloat('LINE_END_WEIGHT', fallback=1.0),
             vertical_line_connection_range=config.getint('VERTICAL_LINE_CONNECTION_RANGE', fallback=5),
             smooth_line_predictions=config.getboolean('SMOOTH_LINE_PREDICTIONS', fallback=True),
@@ -292,17 +299,19 @@ class LayoutExtractor(object):
 
 
 class LineFilter(object):
-    def __init__(self, config, config_path):
+    def __init__(self, config, device, config_path):
         self.filter_directions = config.getboolean('FILTER_DIRECTIONS')
         self.filter_incomplete_pages = config.getboolean('FILTER_INCOMPLETE_PAGES')
         self.filter_pages_with_short_lines = config.getboolean('FILTER_PAGES_WITH_SHORT_LINES')
         self.length_threshold = config.getint('LENGTH_THRESHOLD')
 
+        use_cpu = config.getboolean('USE_CPU')
+        self.device = device if not use_cpu else torch.device("cpu")
+
         if self.filter_directions:
             self.engine = LineFilterEngine(
                 model_path=compose_path(config['MODEL_PATH'], config_path),
-                gpu_fraction=config.getfloat('GPU_FRACTION'),
-                use_cpu=config.getboolean('USE_CPU')
+                device=self.device
             )
 
     def process_page(self, img, page_layout: PageLayout):
@@ -394,11 +403,12 @@ class LineCropper(object):
 
 
 class PageOCR(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, device, config_path=''):
         json_file = compose_path(config['OCR_JSON'], config_path)
         use_cpu = config.getboolean('USE_CPU')
 
-        self.ocr_engine = PytorchEngineLineOCR(json_file, gpu_id=0, use_cpu=use_cpu)
+        self.device = device if not use_cpu else torch.device("cpu")
+        self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
 
     def process_page(self, img, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
@@ -432,7 +442,7 @@ def get_prob(best_ids, best_probs):
 
 
 class PageParser(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, device, config_path='', ):
         self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER', fallback=False)
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
@@ -445,17 +455,19 @@ class PageParser(object):
         self.ocr = None
         self.decoder = None
 
+        self.device = device
+
         if self.run_layout_parser:
             self.layout_parsers = []
             for i in range(1, 10):
                 if config.has_section('LAYOUT_PARSER_{}'.format(i)):
-                    self.layout_parsers.append(layout_parser_factory(config, config_path=config_path, order=i))
+                    self.layout_parsers.append(layout_parser_factory(config, device, config_path=config_path, order=i))
         if self.run_line_cropper:
             self.line_cropper = line_cropper_factory(config, config_path=config_path)
         if self.run_ocr:
-            self.ocr = ocr_factory(config, config_path=config_path)
+            self.ocr = ocr_factory(config, device, config_path=config_path)
         if self.run_decoder:
-            self.decoder = page_decoder_factory(config, config_path=config_path)
+            self.decoder = page_decoder_factory(config, device, config_path=config_path)
 
     @staticmethod
     def compute_line_confidence(line, threshold=None):

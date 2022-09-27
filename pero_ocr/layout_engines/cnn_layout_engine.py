@@ -15,11 +15,10 @@ from pero_ocr.layout_engines.torch_parsenet import TorchParseNet, TorchOrientati
 
 class LineFilterEngine(object):
 
-    def __init__(self, model_path, downsample=4, use_cpu=False, model_prefix='tiltnet',
-                 pad=52, max_mp=5, gpu_fraction=None):
+    def __init__(self, model_path, device, downsample=4, max_mp=5):
         self.tiltnet = TorchOrientationNet(
             model_path,
-            use_cpu=use_cpu,
+            device=device,
             max_mp=max_mp
         )
         self.downsample = downsample
@@ -56,15 +55,14 @@ class LineFilterEngine(object):
 
 
 class LayoutEngine(object):
-    def __init__(self, model_path, downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
-                 max_mp=5, gpu_fraction=None, detection_threshold=0.2, adaptive_downsample=True,
+    def __init__(self, model_path, device, downsample=4, max_mp=5, detection_threshold=0.2, adaptive_downsample=True,
                  line_end_weight=1.0, vertical_line_connection_range=5, smooth_line_predictions=True,
                  paragraph_line_threshold=0.3):
         self.parsenet = TorchParseNet(
             model_path,
             downsample=downsample,
             adaptive_downsample=adaptive_downsample,
-            use_cpu=use_cpu,
+            device=device,
             max_mp=max_mp,
             detection_threshold=detection_threshold
         )

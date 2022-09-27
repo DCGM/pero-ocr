@@ -4,14 +4,12 @@ import torch
 
 class Net(object):
 
-    def __init__(self, model_path, use_cpu=False, max_mp=5):
+    def __init__(self, model_path, device, max_mp=5):
         self.max_megapixels = max_mp if max_mp is not None else 5
 
-        if use_cpu:
-            self.device = 'cpu'
+        self.device = device
+        if self.device.type == "cpu":
             model_path += ".cpu"
-        else:
-            self.device = 'cuda'
 
         if model_path is not None:
             self.net = torch.jit.load(model_path, map_location=self.device)
@@ -21,9 +19,9 @@ class Net(object):
 
 class TorchParseNet(Net):
 
-    def __init__(self, model_path, downsample=4, use_cpu=False, max_mp=5, detection_threshold=0.2, adaptive_downsample=True):
+    def __init__(self, model_path, device, downsample=4, max_mp=5, detection_threshold=0.2, adaptive_downsample=True):
 
-        super().__init__(model_path, use_cpu=use_cpu, max_mp=max_mp)
+        super().__init__(model_path, device=device, max_mp=max_mp)
 
         self.detection_threshold = detection_threshold
         self.adaptive_downsample = adaptive_downsample
@@ -105,8 +103,8 @@ class TorchParseNet(Net):
 
 
 class TorchOrientationNet(Net):
-    def __init__(self, model_path, use_cpu=False, max_mp=5):
-        super().__init__(model_path, use_cpu=use_cpu, max_mp=max_mp)
+    def __init__(self, model_path, device, max_mp=5):
+        super().__init__(model_path, device=device, max_mp=max_mp)
 
     def get_maps(self, img, downsample):
         '''
