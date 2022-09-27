@@ -210,9 +210,6 @@ def main():
     config_path = args.config
     skip_already_processed_files = args.skip_processed
 
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # suppress tensorflow warnings on loading models
-    os.environ['TF_CUDNN_USE_AUTOTUNE'] = '0'  # turn off tuning some TF parts based on input size
-
     if not os.path.isfile(config_path):
         print(f'ERROR: Config file does not exist: "{config_path}".')
         exit(-1)
