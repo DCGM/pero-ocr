@@ -29,7 +29,6 @@ setup(
         'brnolm>=0.1.1',
         'scikit-learn',
         'scikit-image',
-        'tensorflow-gpu==1.14',
         'shapely',
         'safe-gpu',
         'pyamg',
