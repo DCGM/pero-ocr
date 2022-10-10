@@ -1,34 +1,16 @@
 # pero-ocr
-The package provides a full OCR pipeline including text paragraph detection, text line detection, text transcription, and text refinement using a language model.
+The package provides a full OCR pipeline including text paragraph detection,  text line detection, text transcription, and text refinement using a language model.
 The package can be used as a command line application or as a python package which provides a document processing class and a class which represents document page content.
 
-The layout analysis uses segmentation-style fully convolutional networks with hand-coded post-processing as described in 
-
-> Kodym, O. and Hradiš, M. TG2: text-guided transformer GAN for restoring document readability and perceived quality. IJDAR (2021). [arxiv](https://arxiv.org/abs/2102.11838v1)
-
-
-Visual OCR models are trained using CTC and they combine convolutional networks with recurrent layers and special Transcription Style Blocks with allow the network to learn different transcription styles and switch between them during inference.
-
-> Kohút, J. and Hradiš, M. TS-Net: OCR Trained to Switch Between Text Transcription Styles. ICDAR 2021.  [arxiv](https://arxiv.org/abs/2103.05489)
-
-
-Language models are fairly standard charaacter-level autoregressive recurrent networks. The code provides an efficient implementation of beam serch on the probabilities from an OCR model and the probabilities from a language model.
 
 ## Please cite
 If you use pero-ocr, please cite:
 
-> Kodym, O. and Hradiš, M. TG2: text-guided transformer GAN for restoring document readability and perceived quality. IJDAR (2021).
-
-> Kodym, O. and Hradiš, M. Page Layout Analysis System for Unconstrained Historic Documents. ICDAR, 2021.
-
-> Kišš, M., Beneš, K., and Hradiš, M. AT-ST: Self-Training Adaptation Strategy for OCR in Domains with Limited Transcriptions. ICDAR, 2021.
-
-> Kohút, J. and Hradiš, M. TS-Net: OCR Trained to Switch Between Text Transcription Styles. ICDAR, 2021.
-
+* O Kodym, M Hradiš: Page Layout Analysis System for Unconstrained Historic Documents. ICDAR, 2021.
+* M Kišš, K Beneš, M Hradiš: AT-ST: Self-Training Adaptation Strategy for OCR in Domains with Limited Transcriptions. ICDAR, 2021.
+* J Kohút, M Hradiš: TS-Net: OCR Trained to Switch Between Text Transcription Styles. ICDAR, 2021.
 
 ## Running stuff
-
-
 Scripts (as well as tests) assume that it is possible to import ``pero_ocr`` and its components.
 
 For the current shell session, this can be achieved by setting ``PYTHONPATH`` up:
@@ -40,29 +22,22 @@ As a more permanent solution, a very simplistic `setup.py` is prepared:
 ```
 python setup.py develop
 ```
-Beware that the `setup.py` does NOT check for dependencies in the current version.
+Beware that the `setup.py` does not promise to bring all the required stuff, e.g. setting CUDA up is up to you.
 
 Pero can be later removed from your Python distribution by running:
 ```
 python setup.py develop --uninstall
 ```
 
-## Processing documents from command line
-The package provides command line tool (user_scripts/parse_folder.py.) which can be used to process images. Simple way how to process directory with images is:
-```
-python user_scripts/parse_folder.py -c PATH_TO_config_file_for_OCR_ENGINE.ini -i path_to_image_directory --output-xml-path PATH_TO_OUTPUT_DIRECTORY
-```
-
 ## Available models
 General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://www.fit.vut.cz/~ihradis/pero/pero_eu_cz_print_newspapers_2020-10-09.tar.gz). The OCR engine is suitable for most european printed documents. It is specialized for low-quality czech newspapers digitized from microfilms, but it provides very good results for almast all types of printed documents in most languages. If you are interested in processing printed fraktur fonts, handwritten documents or medieval manuscripts, feel free to contact the authors. The newest OCR engines are available at [pero-ocr.fit.vutbr.cz](https://pero-ocr.fit.vutbr.cz). OCR engines are available also through API runing at [pero-ocr.fit.vutbr.cz/api](https://pero-ocr.fit.vutbr.cz/api), [github repository](https://github.com/DCGM/pero-ocr-api).
 
-## Using the python package
-The package provides two main classes: 
+## Command line application
+A command line application is ./user_scripts/parse_folder.py. It is able to process images in a directory using an OCR engine. It can render detected lines in an image and provide document content in Page XML and ALTO XML formats. Additionally, it is able to crop all text lines as rectangular regions of normalized size and save them into separate image files.
 
-1. PageLayout which represents page content, can be exported to PAGE XML, ALTO XML, text and rendered (and also loded from PAGE XML), 
-2. PageParser which can load OCR engine from a configuration file and process images. 
+## Integration of the pero-ocr python module
+This example shows how to directly use the OCR pipeline provided by pero-ocr package. This shows how to integrate pero-ocr into other applications. Class PageLayout represents content of a single document page and can be loaded from Page XMl and exported to Page XML and ALTO XML formats. The OCR pipeline is represented by the PageParser class.
 
-A basic example how to load an OCR engine, process an image, export results and render the layou follows:
 ```
 import os
 import configparser
@@ -108,7 +83,7 @@ for region in page_layout.regions:
 ```
 
 
-## Developing & Contributing
+## Contributing
 Working changes are expected to happen on `develop` branch, so if you plan to contribute, you better check it out right during cloning:
 
 ```
@@ -120,3 +95,4 @@ Currently, only unittests are provided with the code. Some of the code. So simpl
 ```
 ~/pero-ocr $ green
 ```
+
