@@ -10,6 +10,7 @@ from brnolm.language_models import language_model
 
 from pero_ocr.utils import compose_path
 from .decoders import GreedyDecoder, CTCPrefixLogRawNumpyDecoder, BLANK_SYMBOL
+from .lm_wrapper import LMWrapper
 
 ZERO_LOGITS = -80.0
 
@@ -45,7 +46,7 @@ def lm_factory(config, config_path=''):
     return construct_lm(config[lm_key], config_path=config_path)
 
 
-def decoder_factory(config, characters, allow_no_decoder=True, use_gpu=False, config_path=''):
+def decoder_factory(config, characters, device, allow_no_decoder=True, config_path=''):
     full_characters = characters + [BLANK_SYMBOL]
 
     decoder_type = config['TYPE']
@@ -59,9 +60,11 @@ def decoder_factory(config, characters, allow_no_decoder=True, use_gpu=False, co
 
         insertion_bonus = config.getfloat('INSERTION_BONUS', fallback=0.0)
         lm = lm_factory(config, config_path=config_path)
+        if lm is not None:
+            lm = LMWrapper(lm, full_characters[:-1], device)
 
         sys.stderr.write(f"Constructing CTCPrefixLogRawNumpyDecoder({full_characters}, {k}, insertion_bonus={insertion_bonus}, {lm})\n")
-        return CTCPrefixLogRawNumpyDecoder(full_characters, k, lm, lm_scale, use_gpu=use_gpu, insertion_bonus=insertion_bonus)
+        return CTCPrefixLogRawNumpyDecoder(full_characters, k, lm, lm_scale, insertion_bonus=insertion_bonus)
     elif decoder_type == 'GREEDY':
         sys.stderr.write("Constructing GreedyDecoder({})\n".format(full_characters))
         return GreedyDecoder(full_characters)

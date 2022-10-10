@@ -169,7 +169,6 @@ def select_relevant_logits(logits):
 class CTCPrefixLogRawNumpyDecoder:
     def __init__(self, letters, k,
                  lm=None, lm_scale=1.0, insertion_bonus=0.0,
-                 use_gpu=False,
                  relevant_logits_selector=select_relevant_logits):
         assert_letters_valid(letters, BLANK_SYMBOL)
 
@@ -183,10 +182,7 @@ class CTCPrefixLogRawNumpyDecoder:
         self._blank_ind = self._letters.index(BLANK_SYMBOL)
         self.select_relevant_logits = relevant_logits_selector
 
-        if lm:
-            self._lm = LMWrapper(lm, letters[:-1], lm_on_gpu=use_gpu)
-        else:
-            self._lm = None
+        self._lm = lm
 
         self.LOG_ZERO_PROBABILITY = -np.inf
 

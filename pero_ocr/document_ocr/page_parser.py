@@ -66,8 +66,7 @@ def page_decoder_factory(config, device, config_path=''):
     use_cpu = config['DECODER'].getboolean('USE_CPU')
     device = device if not use_cpu else torch.device("cpu")
 
-    decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True,
-                                           config_path=config_path)
+    decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, device, allow_no_decoder=False, config_path=config_path)
     confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
     carry_h_over = config['DECODER'].getboolean('CARRY_H_OVER')
     return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over)

@@ -55,22 +55,13 @@ class HiddenState:
 
 
 class LMWrapper:
-    def __init__(self, lm, decoder_symbols, lm_on_gpu=False):
+    def __init__(self, lm, decoder_symbols, device):
         self._lm = lm
         self._start_symbol = '</s>'
         self._lm.eval()
 
-        if lm_on_gpu:
-            try:
-                self._lm_device = torch.device('cuda:0')
-                self._lm.to(self._lm_device)
-            except RuntimeError:
-                print(f"WARNING: Unable to get CUDA device, running on CPU instead!")
-                self._lm_device = torch.device('cpu')
-                self._lm.to(self._lm_device)
-        else:
-            self._lm_device = torch.device('cpu')
-            self._lm.to(self._lm_device)
+        self._lm_device = device
+        self._lm.to(device)
 
         self._dict = {}
         for i, c in enumerate(decoder_symbols):
