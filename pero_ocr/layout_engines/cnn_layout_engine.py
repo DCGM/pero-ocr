@@ -137,7 +137,7 @@ class LayoutEngine(object):
         print('MAP RES:', out_map.shape)
         out_map[:, :, 4][out_map[:, :, 4] < 0] = 0
 
-        # expand line heights verticaly
+        # expand line heights vertically
         heights_map = ndimage.morphology.grey_dilation(
             out_map[:, :, :2], size=(5, 1, 1))
 

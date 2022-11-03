@@ -22,7 +22,7 @@ def force_align(neg_logprobs: np.ndarray, symbols_seq: typing.List[int], blank_s
         A list of symbols corresponding to the most probable path, including CTC blanks.
 
     Raises:
-        ValueError: On various occassions :-)
+        ValueError: On various occasions :-)
     """
     complete_seq, char_sequence = complete_state_seq(symbols_seq, blank_symbol)
     A = hmm_trans_from_string(symbols_seq)

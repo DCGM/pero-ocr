@@ -60,7 +60,7 @@ class BaseEngineLineOCR(object):
             if line.shape[0] == self.line_px_height:
                 ValueError("Line height needs to be {} for this ocr network and is {} instead.".format(self.line_px_height, line.shape[0]))
             if line.shape[2] == 3:
-                ValueError("Line crops need three color channes, but this one has {}.".format(line.shape[2]))
+                ValueError("Line crops need three color channels, but this one has {}.".format(line.shape[2]))
 
         all_transcriptions = [None]*len(lines)
         all_logits = [None]*len(lines)

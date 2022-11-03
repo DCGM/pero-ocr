@@ -14,7 +14,7 @@ from pero_ocr.document_ocr.arabic_helper import ArabicHelper
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description='Merge results of multiple OCR engines together by picking the most cinfident transcription '
+        description='Merge results of multiple OCR engines together by picking the most confident transcription '
                     'for each text line. The tool takes multiple directories, where each should contain Page XML '
                     'files and corresponding logit files. The file names in each directory must be the same.'
                     'Text lines and their IDs must be the same in each directory.')

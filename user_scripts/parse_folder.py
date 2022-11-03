@@ -37,12 +37,12 @@ def parse_arguments():
     parser.add_argument('--output-logit-path', help='')
     parser.add_argument('--output-alto-path', help='')
     parser.add_argument('--output-transcriptions-file-path', help='')
-    parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
+    parser.add_argument('--skipp-missing-xml', action='store_true', help='Skip images which have missing xml.')
 
     parser.add_argument('--device', choices=["gpu", "cpu"], default="gpu")
     parser.add_argument('--gpu-id', type=int, default=None, help='If set, the computation runs of the specified GPU, otherwise safe-gpu is used to allocate first unused GPU.')
 
-    parser.add_argument('--process-count', type=int, default=1, help='Number of parallel processes (this works mostly only for line cropping and it probably fails and crashes for most other uses cases).')
+    parser.add_argument('--process-count', type=int, default=1, help='Number of parallel processes (this works mostly only for line cropping and it probably fails and crashes for most other use cases).')
     args = parser.parse_args()
     return args
 
