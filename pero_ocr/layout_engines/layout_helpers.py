@@ -7,6 +7,7 @@ import cv2
 from scipy import ndimage
 from scipy.spatial import Delaunay, distance
 from sklearn import cluster
+import shapely
 import shapely.geometry as sg
 from shapely.ops import cascaded_union, polygonize
 
@@ -310,7 +311,10 @@ def mask_textline_by_region(baseline, textline, region):
     region_shpl = sg.Polygon(region)
     baseline_shpl = sg.LineString(baseline)
 
-    if not baseline_shpl.intersects(region_shpl):
+    try:
+        if not baseline_shpl.intersects(region_shpl):
+            return None, None
+    except shapely.errors.TopologicalError:
         return None, None
 
     textline_shpl = sg.Polygon(textline)

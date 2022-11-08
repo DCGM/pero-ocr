@@ -10,30 +10,17 @@ import skimage.draw
 import shapely.geometry as sg
 
 from pero_ocr.layout_engines import layout_helpers as helpers
-from pero_ocr.layout_engines.parsenet import ParseNet, TiltNet
 from pero_ocr.layout_engines.torch_parsenet import TorchParseNet, TorchOrientationNet
 
 
 class LineFilterEngine(object):
 
-    def __init__(self, model_path, framework='tf', downsample=4, use_cpu=False, model_prefix='tiltnet',
-                 pad=52, max_mp=5, gpu_fraction=None):
-        assert framework in ['tf', 'torch'], 'Engine framework has to be tf or torch.'
-        if framework == 'tf':
-            self.tiltnet = TiltNet(
-                model_path,
-                use_cpu=use_cpu,
-                pad=pad,
-                max_mp=max_mp,
-                gpu_fraction=gpu_fraction,
-                prefix=model_prefix
-            )
-        elif framework == 'torch':
-            self.tiltnet = TorchOrientationNet(
-                model_path,
-                use_cpu=use_cpu,
-                max_mp=max_mp
-            )
+    def __init__(self, model_path, device, downsample=4, max_mp=5):
+        self.tiltnet = TorchOrientationNet(
+            model_path,
+            device=device,
+            max_mp=max_mp
+        )
         self.downsample = downsample
 
     @staticmethod
@@ -47,8 +34,6 @@ class LineFilterEngine(object):
 
     def predict_directions(self, image):
         self.predictions = self.tiltnet.get_maps(image, self.downsample)
-        if self.framework == 'tf':
-            self.predictions = self.predictions[:, :, 1:3]  # old TF model has line segmentation as first channel
 
     def check_line_rotation(self, polygon, baseline):
         line_mask = skimage.draw.polygon2mask(
@@ -70,34 +55,29 @@ class LineFilterEngine(object):
 
 
 class LayoutEngine(object):
-    def __init__(self, model_path, framework='tf', downsample=4, use_cpu=False, pad=52, model_prefix='parsenet',
-                 max_mp=5, gpu_fraction=None, detection_threshold=0.2, adaptive_downsample=True):
-        assert framework in ['tf', 'torch'], 'LayoutEngine framework has to be tf or torch.'
-        if framework == 'tf':
-            self.parsenet = ParseNet(
-                model_path,
-                downsample=downsample,
-                adaptive_downsample=adaptive_downsample,
-                use_cpu=use_cpu,
-                pad=pad,
-                max_mp=max_mp,
-                gpu_fraction=gpu_fraction,
-                detection_threshold=detection_threshold,
-                prefix=model_prefix
-            )
-        elif framework == 'torch':
-            self.parsenet = TorchParseNet(
-                model_path,
-                downsample=downsample,
-                adaptive_downsample=adaptive_downsample,
-                use_cpu=use_cpu,
-                max_mp=max_mp,
-                detection_threshold=detection_threshold
-            )
+    def __init__(self, model_path, device, downsample=4, max_mp=5, detection_threshold=0.2, adaptive_downsample=True,
+                 line_end_weight=1.0, vertical_line_connection_range=5, smooth_line_predictions=True,
+                 paragraph_line_threshold=0.3):
+        self.parsenet = TorchParseNet(
+            model_path,
+            downsample=downsample,
+            adaptive_downsample=adaptive_downsample,
+            device=device,
+            max_mp=max_mp,
+            detection_threshold=detection_threshold
+        )
 
+        self.line_end_weight = line_end_weight
+        self.vertical_line_connection_range = vertical_line_connection_range
+        self.smooth_line_predictions = smooth_line_predictions
         self.line_detection_threshold = detection_threshold
         self.adaptive_downsample = adaptive_downsample
 
+        self.paragraph_line_threshold = paragraph_line_threshold
+
+        params = ' '.join([f'{name}:{str(getattr(self, name))}'
+                  for name in ['line_end_weight', 'vertical_line_connection_range', 'smooth_line_predictions', 'line_detection_threshold', 'adaptive_downsample']])
+        print(f'LayoutEngine params are {params}')
 
     def get_heights(self, heights_map, ds, inds):
 
@@ -153,27 +133,24 @@ class LayoutEngine(object):
         """
         b_list = []
         h_list = []
-        structure = np.asarray(
-            [
-                [1, 1, 1],
-                [1, 1, 1],
-                [1, 1, 1],
-                [1, 1, 1],
-                [1, 1, 1],
-            ])
 
+        print('MAP RES:', out_map.shape)
         out_map[:, :, 4][out_map[:, :, 4] < 0] = 0
-        baselines_map = ndimage.convolve(out_map[:, :, 2], np.ones((3, 3))/9)
-        baselines_map = nonmaxima_suppression(
-            baselines_map, element_size=(7, 1))
-        baselines_map = (baselines_map - out_map[:, :, 3]) > self.line_detection_threshold
-        heights_map = ndimage.morphology.grey_dilation(
-            out_map[:, :, :2], size=(7, 1, 1))
 
+        # expand line heights verticaly
+        heights_map = ndimage.morphology.grey_dilation(
+            out_map[:, :, :2], size=(5, 1, 1))
+
+        baselines_map = out_map[:, :, 2]
+        if self.smooth_line_predictions:
+            baselines_map = ndimage.convolve(baselines_map, np.ones((3, 3))/9)
+        baselines_map = nonmaxima_suppression(baselines_map, element_size=(5, 1))
+        baselines_map = (baselines_map - self.line_end_weight * out_map[:, :, 3]) > self.line_detection_threshold
+
+        # connect vertically disconnected lines - any effect? Parameter is vertical connection distance in pixels.
         baselines_map_dilated = ndimage.morphology.binary_dilation(
-            baselines_map, structure=structure)
-        baselines_img, num_detections = ndimage.measurements.label(
-            baselines_map_dilated, structure=np.ones([3, 3]))
+            baselines_map, structure=np.asarray([[1, 1, 1] for i in range(self.vertical_line_connection_range)]))
+        baselines_img, num_detections = ndimage.measurements.label(baselines_map_dilated, structure=np.ones([3, 3]))
         baselines_img *= baselines_map
         inds = np.where(baselines_img > 0)
         labels = baselines_img[inds[0], inds[1]]
@@ -346,7 +323,7 @@ class LayoutEngine(object):
                 p_list.append(region_poly.simplify(5))
         return [np.array(poly.exterior.coords) for poly in p_list]
 
-    def make_clusters(self, b_list, h_list, t_list, layout_separator_map, ds, lower_threshold=0.3):
+    def make_clusters(self, b_list, h_list, t_list, layout_separator_map, ds):
         if len(t_list) > 1:
 
             min_pos = np.zeros([len(t_list), 2], dtype=np.float32)
@@ -379,9 +356,9 @@ class LayoutEngine(object):
                     distances[i, j] = penalty
                     distances[j, i] = penalty
 
-            adjacency = (distances < lower_threshold).astype(np.int)
+            adjacency = (distances < self.paragraph_line_threshold).astype(np.int)
             adjacency = adjacency * (1 - np.eye(adjacency.shape[0]))  # put zeros on diagonal
-            graph = csr_matrix(adjacency>0)
+            graph = csr_matrix(adjacency > 0)
             _, clusters_array = connected_components(
                 csgraph=graph, directed=False, return_labels=True)
 

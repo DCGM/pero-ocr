@@ -55,22 +55,13 @@ class HiddenState:
 
 
 class LMWrapper:
-    def __init__(self, lm, decoder_symbols, lm_on_gpu=False):
+    def __init__(self, lm, decoder_symbols, device):
         self._lm = lm
         self._start_symbol = '</s>'
         self._lm.eval()
 
-        if lm_on_gpu:
-            try:
-                self._lm_device = torch.device('cuda:0')
-                self._lm.to(self._lm_device)
-            except RuntimeError:
-                print(f"WARNING: Unable to get CUDA device, running on CPU instead!")
-                self._lm_device = torch.device('cpu')
-                self._lm.to(self._lm_device)
-        else:
-            self._lm_device = torch.device('cpu')
-            self._lm.to(self._lm_device)
+        self._lm_device = device
+        self._lm.to(device)
 
         self._dict = {}
         for i, c in enumerate(decoder_symbols):
@@ -80,6 +71,16 @@ class LMWrapper:
         with torch.no_grad():
             pyth_h = h0.prepare_for_torch()
             pyth_x = torch.from_numpy(x).to(dtype=torch.long, device=self._lm_device).unsqueeze(1) + self._lm._unused_prefix_len
+            _, h_new = self._lm.model(pyth_x, pyth_h)
+        return HiddenState(h_new)
+
+    def add_line_end(self, h):
+        with torch.no_grad():
+            pyth_h = h.prepare_for_torch()
+
+            line_break = self._lm.vocab[self._start_symbol]
+            batch_size = pyth_h[0].shape[1]
+            pyth_x = torch.tensor([line_break] * batch_size).to(dtype=torch.long, device=self._lm_device).unsqueeze(1)
             _, h_new = self._lm.model(pyth_x, pyth_h)
         return HiddenState(h_new)
 
@@ -110,6 +111,15 @@ class LMWrapper:
             h0 = self._lm.model.init_hidden(batch_size)
             start_input = self._lm.vocab[self._start_symbol]
             x1 = torch.tensor([[start_input]]).to(self._lm_device)
+            _, h1 = self._lm.model(x1, h0)
+        return HiddenState(h1)
+
+    def initial_h_from_line(self, line):
+        with torch.no_grad():
+            h0 = self._lm.model.init_hidden(1)
+            symbols = [self._start_symbol] + list(line) + [self._start_symbol]
+            inputs = [self._lm.vocab[s] for s in symbols]
+            x1 = torch.tensor([inputs]).to(self._lm_device)
             _, h1 = self._lm.model(x1, h0)
         return HiddenState(h1)
 

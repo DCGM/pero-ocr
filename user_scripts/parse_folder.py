@@ -6,15 +6,19 @@ import os
 import configparser
 import argparse
 import cv2
+import logging
+import logging.handlers
 import re
 from typing import Set, List, Optional
 import traceback
 import sys
 import time
-import subprocess
 from multiprocessing import Pool
 
-from pero_ocr import utils
+import torch
+from safe_gpu import safe_gpu
+
+from pero_ocr import utils  # noqa: F401 -- there is code executed upon import here.
 from pero_ocr.document_ocr.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
@@ -34,10 +38,23 @@ def parse_arguments():
     parser.add_argument('--output-alto-path', help='')
     parser.add_argument('--output-transcriptions-file-path', help='')
     parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
-    parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
+
+    parser.add_argument('--device', choices=["gpu", "cpu"], default="gpu")
+    parser.add_argument('--gpu-id', type=int, default=None, help='If set, the computation runs of the specified GPU, otherwise safe-gpu is used to allocate first unused GPU.')
+
     parser.add_argument('--process-count', type=int, default=1, help='Number of parallel processes (this works mostly only for line cropping and it probably fails and crashes for most other uses cases).')
     args = parser.parse_args()
     return args
+
+
+def setup_logging(config):
+    level = config.get('LOGGING_LEVEL', fallback='WARNING')
+    level = logging.getLevelName(level)
+
+    logging.basicConfig(format='[%(levelname)s] %(asctime)s - %(name)s - %(message)s', level=level)
+
+    logger = logging.getLogger('pero_ocr')
+    logger.setLevel(level)
 
 
 def get_value_or_none(config, section, key):
@@ -85,6 +102,19 @@ def load_already_processed_files(directories: List[Optional[str]]) -> Set[str]:
     return already_processed
 
 
+def get_device(device, gpu_index=None, logger=None):
+    if gpu_index is None:
+        if device == "gpu":
+            gpu_owner = safe_gpu.GPUOwner(logger=logger)  # noqa: F841
+            torch_device = torch.device("cuda")
+        else:
+            torch_device = torch.device("cpu")
+    else:
+        torch_device = torch.device(f"cuda:{gpu_index}")
+
+    return torch_device
+
+
 class LMDB_writer(object):
     def __init__(self, path):
         import lmdb
@@ -105,6 +135,7 @@ class LMDB_writer(object):
             c_out = txn_out.cursor()
             for key in records_to_write:
                 c_out.put(key.encode(), records_to_write[key])
+
 
 class Computator:
     def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
@@ -196,12 +227,6 @@ def main():
     config_path = args.config
     skip_already_processed_files = args.skip_processed
 
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # suppress tensorflow warnings on loading models
-    os.environ['TF_CUDNN_USE_AUTOTUNE'] = '0'  # turn off tuning some TF parts based on input size
-
-    if args.set_gpu:
-        utils.setGPU()
-
     if not os.path.isfile(config_path):
         print(f'ERROR: Config file does not exist: "{config_path}".')
         exit(-1)
@@ -209,12 +234,15 @@ def main():
     config = configparser.ConfigParser()
     config.read(config_path)
 
+    if 'PARSE_FOLDER' not in config:
+        config.add_section('PARSE_FOLDER')
+
     if args.input_image_path is not None:
         config['PARSE_FOLDER']['INPUT_IMAGE_PATH'] = args.input_image_path
     if args.input_xml_path is not None:
         config['PARSE_FOLDER']['INPUT_XML_PATH'] = args.input_xml_path
     if args.input_logit_path is not None:
-        config['PARSE_FOLDER']['INPUT_LOGIT_PATH'] = args.input_xml_path
+        config['PARSE_FOLDER']['INPUT_LOGIT_PATH'] = args.input_logit_path
     if args.output_xml_path is not None:
         config['PARSE_FOLDER']['OUTPUT_XML_PATH'] = args.output_xml_path
     if args.output_render_path is not None:
@@ -226,7 +254,12 @@ def main():
     if args.output_alto_path is not None:
         config['PARSE_FOLDER']['OUTPUT_ALTO_PATH'] = args.output_alto_path
 
-    page_parser = PageParser(config, config_path=os.path.dirname(config_path))
+    setup_logging(config['PARSE_FOLDER'])
+    logger = logging.getLogger()
+
+    device = get_device(args.device, args.gpu_id, logger)
+
+    page_parser = PageParser(config, config_path=os.path.dirname(config_path), device=device)
 
     input_image_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_IMAGE_PATH')
     input_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_XML_PATH')
@@ -251,17 +284,17 @@ def main():
 
     if input_logit_path is not None and input_xml_path is None:
         input_logit_path = None
-        print('Warning: Logit path specified and Page XML path not specified. Logits will be ignored.')
+        logger.warning('Logit path specified and Page XML path not specified. Logits will be ignored.')
 
     if input_image_path is not None:
-        print(f'Reading images from {input_image_path}.')
+        logger.info(f'Reading images from {input_image_path}.')
         ignored_extensions = ['', '.xml', '.logits']
         images_to_process = [f for f in os.listdir(input_image_path) if
                              os.path.splitext(f)[1].lower() not in ignored_extensions]
         images_to_process = sorted(images_to_process)
         ids_to_process = [os.path.splitext(os.path.basename(file))[0] for file in images_to_process]
     elif input_xml_path is not None:
-        print(f'Reading page xml from {input_xml_path}')
+        logger.info(f'Reading page xml from {input_xml_path}')
         xml_to_process = [f for f in os.listdir(input_xml_path) if
                           os.path.splitext(f)[1] == '.xml']
         images_to_process = [None] * len(xml_to_process)
@@ -276,7 +309,7 @@ def main():
         # (i.e. the output is not required) than this directory is omitted.
         already_processed_files = load_already_processed_files([output_xml_path, output_logit_path, output_render_path])
         if len(already_processed_files) > 0:
-            print(f"Already processed {len(already_processed_files)} file(s).")
+            logger.info(f"Already processed {len(already_processed_files)} file(s).")
 
             images_to_process = [image for id, image in zip(ids_to_process, images_to_process) if id not in already_processed_files]
             ids_to_process = [id for id in ids_to_process if id not in already_processed_files]
@@ -293,7 +326,7 @@ def main():
         images_to_process = filtered_images_to_process
 
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                 output_logit_path, output_alto_path, output_xml_path, output_line_path)
+                            output_logit_path, output_alto_path, output_xml_path, output_line_path)
 
     t_start = time.time()
     results = []
@@ -312,7 +345,9 @@ def main():
             for page_lines in results:
                 print('\n'.join(page_lines), file=f)
 
-    print('AVERAGE PROCESSING TIME', (time.time() - t_start) / len(ids_to_process))
+    if page_parser.decoder:
+        logger.info(page_parser.decoder.decoding_summary())
+    logger.info(f'AVERAGE PROCESSING TIME {(time.time() - t_start) / len(ids_to_process)}')
 
 
 if __name__ == "__main__":

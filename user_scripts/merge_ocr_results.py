@@ -19,6 +19,7 @@ def parse_arguments():
                     'files and corresponding logit files. The file names in each directory must be the same.'
                     'Text lines and their IDs must be the same in each directory.')
     parser.add_argument('--output-path', required=True, help='Store here the merged Page XML and logit files.')
+    parser.add_argument('--filter-list', help='Only process ID in this file')
 
     parser.add_argument('input_paths', metavar='input_paths', type=str, nargs='+',
                         help='List of directories with OCR outputs to merge.')
@@ -86,7 +87,13 @@ def main():
 
     print('input_paths', input_paths)
 
-    arabic_helper = ArabicHelper()
+    if args.filter_list:
+        with open(args.filter_list) as f:
+            ids_to_process = f.read().split()
+
+        files_to_process = [f for f in files_to_process if os.path.splitext(f)[0] in ids_to_process]
+
+    # arabic_helper = ArabicHelper()
 
     for xml_file_name in files_to_process:
         print(xml_file_name)

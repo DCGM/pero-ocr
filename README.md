@@ -10,7 +10,6 @@ If you use pero-ocr, please cite:
 * M Kišš, K Beneš, M Hradiš: AT-ST: Self-Training Adaptation Strategy for OCR in Domains with Limited Transcriptions. ICDAR, 2021.
 * J Kohút, M Hradiš: TS-Net: OCR Trained to Switch Between Text Transcription Styles. ICDAR, 2021.
 
-
 ## Running stuff
 Scripts (as well as tests) assume that it is possible to import ``pero_ocr`` and its components.
 
@@ -38,6 +37,7 @@ A command line application is ./user_scripts/parse_folder.py. It is able to proc
 
 ## Integration of the pero-ocr python module
 This example shows how to directly use the OCR pipeline provided by pero-ocr package. This shows how to integrate pero-ocr into other applications. Class PageLayout represents content of a single document page and can be loaded from Page XMl and exported to Page XML and ALTO XML formats. The OCR pipeline is represented by the PageParser class.
+
 ```
 import os
 import configparser

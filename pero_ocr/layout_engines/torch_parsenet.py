@@ -4,13 +4,12 @@ import torch
 
 class Net(object):
 
-    def __init__(self, model_path, use_cpu=False, max_mp=5):
+    def __init__(self, model_path, device, max_mp=5):
         self.max_megapixels = max_mp if max_mp is not None else 5
 
-        if use_cpu:
-            self.device = 'cpu'
-        else:
-            self.device = 'cuda'
+        self.device = device
+        if self.device.type == "cpu":
+            model_path += ".cpu"
 
         if model_path is not None:
             self.net = torch.jit.load(model_path, map_location=self.device)
@@ -20,18 +19,18 @@ class Net(object):
 
 class TorchParseNet(Net):
 
-    def __init__(self, model_path, downsample=4, use_cpu=False, max_mp=5, detection_threshold=0.2, adaptive_downsample=True):
+    def __init__(self, model_path, device, downsample=4, max_mp=5, detection_threshold=0.2, adaptive_downsample=True):
 
-        super().__init__(model_path, use_cpu=use_cpu, max_mp=max_mp)
+        super().__init__(model_path, device=device, max_mp=max_mp)
 
         self.detection_threshold = detection_threshold
         self.adaptive_downsample = adaptive_downsample
         self.init_downsample = downsample
         self.last_downsample = downsample
         self.downsample_line_pixel_adapt_threshold = 100
-        self.min_line_processing_height = 8
-        self.max_line_processing_height = 13
-        self.optimal_line_processing_height = 11
+        self.min_line_processing_height = 9
+        self.max_line_processing_height = 15
+        self.optimal_line_processing_height = 12
         self.min_downsample = 1
         self.max_downsample = 8
 
@@ -39,18 +38,21 @@ class TorchParseNet(Net):
         '''
         ParseNet CNN inference
         '''
+
         img = cv2.resize(img, (0, 0), fx=1/downsample, fy=1/downsample, interpolation=cv2.INTER_AREA)
-        img = img / np.float32(256.)
 
         new_shape_x = int(np.ceil(img.shape[0] / 64) * 64)
         new_shape_y = int(np.ceil(img.shape[1] / 64) * 64)
-        test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3), dtype=np.float32)
+        test_img_canvas = np.zeros((1, new_shape_x, new_shape_y, 3), dtype=np.uint8)
         test_img_canvas[0, :img.shape[0], :img.shape[1], :] = img
 
-        test_img_canvas = torch.from_numpy(test_img_canvas).to(self.device).float().permute(0, 3, 1, 2)
-        out_map, _ = self.net(test_img_canvas)
-        out_map = out_map.permute(0, 2, 3, 1).cpu().numpy()
-
+        with torch.no_grad():
+            print(f'NET INPUT {new_shape_x * new_shape_y} Mpx.')
+            test_img_canvas = torch.from_numpy(test_img_canvas).to(self.device).float().permute(0, 3, 1, 2) * (1/255.)
+            out_map, _ = self.net(test_img_canvas)
+            out_map = out_map.permute(0, 2, 3, 1).cpu().numpy()
+        if self.device != 'cuda':
+            torch.cuda.empty_cache()
         out_map = out_map[0, :img.shape[0], :img.shape[1], :]
 
         return out_map
@@ -101,8 +103,8 @@ class TorchParseNet(Net):
 
 
 class TorchOrientationNet(Net):
-    def __init__(self, model_path, use_cpu=False, max_mp=5):
-        super().__init__(model_path, use_cpu=use_cpu, max_mp=max_mp)
+    def __init__(self, model_path, device, max_mp=5):
+        super().__init__(model_path, device=device, max_mp=max_mp)
 
     def get_maps(self, img, downsample):
         '''

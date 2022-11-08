@@ -3,7 +3,8 @@ import re
 import pickle
 import json
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
+from enum import Enum
 
 import numpy as np
 import lxml.etree as ET
@@ -16,15 +17,25 @@ from pero_ocr.confidence_estimation import get_line_confidence
 from pero_ocr.document_ocr.arabic_helper import ArabicHelper
 
 
+class PAGEVersion(Enum):
+    PAGE_2019_07_15 = 1
+    PAGE_2013_07_15 = 2
+
+
 def log_softmax(x):
     a = np.logaddexp.reduce(x, axis=1)[:, np.newaxis]
     return x - a
 
 
+def export_id(id, validate_change_id):
+    return 'id_' + id if validate_change_id else id
+
+
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None, logit_coords=None, transcription_confidence=None):
+                 characters=None, logit_coords=None, transcription_confidence=None, index=None):
         self.id = id
+        self.index = index
         self.baseline = baseline
         self.polygon = polygon
         self.heights = heights
@@ -52,10 +63,10 @@ class RegionLayout(object):
         self.lines = []
         self.transcription = None
 
-    def to_page_xml(self, page_element):
+    def to_page_xml(self, page_element, validate_id=False):
         region_element = ET.SubElement(page_element, "TextRegion")
         coords = ET.SubElement(region_element, "Coords")
-        region_element.set("id", self.id)
+        region_element.set("id", export_id(self.id, validate_id))
         points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in self.polygon]
         points = " ".join(points)
         coords.set("points", points)
@@ -118,7 +129,6 @@ def guess_line_heights_from_polygon(text_line: TextLine):
         text_line.heights = [height * 0.8, height * 0.2]
 
 
-
 class PageLayout(object):
     def __init__(self, id=None, page_size=(0, 0), file=None):
         self.id = id
@@ -141,7 +151,7 @@ class PageLayout(object):
         for region in page_tree.iter(schema + 'TextRegion'):
             region_layout = get_region_from_page_xml(region, schema)
 
-            for line in region.iter(schema + 'TextLine'):
+            for line_i, line in enumerate(region.iter(schema + 'TextLine')):
                 new_textline = TextLine(id=line.attrib['id'])
                 if 'custom' in line.attrib:
                     custom_str = line.attrib['custom']
@@ -164,6 +174,15 @@ class PageLayout(object):
                             else:
                                 heights = heights_array
                             new_textline.heights = heights.tolist()
+
+                if 'index' in line.attrib:
+                    try:
+                        new_textline.index = int(line.attrib['custom'])
+                    except ValueError:
+                        pass
+
+                if new_textline.index is None:
+                    new_textline.index = line_i
 
                 baseline = line.find(schema + 'Baseline')
                 if baseline is not None:
@@ -189,9 +208,29 @@ class PageLayout(object):
 
             self.regions.append(region_layout)
 
-    def to_pagexml_string(self):
-        root = ET.Element("PcGts")
-        root.set("xmlns", "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15")
+    def to_pagexml_string(self, creator='Pero OCR', validate_id=False, version=PAGEVersion.PAGE_2019_07_15):
+        if version == PAGEVersion.PAGE_2019_07_15:
+            attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
+            root = ET.Element(
+                'PcGts',
+                {attr_qname: 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15/pagecontent.xsd'},
+                nsmap={
+                    None: 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15',
+                    'xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+                    })
+
+            metadata = ET.SubElement(root, "Metadata")
+            ET.SubElement(metadata, "Creator").text = creator
+            now = datetime.now(timezone.utc)
+            ET.SubElement(metadata, "Created").text = now.isoformat()
+            ET.SubElement(metadata, "LastChange").text = now.isoformat()
+
+        elif version == PAGEVersion.PAGE_2013_07_15:
+            root = ET.Element("PcGts")
+            root.set("xmlns", "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15")
+
+        else:
+            raise ValueError(f"Unknown PAGE Version: '{version}'")
 
         page = ET.SubElement(root, "Page")
         page.set("imageFilename", self.id)
@@ -199,15 +238,17 @@ class PageLayout(object):
         page.set("imageHeight", str(self.page_size[0]))
 
         for region_layout in self.regions:
-            text_region = region_layout.to_page_xml(page)
+            text_region = region_layout.to_page_xml(page, validate_id=validate_id)
 
-            for line in region_layout.lines:
+            for i, line in enumerate(region_layout.lines):
                 text_line = ET.SubElement(text_region, "TextLine")
-                text_line.set("id", line.id)
+                text_line.set("id", export_id(line.id, validate_id))
+                if line.index is not None:
+                    text_line.set("index", f'{line.index:d}')
+                else:
+                    text_line.set("index", f'{i:d}')
                 if line.heights is not None:
                     text_line.set("custom", f"heights_v2:[{line.heights[0]:.1f},{line.heights[1]:.1f}]")
-                if line.transcription_confidence is not None:
-                    text_line.set("conf", f"{line.transcription_confidence:.3f}")
 
                 coords = ET.SubElement(text_line, "Coords")
 
@@ -226,13 +267,15 @@ class PageLayout(object):
 
                 if line.transcription is not None:
                     text_element = ET.SubElement(text_line, "TextEquiv")
+                    if line.transcription_confidence is not None:
+                        text_element.set("conf", f"{line.transcription_confidence:.3f}")
                     text_element = ET.SubElement(text_element, "Unicode")
                     text_element.text = line.transcription
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
 
-    def to_pagexml(self, file_name):
-        xml_string = self.to_pagexml_string()
+    def to_pagexml(self, file_name, version=PAGEVersion.PAGE_2019_07_15):
+        xml_string = self.to_pagexml_string(version=version)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
@@ -309,26 +352,26 @@ class PageLayout(object):
                 text_line.set("HEIGHT", str(int(text_line_height)))
                 text_line.set("WIDTH", str(int(text_line_width)))
 
-                chars = [i for i in range(len(line.characters))]
-                char_to_num = dict(zip(line.characters, chars))
-
-                blank_idx = line.logits.shape[1] - 1
-
-                label = []
-                for item in line.transcription:
-                    if item in char_to_num.keys():
-                        if char_to_num[item] >= blank_idx:
-                            label.append(0)
-                        else:
-                            label.append(char_to_num[item])
-                    else:
-                        label.append(0)
-
-                logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
-                logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                 try:
+                    chars = [i for i in range(len(line.characters))]
+                    char_to_num = dict(zip(line.characters, chars))
+
+                    blank_idx = line.logits.shape[1] - 1
+
+                    label = []
+                    for item in line.transcription:
+                        if item in char_to_num.keys():
+                            if char_to_num[item] >= blank_idx:
+                                label.append(0)
+                            else:
+                                label.append(char_to_num[item])
+                        else:
+                            label.append(0)
+
+                    logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
+                    logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
-                except (ValueError, IndexError) as e:
+                except (ValueError, IndexError, TypeError) as e:
                     print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
                     line.transcription_confidence = 0
                     average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
@@ -354,11 +397,11 @@ class PageLayout(object):
                     lm_const = line_coords.shape[1] / logits.shape[0]
                     letter_counter = 0
                     confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
-                    if line.transcription_confidence is None:
-                        line.transcription_confidence = np.quantile(confidences, .50)
+                    #if line.transcription_confidence is None:
+                    line.transcription_confidence = np.quantile(confidences, .50)
                     for w, word in enumerate(words):
                         extension = 2
-                        while True:
+                        while line_coords.size > 0 and extension < 40:
                             all_x = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 0]
                             all_y = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 1]
 
@@ -366,6 +409,10 @@ class PageLayout(object):
                                 extension += 1
                             else:
                                 break
+
+                        if line_coords.size == 0 or all_x.size == 0 or all_y.size == 0:
+                           all_x = line.baseline[:, 0]
+                           all_y = np.concatenate([line.baseline[:, 1] - line.heights[0], line.baseline[:, 1] + line.heights[1]])
 
                         word_confidence = None
                         if line.transcription_confidence == 1:
@@ -483,9 +530,10 @@ class PageLayout(object):
 
             self.regions.append(region_layout)
 
-    def save_logits(self, file_name):
-        """Save page logits as a pickled dictionary of sparse matrices.
-        :param file_name: to pickle into.
+    def _gen_logits(self):
+        """
+        Generates logits as dictionary of sparse matrices
+        :return: logit dictionary
         """
         logits = []
         characters = []
@@ -504,15 +552,33 @@ class PageLayout(object):
         logits_dict = dict(logits)
         logits_dict['line_characters'] = dict(characters)
         logits_dict['logit_coords'] = dict(logit_coords)
-        with open(file_name, 'wb') as f:
-            pickle.dump(logits_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+        return logits_dict
 
-    def load_logits(self, file_name):
-        """Load pagelogits as a pickled dictionary of sparse matrices.
+    def save_logits(self, file_name):
+        """Save page logits as a pickled dictionary of sparse matrices.
         :param file_name: to pickle into.
         """
-        with open(file_name, 'rb') as f:
-            logits_dict = pickle.load(f)
+        logits_dict = self._gen_logits()
+        with open(file_name, 'wb') as f:
+            pickle.dump(logits_dict, f, protocol=4)
+
+    def save_logits_bytes(self):
+        """
+        Return page logits as pickled dictionary bytes.
+        :return: pickled logits as bytes like object
+        """
+        logist_dict = self._gen_logits()
+        return pickle.dumps(logist_dict, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load_logits(self, file):
+        """Load pagelogits as a pickled dictionary of sparse matrices.
+        :param file: file name to pickle into, or already loaded bytes like object
+        """
+        if isinstance(file, bytes):
+            logits_dict = pickle.loads(file)
+        else:
+            with open(file, 'rb') as f:
+                logits_dict = pickle.load(f)
 
         if 'line_characters' in logits_dict:
             characters = logits_dict['line_characters']
@@ -527,7 +593,7 @@ class PageLayout(object):
         for region in self.regions:
             for line in region.lines:
                 if line.id not in logits_dict:
-                    raise Exception(f'Missing line id {line.id} in logits {file_name}.')
+                    continue
                 line.logits = logits_dict[line.id]
                 line.characters = characters[line.id]
                 line.logit_coords = logit_coords[line.id]
@@ -718,7 +784,7 @@ def create_ocr_processing_element(id="IdOcr", software_creator_str="Project PERO
     if processing_datetime is not None:
         processing_date_time.text = processing_datetime
     else:
-        processing_date_time.text = datetime.today().strftime('%Y-%m-%d')
+        processing_date_time.text = datetime.now(timezone.utc).isoformat()
     processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
     processing_creator = ET.SubElement(processing_software, "softwareCreator")
     processing_creator.text = software_creator_str

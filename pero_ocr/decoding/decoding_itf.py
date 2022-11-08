@@ -10,8 +10,11 @@ from brnolm.language_models import language_model
 
 from pero_ocr.utils import compose_path
 from .decoders import GreedyDecoder, CTCPrefixLogRawNumpyDecoder, BLANK_SYMBOL
+from .lm_wrapper import LMWrapper
 
 ZERO_LOGITS = -80.0
+
+logger = logging.getLogger(__name__)
 
 
 def get_ocr_charset(fn):
@@ -21,10 +24,10 @@ def get_ocr_charset(fn):
     return chars
 
 
-def construct_lm(path, config_path='', logger=logging):
+def construct_lm(path, config_path=''):
     try:
         lm = language_model.torchscript_import(compose_path(path, config_path))
-    except language_model.UnreadableModelError as e:
+    except Exception as e:
         logger.warning('WARNING: Failed to load model as TorchScript file, original error:\n')
         logger.warning(f'{e}\n')
         logger.warning('WARNING: Attempting to load as a plain torch-pickled model...\n')
@@ -43,7 +46,7 @@ def lm_factory(config, config_path=''):
     return construct_lm(config[lm_key], config_path=config_path)
 
 
-def decoder_factory(config, characters, allow_no_decoder=True, use_gpu=False, config_path=''):
+def decoder_factory(config, characters, device, allow_no_decoder=True, config_path=''):
     full_characters = characters + [BLANK_SYMBOL]
 
     decoder_type = config['TYPE']
@@ -57,9 +60,11 @@ def decoder_factory(config, characters, allow_no_decoder=True, use_gpu=False, co
 
         insertion_bonus = config.getfloat('INSERTION_BONUS', fallback=0.0)
         lm = lm_factory(config, config_path=config_path)
+        if lm is not None:
+            lm = LMWrapper(lm, full_characters[:-1], device)
 
         sys.stderr.write(f"Constructing CTCPrefixLogRawNumpyDecoder({full_characters}, {k}, insertion_bonus={insertion_bonus}, {lm})\n")
-        return CTCPrefixLogRawNumpyDecoder(full_characters, k, lm, lm_scale, use_gpu=use_gpu, insertion_bonus=insertion_bonus)
+        return CTCPrefixLogRawNumpyDecoder(full_characters, k, lm, lm_scale, insertion_bonus=insertion_bonus)
     elif decoder_type == 'GREEDY':
         sys.stderr.write("Constructing GreedyDecoder({})\n".format(full_characters))
         return GreedyDecoder(full_characters)
@@ -89,13 +94,13 @@ def decode_paragraph(logits, decoder, time_logger):
 
 
 def decode_page(page_logits, decoder, time_logging=False):
-    logger = TimeLogger(loud=time_logging)
+    time_logger = TimeLogger(loud=time_logging)
 
     page_transcripts = []
     for paragraph_logits in page_logits:
-        page_transcripts.append(decode_paragraph(paragraph_logits, decoder, logger))
+        page_transcripts.append(decode_paragraph(paragraph_logits, decoder, time_logger))
 
-    logger.print_final_stats()
+    time_logger.print_final_stats()
     return page_transcripts
 
 

@@ -62,13 +62,16 @@ def normalize_cn(cn):
     return cn
 
 
-def produce_cn_from_boh(boh, visual_weight=1.0, lm_weight=1.0):
+def produce_cn_from_boh(boh, visual_weight=1.0, lm_weight=1.0, normalize=True):
     cn = []
     for hyp in boh:
         log_prob = visual_weight*hyp.vis_sc + (lm_weight*hyp.lm_sc if hyp.lm_sc is not None else 0.0)
         cn = add_hypothese(cn, hyp.transcript, math.exp(log_prob))
 
-    return normalize_cn(cn)
+    if normalize:
+        cn = normalize_cn(cn)
+
+    return cn
 
 
 def best_cn_path(cn):

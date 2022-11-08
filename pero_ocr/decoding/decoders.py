@@ -4,7 +4,7 @@ import numpy as np
 from .bag_of_hypotheses import BagOfHypotheses, logsumexp
 from .multisort import top_k
 
-from .lm_wrapper import LMWrapper
+from .lm_wrapper import LMWrapper, HiddenState
 
 
 BLANK_SYMBOL = '<BLANK>'
@@ -169,7 +169,6 @@ def select_relevant_logits(logits):
 class CTCPrefixLogRawNumpyDecoder:
     def __init__(self, letters, k,
                  lm=None, lm_scale=1.0, insertion_bonus=0.0,
-                 use_gpu=False,
                  relevant_logits_selector=select_relevant_logits):
         assert_letters_valid(letters, BLANK_SYMBOL)
 
@@ -183,10 +182,7 @@ class CTCPrefixLogRawNumpyDecoder:
         self._blank_ind = self._letters.index(BLANK_SYMBOL)
         self.select_relevant_logits = relevant_logits_selector
 
-        if lm:
-            self._lm = LMWrapper(lm, letters[:-1], lm_on_gpu=use_gpu)
-        else:
-            self._lm = None
+        self._lm = lm
 
         self.LOG_ZERO_PROBABILITY = -np.inf
 
@@ -217,7 +213,7 @@ class CTCPrefixLogRawNumpyDecoder:
         inv_sel = {v: i for i, v in enumerate(selected_chars)}
         return np.asarray([(inv_sel[l] if l in inv_sel else impossible_index) for l in reduced_last_chars])
 
-    def __call__(self, logits, model_eos=False, max_unnormalization=1e-5):
+    def __call__(self, logits, model_eos=False, max_unnormalization=1e-5, return_h=False, init_h=None):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
         '''
         if logprobs_max_deviation(logits) > max_unnormalization:
@@ -227,7 +223,10 @@ class CTCPrefixLogRawNumpyDecoder:
         prefixes = [empty]
 
         if self._lm:
-            h_prev = self._lm.initial_h(1)
+            if init_h is None:
+                h_prev = self._lm.initial_h(1)
+            else:
+                h_prev = init_h
             lm_preds = self._lm.log_probs(h_prev)
         else:  # just to have them defined
             h_prev = None
@@ -288,4 +287,10 @@ class CTCPrefixLogRawNumpyDecoder:
             eos_scores = self._lm.eos_scores(h_prev)
             Plm += eos_scores
 
-        return build_boh(prefixes, np.logaddexp(Pb, Pnb), Plm, lm_weight=self._lm_scale)
+        Pom = np.logaddexp(Pb, Pnb)
+        bag_of_hypotheses = build_boh(prefixes, Pom, Plm, lm_weight=self._lm_scale)
+        if return_h:
+            idx_of_best = np.argmax(Pom + Plm*self._lm_scale)
+            return bag_of_hypotheses, h_prev[[idx_of_best]]  # a single-item list is needed to keep shape
+        else:
+            return bag_of_hypotheses
