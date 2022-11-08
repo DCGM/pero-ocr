@@ -10,7 +10,7 @@ def get_long_desc():
 
 setup(
     name='pero-ocr',
-    version='0.5',
+    version='0.6.0',
     python_requires='>=3.6',
     packages=[
         'pero_ocr',
@@ -25,12 +25,11 @@ setup(
         'lxml',
         'scipy',
         'numba',
-        'torch>=1.4',
+        'torch>=1.12',
         'brnolm>=0.1.1',
         'scikit-learn',
         'scikit-image',
-        'tensorflow-gpu==1.15',
-        'shapely',
+        'shapely==1.8',
         'safe-gpu',
         'pyamg',
         'imgaug',
