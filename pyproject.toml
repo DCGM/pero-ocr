@@ -1,0 +1,43 @@
+[project]
+name = "pero-ocr"
+version = "0.6.1"
+description = "Toolkit for advanced OCR of poor quality documents"
+readme = "README.md"
+requires-python = ">=3.6"
+license = {file = "LICENSE"}
+keywords = ["OCR", "Layout analysis", "handwriting recognition"]
+
+authors = [
+  {email = "hradis@fit.vutbr.cz", name = "Michal Hradiš"}
+]
+maintainers = [
+  {email = "ibenes@fit.vutbr.cz", name = "Karel Beneš"}
+]
+
+classifiers=[
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "lxml",
+    "scipy",
+    "numba",
+    "torch>=1.12",
+    "brnolm>=0.1.1",
+    "scikit-learn",
+    "scikit-image",
+    "shapely==1.8",
+    "safe-gpu",
+    "pyamg",
+    "imgaug",
+    "arabic_reshaper",
+]
+
+
+[project.urls]
+homepage = "https://pero.fit.vutbr.cz/"
+repository = "https://github.com/DCGM/pero-ocr"
