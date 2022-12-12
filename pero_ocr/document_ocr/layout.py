@@ -9,7 +9,7 @@ from enum import Enum
 import numpy as np
 import lxml.etree as ET
 import cv2
-import shapely
+from shapely.geometry import LineString, Polygon
 
 from pero_ocr.document_ocr.crop_engine import EngineLineCropper
 from pero_ocr.force_alignment import align_text
@@ -57,9 +57,10 @@ class TextLine(object):
 
 
 class RegionLayout(object):
-    def __init__(self, id, polygon):
+    def __init__(self, id, polygon, region_type=None):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
+        self.region_type = region_type
         self.lines = []
         self.transcription = None
 
@@ -67,6 +68,10 @@ class RegionLayout(object):
         region_element = ET.SubElement(page_element, "TextRegion")
         coords = ET.SubElement(region_element, "Coords")
         region_element.set("id", export_id(self.id, validate_id))
+
+        if self.region_type is not None:
+            region_element.set("type", self.region_type)
+
         points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in self.polygon]
         points = " ".join(points)
         coords.set("points", points)
@@ -92,7 +97,13 @@ def get_coords_form_page_xml(coords_element, schema):
 def get_region_from_page_xml(region_element, schema):
     coords_element = region_element.find(schema + 'Coords')
     region_coords = get_coords_form_page_xml(coords_element, schema)
-    layout_region = RegionLayout(region_element.attrib['id'], region_coords)
+
+    region_type = None
+    if "type" in region_element.attrib:
+        region_type = region_element.attrib["type"]
+
+    layout_region = RegionLayout(region_element.attrib['id'], region_coords, region_type)
+
     transcription = region_element.find(schema + 'TextEquiv')
     if transcription is not None:
         layout_region.transcription = transcription.find(schema + 'Unicode').text
@@ -116,12 +127,12 @@ def guess_line_heights_from_polygon(text_line: TextLine):
         direction[0] = -direction[0]
         cross_line = np.stack([center - direction * 10, center + direction * 10])
 
-        cross_line = shapely.geometry.LineString(cross_line)
-        polygon = shapely.geometry.Polygon(text_line.polygon)
+        cross_line = LineString(cross_line)
+        polygon = Polygon(text_line.polygon)
         intersection = polygon.intersection(cross_line)
         intersection = np.asarray(intersection.coords.xy).T
 
-        text_line.heights = [((center - intersection[0])**2).sum()**0.5,
+        text_line.heights = [((center - intersection[0]) ** 2).sum() ** 0.5,
                              ((center - intersection[1]) ** 2).sum() ** 0.5]
         text_line.heights = sorted(text_line.heights)[::-1]
     except:
@@ -129,13 +140,31 @@ def guess_line_heights_from_polygon(text_line: TextLine):
         text_line.heights = [height * 0.8, height * 0.2]
 
 
+def get_reading_order(page_element, schema):
+    reading_order = {}
+
+    for reading_order_element in page_element.iter(schema + "ReadingOrder"):
+        for ordered_group_element in reading_order_element.iter(schema + "OrderedGroup"):
+            for indexed_region_element in ordered_group_element.iter(schema + "RegionRefIndexed"):
+                region_index = int(indexed_region_element.attrib["index"])
+                region_id = indexed_region_element.attrib["regionRef"]
+                reading_order[region_id] = region_index
+
+    return reading_order
+
+
 class PageLayout(object):
     def __init__(self, id=None, page_size=(0, 0), file=None):
         self.id = id
         self.page_size = page_size  # (height, width)
         self.regions = []  # list of RegionLayout objects
+        self.reading_order = None
+
         if file is not None:
             self.from_pagexml(file)
+
+        if self.reading_order is not None and len(self.regions) > 0:
+            self.sort_regions_by_reading_order()
 
     def from_pagexml_string(self, pagexml_string):
         self.from_pagexml(BytesIO(pagexml_string))
@@ -147,6 +176,8 @@ class PageLayout(object):
         page = page_tree.findall(schema + 'Page')[0]
         self.id = page.attrib['imageFilename']
         self.page_size = (int(page.attrib['imageHeight']), int(page.attrib['imageWidth']))
+
+        self.reading_order = get_reading_order(page, schema)
 
         for region in page_tree.iter(schema + 'TextRegion'):
             region_layout = get_region_from_page_xml(region, schema)
@@ -177,7 +208,7 @@ class PageLayout(object):
 
                 if 'index' in line.attrib:
                     try:
-                        new_textline.index = int(line.attrib['custom'])
+                        new_textline.index = int(line.attrib['index'])
                     except ValueError:
                         pass
 
@@ -236,6 +267,10 @@ class PageLayout(object):
         page.set("imageFilename", self.id)
         page.set("imageWidth", str(self.page_size[1]))
         page.set("imageHeight", str(self.page_size[0]))
+
+        if self.reading_order is not None:
+            self.sort_regions_by_reading_order()
+            self.reading_order_to_page_xml(page)
 
         for region_layout in self.regions:
             text_region = region_layout.to_page_xml(page, validate_id=validate_id)
@@ -529,6 +564,19 @@ class PageLayout(object):
                 region_layout.lines.append(new_textline)
 
             self.regions.append(region_layout)
+
+    def sort_regions_by_reading_order(self):
+        self.regions = sorted(self.regions, key=lambda k: self.reading_order[k] if k in self.reading_order else float("inf"))
+
+    def reading_order_to_page_xml(self, page_element):
+        reading_order_element = ET.SubElement(page_element, "ReadingOrder")
+        ordered_group_element = ET.SubElement(reading_order_element, "OrderedGroup")
+        ordered_group_element.set("id", "reading_order")
+
+        for region_id, region_index in self.reading_order.items():
+            indexed_region_element = ET.SubElement(ordered_group_element, "RegionRefIndexed")
+            indexed_region_element.set("regionRef", region_id)
+            indexed_region_element.set("index", str(region_index))
 
     def _gen_logits(self):
         """
