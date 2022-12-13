@@ -105,7 +105,7 @@ def load_already_processed_files(directories: List[Optional[str]]) -> Set[str]:
 def get_device(device, gpu_index=None, logger=None):
     if gpu_index is None:
         if device == "gpu":
-            gpu_owner = safe_gpu.GPUOwner(logger=logger)  # noqa: F841
+            safe_gpu.claim_gpus(logger=logger)
             torch_device = torch.device("cuda")
         else:
             torch_device = torch.device("cpu")

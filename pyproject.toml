@@ -31,7 +31,7 @@ dependencies = [
     "scikit-learn",
     "scikit-image",
     "shapely==1.8",
-    "safe-gpu",
+    "safe-gpu>=1.5",
     "pyamg",
     "imgaug",
     "arabic_reshaper",
