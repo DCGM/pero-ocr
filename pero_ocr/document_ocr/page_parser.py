@@ -440,8 +440,12 @@ def get_prob(best_ids, best_probs):
     return worst_prob
 
 
+def get_default_device():
+    return torch.device('cuda') if torch.cuda.is_available() else torch.device ('cpu')
+
+
 class PageParser(object):
-    def __init__(self, config, device, config_path='', ):
+    def __init__(self, config, device=None, config_path='', ):
         self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER', fallback=False)
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
@@ -454,19 +458,19 @@ class PageParser(object):
         self.ocr = None
         self.decoder = None
 
-        self.device = device
+        self.device = device if device is not None else get_default_device()
 
         if self.run_layout_parser:
             self.layout_parsers = []
             for i in range(1, 10):
                 if config.has_section('LAYOUT_PARSER_{}'.format(i)):
-                    self.layout_parsers.append(layout_parser_factory(config, device, config_path=config_path, order=i))
+                    self.layout_parsers.append(layout_parser_factory(config, self.device, config_path=config_path, order=i))
         if self.run_line_cropper:
             self.line_cropper = line_cropper_factory(config, config_path=config_path)
         if self.run_ocr:
-            self.ocr = ocr_factory(config, device, config_path=config_path)
+            self.ocr = ocr_factory(config, self.device, config_path=config_path)
         if self.run_decoder:
-            self.decoder = page_decoder_factory(config, device, config_path=config_path)
+            self.decoder = page_decoder_factory(config, self.device, config_path=config_path)
 
     @staticmethod
     def compute_line_confidence(line, threshold=None):
