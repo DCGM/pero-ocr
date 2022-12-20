@@ -27,6 +27,8 @@ dependencies = [
     "numpy",
     "opencv-python",
     "lxml",
+    "lmdb",
+    "levenshtein",
     "scipy",
     "numba",
     "torch>=1.12",
@@ -45,11 +47,15 @@ dependencies = [
 homepage = "https://pero.fit.vutbr.cz/"
 repository = "https://github.com/DCGM/pero-ocr"
 
-[project.scripts]
-parse-folder = "user_scripts.parse_folder:main"
-
-[tools.setuptools]
+[tool.setuptools]
 include-package-data = false
 
-[tool.setuptools.packages.find]
-include = ["pero_ocr", "user_scripts"]
+[tool.setuptools.package-dir]
+"pero_ocr" = "pero_ocr"
+"pero_ocr.user_scripts" = "user_scripts"
+
+[project.scripts]
+compare-page-xml-texts = "pero_ocr.user_scripts.compare_page_xml_texts:main"
+merge-ocr-results = "pero_ocr.user_scripts.merge_ocr_results:main"
+parse-folder = "pero_ocr.user_scripts.parse_folder:main"
+select-embed-id = "pero_ocr.user_scripts.select_embed_id:main"
