@@ -1,0 +1,61 @@
+[build-system]
+requires = [ "setuptools>=61" ]
+
+[project]
+name = "pero-ocr"
+version = "0.6.1"
+description = "Toolkit for advanced OCR of poor quality documents"
+readme = "README.md"
+requires-python = ">=3.6"
+license = {file = "LICENSE"}
+keywords = ["OCR", "Layout analysis", "handwriting recognition"]
+
+authors = [
+  {email = "hradis@fit.vutbr.cz", name = "Michal Hradiš"}
+]
+maintainers = [
+  {email = "ibenes@fit.vutbr.cz", name = "Karel Beneš"}
+]
+
+classifiers=[
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "lxml",
+    "lmdb",
+    "levenshtein",
+    "scipy",
+    "numba",
+    "torch>=1.12",
+    "brnolm>=0.1.1",
+    "scikit-learn",
+    "scikit-image",
+    "shapely==1.8",
+    "safe-gpu>=1.5",
+    "pyamg",
+    "imgaug",
+    "arabic_reshaper",
+]
+
+
+[project.urls]
+homepage = "https://pero.fit.vutbr.cz/"
+repository = "https://github.com/DCGM/pero-ocr"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.package-dir]
+"pero_ocr" = "pero_ocr"
+"pero_ocr.user_scripts" = "user_scripts"
+
+[project.scripts]
+compare-page-xml-texts = "pero_ocr.user_scripts.compare_page_xml_texts:main"
+merge-ocr-results = "pero_ocr.user_scripts.merge_ocr_results:main"
+parse-folder = "pero_ocr.user_scripts.parse_folder:main"
+select-embed-id = "pero_ocr.user_scripts.select_embed_id:main"
