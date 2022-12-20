@@ -30,7 +30,7 @@ python setup.py develop --uninstall
 ```
 
 ## Available models
-General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://nextcloud.fit.vutbr.cz/s/eCPEMWLpoTWYc7J). The OCR engine is suitable for most european printed documents. It is specialized for low-quality czech newspapers digitized from microfilms, but it provides very good results for almast all types of printed documents in most languages. If you are interested in processing printed fraktur fonts, handwritten documents or medieval manuscripts, feel free to contact the authors. The newest OCR engines are available at [pero-ocr.fit.vutbr.cz](https://pero-ocr.fit.vutbr.cz). OCR engines are available also through API runing at [pero-ocr.fit.vutbr.cz/api](https://pero-ocr.fit.vutbr.cz/api), [github repository](https://github.com/DCGM/pero-ocr-api).
+General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://nextcloud.fit.vutbr.cz/s/AasEy6KnXwkyXKi). The OCR engine is suitable for most european printed documents. It is specialized for low-quality czech newspapers digitized from microfilms, but it provides very good results for almast all types of printed documents in most languages. If you are interested in processing printed fraktur fonts, handwritten documents or medieval manuscripts, feel free to contact the authors. The newest OCR engines are available at [pero-ocr.fit.vutbr.cz](https://pero-ocr.fit.vutbr.cz). OCR engines are available also through API runing at [pero-ocr.fit.vutbr.cz/api](https://pero-ocr.fit.vutbr.cz/api), [github repository](https://github.com/DCGM/pero-ocr-api).
 
 ## Command line application
 A command line application is ./user_scripts/parse_folder.py. It is able to process images in a directory using an OCR engine. It can render detected lines in an image and provide document content in Page XML and ALTO XML formats. Additionally, it is able to crop all text lines as rectangular regions of normalized size and save them into separate image files.
@@ -42,6 +42,7 @@ This example shows how to directly use the OCR pipeline provided by pero-ocr pac
 import os
 import configparser
 import cv2
+import numpy as np
 from pero_ocr.document_ocr.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
@@ -53,8 +54,7 @@ config.read(config_path)
 # Init the OCR pipeline. 
 # You have to specify config_path to be able to use relative paths
 # inside the config file.
-Page_parser = PageParser(config, 
-    config_path=os.path.dirname(config_path))
+page_parser = PageParser(config, config_path=os.path.dirname(config_path))
 
 # Read the document page image.
 input_image_path = "page_image.jpg"
@@ -66,15 +66,15 @@ page_layout = PageLayout(id=input_image_path,
      page_size=(image.shape[0], image.shape[1]))
 
 # Process the image by the OCR pipeline
-page_layout = page_parser.process_page(input_image_path, page_layout)
+page_layout = page_parser.process_page(image, page_layout)
 
 page_layout.to_pagexml('output_page.xml') # Save results as Page XML.
 page_layout.to_altoxml('output_ALTO.xml') # Save results as ALTO XML.
 
 # Render detected text regions and text lines into the image and
 # save it into a file.
-page_layout.render_to_image(image) 
-cv2.imwrite('page_image_render.jpg')
+rendered_image = page_layout.render_to_image(image) 
+cv2.imwrite('page_image_render.jpg', rendered_image)
 
 # Save each cropped text line in a separate .jpg file.
 for region in page_layout.regions:
