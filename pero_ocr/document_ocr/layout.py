@@ -314,8 +314,94 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
+    def alto_get_visual_span(self, line, logprob_len, crop_engine, aligned_word):
+        line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
+        lm_const = line_coords.shape[1] / logprob_len
+        extension = 2
+
+        while line_coords.size > 0 and extension < 40:
+            all_x = line_coords[:, max(0, int((aligned_word[0]-extension) * lm_const)):int((aligned_word[1]+extension) * lm_const), 0]
+            all_y = line_coords[:, max(0, int((aligned_word[0]-extension) * lm_const)):int((aligned_word[1]+extension) * lm_const), 1]
+
+            if all_x.size == 0 or all_y.size == 0:
+                extension += 1
+            else:
+                break
+
+        if line_coords.size == 0 or all_x.size == 0 or all_y.size == 0:
+           all_x = line.baseline[:, 0]
+           all_y = np.concatenate([line.baseline[:, 1] - line.heights[0], line.baseline[:, 1] + line.heights[1]])
+
+        return np.min(all_x), np.max(all_x), np.min(all_y), np.max(all_y)
+
+    def alto_get_word_confidence(self, confidences, line, word_start, word_len):
+        word_confidence = None
+        if line.transcription_confidence == 1:
+            word_confidence = 1
+        else:
+            if confidences.size != 0:
+                word_confidence = np.quantile(confidences[word_start:word_start + word_len], .50)
+
+        return word_confidence 
+
+    def alto_create_word_child(self, parent, word, confidence, x_min, x_max, y_min, y_max, is_arabic, arabic_helper):
+        string = ET.SubElement(parent, "String")
+
+        if is_arabic:
+            string.set("CONTENT", arabic_helper.label_form_to_string(word))
+        else:
+            string.set("CONTENT", word)
+
+        string.set("HEIGHT", str(int((y_max - y_min))))
+        string.set("WIDTH", str(int((x_max - x_min))))
+        string.set("VPOS", str(int(y_min)))
+        string.set("HPOS", str(int(x_min)))
+        
+        if confidence is not None:
+            string.set("WC", str(round(confidence, 2)))
+
+    def alto_create_space_child(self, parent, x_max, y_min):
+        space = ET.SubElement(parent, "SP")
+
+        space.set("WIDTH", str(4))
+        space.set("VPOS", str(int(y_min)))
+        space.set("HPOS", str(int(x_max)))
+
+    def alto_get_numeric_labels(self, line):
+        blank_idx = line.logits.shape[1] - 1
+        label = []
+        char_to_num = {c: i for i, c in enumerate(line.characters)}
+        for item in line.transcription:
+            if item in char_to_num.keys():
+                if char_to_num[item] >= blank_idx:
+                    label.append(0)
+                else:
+                    label.append(char_to_num[item])
+            else:
+                label.append(0)
+
+        return label
+        
+    def alto_get_aligned_words(self, line, aligned_letters):
+        words = []
+        space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
+        space_idxs = [-1] + space_idxs + [len(aligned_letters)]
+        for i in range(len(space_idxs[1:])):
+            if space_idxs[i] != space_idxs[i+1]-1:
+                words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
+        
+        return words
+
+    def alto_set_hwvh(self, elem, height, width, v_pos, h_pos):
+        elem.set("HEIGHT", str(int(height)))
+        elem.set("WIDTH", str(int(width)))
+        elem.set("VPOS", str(int(v_pos)))
+        elem.set("HPOS", str(int(h_pos)))
+
     def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
         arabic_helper = ArabicHelper()
+        crop_engine = EngineLineCropper(poly=2)
+
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
@@ -332,6 +418,7 @@ class PageLayout(object):
         else:
             ocr_processing = create_ocr_processing_element()
             description.append(ocr_processing)
+
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
         if page_uuid is not None:
@@ -353,15 +440,12 @@ class PageLayout(object):
         print_space_vpos = self.page_size[0]
         print_space_hpos = self.page_size[1]
 
-        for b, block in enumerate(self.regions):
+        for block in self.regions:
             text_block = ET.SubElement(print_space, "TextBlock")
             text_block.set("ID", 'block_{}' .format(block.id))
 
             text_block_height, text_block_width, text_block_vpos, text_block_hpos = get_hwvh(block.polygon)
-            text_block.set("HEIGHT", str(int(text_block_height)))
-            text_block.set("WIDTH", str(int(text_block_width)))
-            text_block.set("VPOS", str(int(text_block_vpos)))
-            text_block.set("HPOS", str(int(text_block_hpos)))
+            self.alto_set_hwvh(text_block, text_block_height, text_block_width, text_block_vpos, text_block_hpos)
 
             print_space_height = max([print_space_vpos + print_space_height, text_block_vpos + text_block_height])
             print_space_width = max([print_space_hpos + print_space_width, text_block_hpos + text_block_width])
@@ -370,141 +454,54 @@ class PageLayout(object):
             print_space_height = print_space_height - print_space_vpos
             print_space_width = print_space_width - print_space_hpos
 
-            for l, line in enumerate(block.lines):
+            for line in block.lines:
                 if not line.transcription:
                     continue
-                arabic_line = False
-                if arabic_helper.is_arabic_line(line.transcription):
-                    arabic_line = True
+
+                arabic_line = arabic_helper.is_arabic_line(line.transcription)
+
                 text_line = ET.SubElement(text_block, "TextLine")
                 text_line_baseline = int(np.average(np.array(line.baseline)[:, 1]))
                 text_line.set("BASELINE", str(text_line_baseline))
 
                 text_line_height, text_line_width, text_line_vpos, text_line_hpos = get_hwvh(line.polygon)
-
-                text_line.set("VPOS", str(int(text_line_vpos)))
-                text_line.set("HPOS", str(int(text_line_hpos)))
-                text_line.set("HEIGHT", str(int(text_line_height)))
-                text_line.set("WIDTH", str(int(text_line_width)))
+                self.alto_set_hwvh(text_line, text_line_height, text_line_width, text_line_vpos, text_line_hpos)
 
                 try:
-                    chars = [i for i in range(len(line.characters))]
-                    char_to_num = dict(zip(line.characters, chars))
-
                     blank_idx = line.logits.shape[1] - 1
-
-                    label = []
-                    for item in line.transcription:
-                        if item in char_to_num.keys():
-                            if char_to_num[item] >= blank_idx:
-                                label.append(0)
-                            else:
-                                label.append(char_to_num[item])
-                        else:
-                            label.append(0)
-
-                    logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
+                    label = self.alto_get_numeric_labels(line)
                     logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except (ValueError, IndexError, TypeError) as e:
                     print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
-                    line.transcription_confidence = 0
-                    average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
-                    for w, word in enumerate(line.transcription.split()):
+                    line_transcription_confidence = 0
+                    average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())  # TODO: should be difference??
+                    for w_id, word in enumerate(line.transcription.split()):
                         string = ET.SubElement(text_line, "String")
                         string.set("CONTENT", word)
-
-                        string.set("HEIGHT", str(int(text_line_height)))
-                        string.set("WIDTH", str(int(average_word_width)))
-                        string.set("VPOS", str(int(text_line_vpos)))
-                        string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
+                        self.alto_set_hwvh(string, text_line_height, average_word_width, text_line_vpos, text_line_hpos + (w_id*average_word_width))
                 else:
-                    crop_engine = EngineLineCropper(poly=2)
-                    line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
-                    space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
-
-                    words = []
-                    space_idxs = [-1] + space_idxs + [len(aligned_letters)]
-                    for i in range(len(space_idxs[1:])):
-                        if space_idxs[i] != space_idxs[i+1]-1:
-                            words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
+                    words = self.alto_get_aligned_words(line, aligned_letters)
                     splitted_transcription = line.transcription.split()
-                    lm_const = line_coords.shape[1] / logits.shape[0]
                     letter_counter = 0
                     confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
-                    #if line.transcription_confidence is None:
-                    line.transcription_confidence = np.quantile(confidences, .50)
-                    for w, word in enumerate(words):
-                        extension = 2
-                        while line_coords.size > 0 and extension < 40:
-                            all_x = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 0]
-                            all_y = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 1]
+                    line_transcription_confidence = np.quantile(confidences, .50)
 
-                            if all_x.size == 0 or all_y.size == 0:
-                                extension += 1
-                            else:
-                                break
+                    for w_id, (aligned_word, text_word) in enumerate(zip(words, splitted_transcription)):
+                        x_min, x_max, y_min, y_max = self.alto_get_visual_span(line, logprobs.shape[0], crop_engine, aligned_word)
+                        word_confidence = self.alto_get_word_confidence(confidences, line, letter_counter, len(text_word))
+                        self.alto_create_word_child(text_line, text_word, word_confidence, x_min, x_max, y_min, y_max, arabic_line, arabic_helper)
 
-                        if line_coords.size == 0 or all_x.size == 0 or all_y.size == 0:
-                           all_x = line.baseline[:, 0]
-                           all_y = np.concatenate([line.baseline[:, 1] - line.heights[0], line.baseline[:, 1] + line.heights[1]])
+                        if w_id != len(line.transcription.split()) - 1:
+                            self.alto_create_space_child(text_line, x_max, y_min)
 
-                        word_confidence = None
-                        if line.transcription_confidence == 1:
-                            word_confidence = 1
-                        else:
-                            if confidences.size != 0:
-                                word_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
+                        letter_counter += len(text_word) + 1
 
-                        string = ET.SubElement(text_line, "String")
-
-                        if arabic_line:
-                            string.set("CONTENT", arabic_helper.label_form_to_string(splitted_transcription[w]))
-                        else:
-                            string.set("CONTENT", splitted_transcription[w])
-
-                        string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
-                        string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
-                        string.set("VPOS", str(int(np.min(all_y))))
-                        string.set("HPOS", str(int(np.min(all_x))))
-
-                        if word_confidence is not None:
-                            string.set("WC", str(round(word_confidence, 2)))
-
-                        if w != (len(line.transcription.split())-1):
-                            space = ET.SubElement(text_line, "SP")
-
-                            space.set("WIDTH", str(4))
-                            space.set("VPOS", str(int(np.min(all_y))))
-                            space.set("HPOS", str(int(np.max(all_x))))
-                        letter_counter += len(splitted_transcription[w])+1
-                if line.transcription_confidence is not None:
-                    if line.transcription_confidence < min_line_confidence:
-                        text_block.remove(text_line)
-        top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
-        top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
-        top_margin.set("VPOS", "0")
-        top_margin.set("HPOS", "0")
-
-        left_margin.set("HEIGHT", "{}" .format(int(self.page_size[0])))
-        left_margin.set("WIDTH", "{}" .format(int(print_space_hpos)))
-        left_margin.set("VPOS", "0")
-        left_margin.set("HPOS", "0")
-
-        right_margin.set("HEIGHT", "{}" .format(int(self.page_size[0])))
-        right_margin.set("WIDTH", "{}" .format(int(self.page_size[1] - (print_space_hpos + print_space_width))))
-        right_margin.set("VPOS", "0")
-        right_margin.set("HPOS", "{}" .format(int(print_space_hpos + print_space_width)))
-
-        bottom_margin.set("HEIGHT", "{}" .format(int(self.page_size[0] - (print_space_vpos + print_space_height))))
-        bottom_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
-        bottom_margin.set("VPOS", "{}" .format(int(print_space_vpos + print_space_height)))
-        bottom_margin.set("HPOS", "0")
-
-        print_space.set("HEIGHT", str(int(print_space_height)))
-        print_space.set("WIDTH", str(int(print_space_width)))
-        print_space.set("VPOS", str(int(print_space_vpos)))
-        print_space.set("HPOS", str(int(print_space_hpos)))
+        self.alto_set_hwvh(top_margin, print_space_vpos, self.page_size[1], 0, 0)
+        self.alto_set_hwvh(left_margin, self.page_size[0], print_space_hpos, 0, 0)
+        self.alto_set_hwvh(right_margin, self.page_size[0], self.page_size[1] - (print_space_hpos + print_space_width), 0, print_space_hpos + print_space_width)
+        self.alto_set_hwvh(bottom_margin, self.page_size[0] - (print_space_vpos + print_space_height), self.page_size[1], print_space_vpos + print_space_height, 0)
+        self.alto_set_hwvh(print_space, print_space_height, print_space_width, print_space_vpos, print_space_hpos)
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
 
