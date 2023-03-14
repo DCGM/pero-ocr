@@ -5,13 +5,12 @@ import warnings
 import numpy as np
 import cv2
 from scipy import ndimage
-from scipy.spatial import Delaunay, distance
-from sklearn import cluster
+from scipy.spatial import Delaunay
 import shapely
 import shapely.geometry as sg
 from shapely.ops import cascaded_union, polygonize
 
-from pero_ocr.document_ocr.layout import PageLayout, RegionLayout, TextLine
+from pero_ocr.core.layout import TextLine
 
 
 def check_line_position(baseline, page_size, margin=20, min_ratio=0.125):

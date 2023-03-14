@@ -10,7 +10,7 @@ from itertools import tee
 from shapely import geometry, affinity
 from typing import List, Dict, Union, Optional
 
-from pero_ocr.document_ocr.layout import PageLayout, RegionLayout
+from pero_ocr.core.layout import PageLayout, RegionLayout
 
 
 def pairwise(iterable):

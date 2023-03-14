@@ -6,7 +6,7 @@ import argparse
 import Levenshtein
 import sys
 
-from pero_ocr.document_ocr.layout import PageLayout
+from pero_ocr.core.layout import PageLayout
 
 
 def parse_arguments():

@@ -2,7 +2,6 @@ import numpy as np
 import math
 import cv2
 from scipy import interpolate, ndimage
-# from numba import jit
 from pero_ocr.utils import jit
 
 
@@ -164,7 +163,7 @@ class EngineLineCropper(object):
         return line_crop
 
 def main():
-    from pero_ocr.document_ocr import layout
+    from pero_ocr.core import layout
     import matplotlib.pyplot as plt
 
     page_img = cv2.imread('../../../example/82f4ac84-6f1e-43ba-b1d5-e2b28d69508d.jpg')

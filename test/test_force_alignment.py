@@ -1,10 +1,10 @@
 import unittest
 import numpy as np
 
-from pero_ocr.force_alignment import hmm_trans_from_string, complete_state_seq
-from pero_ocr.force_alignment import initial_cost, final_cost
-from pero_ocr.force_alignment import backtrack, expand_logits
-from pero_ocr.force_alignment import viterbi_align, force_align
+from pero_ocr.core.force_alignment import hmm_trans_from_string, complete_state_seq
+from pero_ocr.core.force_alignment import initial_cost, final_cost
+from pero_ocr.core.force_alignment import backtrack, expand_logits
+from pero_ocr.core.force_alignment import viterbi_align, force_align
 
 
 class TestHmmTransitionCreation(unittest.TestCase):
