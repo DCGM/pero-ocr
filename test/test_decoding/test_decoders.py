@@ -11,7 +11,7 @@ from pero_ocr.decoding.decoders import CTCPrefixLogRawNumpyDecoder
 from pero_ocr.decoding.decoders import get_old_prefixes_positions, get_new_prefixes_positions
 from pero_ocr.decoding.decoders import update_lm_things
 
-from pero_ocr.decoding.lm_wrapper import HiddenState
+from pero_ocr.decoding.lm_wrapper import HiddenState, LMWrapper
 
 from .test_lm_wrapper import DummyLm
 
@@ -178,7 +178,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=1,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
         logits = np.asarray([
             [-1, -1, -80.0, -80.0],
@@ -196,7 +196,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=1,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
         logits = np.asarray([
             [-1, -1, -80.0, -80.0],
@@ -215,7 +215,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=1,
-            lm=lm,
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
             insertion_bonus=insertion_bonus,
         )
         logits = np.asarray([
@@ -235,7 +235,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=1,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
         logits = np.asarray([
             [-1, -1, -80.0, -80.0],
@@ -267,7 +267,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=1,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
         logits = np.asarray([
             [-1, -80.0, -80.0, -80.0],
@@ -299,7 +299,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=1,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
         logits = np.asarray([
             [-1, -80.0, -80.0, -80.0],
@@ -335,7 +335,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=2,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
         logits = np.asarray([
             [-80.0, -2.0, -80.0, -1.0],
@@ -353,7 +353,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=2,
-            lm=lm,
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
             lm_scale=0.1
         )
         logits = np.asarray([
@@ -368,7 +368,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=2,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
         logits = np.asarray([
             [-1, -80.0, -80.0, -80.0],
@@ -388,7 +388,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=2,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
         logits = np.asarray([
             [-1, -80.0, -80.0, -80.0],
@@ -407,7 +407,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=2,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
         logits = np.asarray([
             [-1, -80.0, -80.0, -80.0],
@@ -425,7 +425,7 @@ class CTCDecodingWithLMTests:
         decoder = self._decoder_constructor(
             self._decoder_symbols,
             k=2,
-            lm=lm
+            lm=LMWrapper(lm, self._decoder_symbols[:-1], device='cpu'),
         )
 
         logits_1 = np.asarray([
