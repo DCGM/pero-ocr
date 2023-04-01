@@ -1,4 +1,5 @@
 import itertools
+from typing import Final, List, Any
 import numpy as np
 
 from .bag_of_hypotheses import BagOfHypotheses, logsumexp
@@ -7,7 +8,8 @@ from .multisort import top_k
 from .lm_wrapper import LMWrapper, HiddenState
 
 
-BLANK_SYMBOL = '<BLANK>'
+BLANK_SYMBOL: Final = '<BLANK>'
+EMPTY_PREFIX: Final[List[Any]] = []
 
 
 def duplicit_elements(a_list):
@@ -112,7 +114,7 @@ def update_lm_things(lm, h_prev, lm_preds, best_inds_l, blank_ind):
     return h_new, lm_preds_new
 
 
-def find_new_prefixes(prev_l_last, best_inds, A_prev, letters, blank_ind):
+def find_new_prefixes(prev_l_last, best_inds, A_prev, blank_ind):
     new_l_last = np.ones((len(best_inds[0]),)) * -1
     A_new = [None] * len(best_inds[0])
 
@@ -120,7 +122,7 @@ def find_new_prefixes(prev_l_last, best_inds, A_prev, letters, blank_ind):
         l_ind = best_inds[0][i]
         c_ind = best_inds[1][i]
         new_l_last[i] = c_ind
-        A_new[i] = A_prev[l_ind] + letters[c_ind]
+        A_new[i] = A_prev[l_ind][:] + [c_ind]
 
     for i in get_old_prefixes_positions(best_inds, blank_ind):
         l_ind = best_inds[0][i]
@@ -136,7 +138,7 @@ def find_matching(elems, pattern):
 
 def adjust_for_prefix_joining(P_visual, A_prev, last_chars):
     for p_ind, prefix in enumerate(A_prev):
-        if prefix == '':
+        if prefix == EMPTY_PREFIX:
             continue
 
         joinable_prefix_inds = find_matching(A_prev, prefix[:-1])
@@ -219,8 +221,7 @@ class CTCPrefixLogRawNumpyDecoder:
         if logprobs_max_deviation(logits) > max_unnormalization:
             raise ValueError('Expected properly normalized logits')
 
-        empty = ''
-        prefixes = [empty]
+        prefixes = [EMPTY_PREFIX]
 
         if self._lm:
             if init_h is None:
@@ -280,7 +281,7 @@ class CTCPrefixLogRawNumpyDecoder:
 
             best_inds = best_inds[0], np.asarray([selected_chars[x] for x in best_inds[1]])
 
-            prefixes, last_chars = find_new_prefixes(last_chars, best_inds, prefixes, self._letters, self._blank_ind)
+            prefixes, last_chars = find_new_prefixes(last_chars, best_inds, prefixes, self._blank_ind)
             h_prev, lm_preds = update_lm_things(self._lm, h_prev, lm_preds, best_inds, self._blank_ind)
 
         if model_eos:
@@ -288,7 +289,7 @@ class CTCPrefixLogRawNumpyDecoder:
             Plm += eos_scores
 
         Pom = np.logaddexp(Pb, Pnb)
-        bag_of_hypotheses = build_boh(prefixes, Pom, Plm, lm_weight=self._lm_scale)
+        bag_of_hypotheses = build_boh([''.join(self._letters[i] for i in prefix) for prefix in prefixes], Pom, Plm, lm_weight=self._lm_scale)
         if return_h:
             idx_of_best = np.argmax(Pom + Plm*self._lm_scale)
             return bag_of_hypotheses, h_prev[[idx_of_best]]  # a single-item list is needed to keep shape

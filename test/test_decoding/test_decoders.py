@@ -16,6 +16,10 @@ from pero_ocr.decoding.lm_wrapper import HiddenState, LMWrapper
 from .test_lm_wrapper import DummyLm
 
 
+def make_unique(array):
+    return set(tuple(x) for i, x in enumerate(array) if array.index(x) == i)
+
+
 class CTCPrefixDecodersBeam1Tests:
     def test_single_frame(self):
         logits = np.asarray([
@@ -470,50 +474,67 @@ class FindNewPrefixesTests(unittest.TestCase):
         self.blank_ind = 3
 
     def test_old_carry_over(self):
-        A_prev = ['aaa', 'aab', 'aac']
+        A_prev = [[0, 0, 0], [0, 0, 1], [0, 0, 2]]
         l_last = np.asarray([0, 1, 2])
         best_inds = (np.asarray([0, 1, 2]), np.asarray([3, 3, 3]))
 
-        A_new, l_last_new = find_new_prefixes(l_last, best_inds, A_prev, self.letters, self.blank_ind)
+        A_new, l_last_new = find_new_prefixes(l_last, best_inds, A_prev, self.blank_ind)
 
         self.assertEqual(A_new, A_prev)
         self.assertEqual(set(l_last_new.tolist()), set(l_last.tolist()))
 
     def test_all_new(self):
-        A_prev = ['aaa', 'aab', 'aac']
+        A_prev = [[0, 0, 0], [0, 0, 1], [0, 0, 2]]
         l_last = np.asarray([0, 1, 2])
         best_inds = (np.asarray([0, 1, 2]), np.asarray([1, 1, 1]))
-        A_exp = ['aaab', 'aabb', 'aacb']
+        A_exp = [[0, 0, 0, 1], [0, 0, 1, 1], [0, 0, 2, 1]]
         l_last_exp = np.asarray([1, 1, 1])
 
-        A_new, l_last_new = find_new_prefixes(l_last, best_inds, A_prev, self.letters, self.blank_ind)
+        A_new, l_last_new = find_new_prefixes(l_last, best_inds, A_prev, self.blank_ind)
 
         self.assertEqual(A_new, A_exp)
         self.assertEqual(set(l_last_new.tolist()), set(l_last_exp.tolist()))
 
     def test_all_mixed(self):
-        A_prev = ['aaa', 'aab', 'aac']
+        A_prev = [[0, 0, 0], [0, 0, 1], [0, 0, 2]]
         l_last = np.asarray([0, 1, 2])
         best_inds = (np.asarray([0, 1, 2]), np.asarray([1, 3, 0]))
-        A_exp = ['aaab', 'aab', 'aaca']
+        A_exp = [[0, 0, 0, 1], [0, 0, 1], [0, 0, 2, 0]]
         l_last_exp = np.asarray([1, 1, 0])
 
-        A_new, l_last_new = find_new_prefixes(l_last, best_inds, A_prev, self.letters, self.blank_ind)
+        A_new, l_last_new = find_new_prefixes(l_last, best_inds, A_prev, self.blank_ind)
 
-        self.assertEqual(set(A_new), set(A_exp))
+        self.assertEqual(make_unique(A_new), make_unique(A_exp))
         self.assertEqual(set(l_last_new.tolist()), set(l_last_exp.tolist()))
 
     def test_regression1(self):
-        A_prev = ['b', 'a']
+        A_prev = [[1], [0]]
         l_last = np.asarray([1, 0])
         best_inds = (np.asarray([1, 1]), np.asarray([3, 1]))
-        A_exp = ['ab', 'a']
+        A_exp = [[0, 1], [0]]
         l_last_exp = np.asarray([1, 0])
 
-        A_new, l_last_new = find_new_prefixes(l_last, best_inds, A_prev, self.letters, self.blank_ind)
+        A_new, l_last_new = find_new_prefixes(l_last, best_inds, A_prev, self.blank_ind)
 
-        self.assertEqual(set(A_new), set(A_exp))
+        self.assertEqual(make_unique(A_new), make_unique(A_exp))
         self.assertEqual(set(l_last_new.tolist()), set(l_last_exp.tolist()))
+
+
+class FindNewPrefixesSymbolicTests(unittest.TestCase):
+    def setUp(self):
+        self.letters = [0, 1, 2, BLANK_SYMBOL]
+        self.blank_ind = 3
+
+    def test_old_carry_over(self):
+        A_prev = [[0, 0, 0,], [0, 0, 1], [0, 0, 2]]
+        l_last = np.asarray([0, 1, 2])
+        best_inds = (np.asarray([0, 1, 2]), np.asarray([3, 3, 3]))
+
+        A_new, l_last_new = find_new_prefixes(l_last, best_inds, A_prev, self.blank_ind)
+
+        self.assertEqual(A_new, A_prev)
+        self.assertEqual(set(l_last_new.tolist()), set(l_last.tolist()))
+
 
 
 class UpdateLMThingsTests(unittest.TestCase):
