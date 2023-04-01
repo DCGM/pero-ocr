@@ -5,8 +5,6 @@ import numpy as np
 from .bag_of_hypotheses import BagOfHypotheses, logsumexp
 from .multisort import top_k
 
-from .lm_wrapper import LMWrapper, HiddenState
-
 
 BLANK_SYMBOL: Final = '<BLANK>'
 EMPTY_PREFIX: Final[List[Any]] = []
@@ -80,11 +78,11 @@ def build_boh(prefixes, probs, lm_probs=None, lm_weight=1.0):
     bag_of_hyps = BagOfHypotheses(lm_weight)
 
     if lm_probs is not None:
-        for l, P_l, P_lm in zip(prefixes, probs, lm_probs):
-            bag_of_hyps.add(l, P_l, P_lm)
+        for prefix, P_prefix, P_lm in zip(prefixes, probs, lm_probs):
+            bag_of_hyps.add(prefix, P_prefix, P_lm)
     else:
-        for l, P_l in zip(prefixes, probs):
-            bag_of_hyps.add(l, P_l, 0)
+        for prefix, P_prefix in zip(prefixes, probs):
+            bag_of_hyps.add(prefix, P_prefix, 0)
 
     bag_of_hyps.sort()
     return bag_of_hyps
@@ -145,7 +143,7 @@ def adjust_for_prefix_joining(P_visual, A_prev, last_chars):
         if len(joinable_prefix_inds) == 0:
             continue
 
-        assert(len(joinable_prefix_inds) == 1)
+        assert len(joinable_prefix_inds) == 1
         joinable_prefix_ind = joinable_prefix_inds[0]
 
         original_P = P_visual[p_ind, -1]
@@ -213,7 +211,7 @@ class CTCPrefixLogRawNumpyDecoder:
     def get_reduced_last_chars(self, last_chars, selected_chars, impossible_index):
         reduced_last_chars = last_chars.copy()
         inv_sel = {v: i for i, v in enumerate(selected_chars)}
-        return np.asarray([(inv_sel[l] if l in inv_sel else impossible_index) for l in reduced_last_chars])
+        return np.asarray([(inv_sel[c] if c in inv_sel else impossible_index) for c in reduced_last_chars])
 
     def __call__(self, logits, model_eos=False, max_unnormalization=1e-5, return_h=False, init_h=None):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
