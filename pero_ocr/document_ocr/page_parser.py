@@ -7,8 +7,8 @@ import time
 
 import torch.cuda
 from pero_ocr.utils import compose_path
-from .layout import PageLayout, RegionLayout, TextLine
-from pero_ocr.document_ocr import crop_engine as cropper
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
+import pero_ocr.core.crop_engine as cropper
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
 from pero_ocr.layout_engines.simple_baseline_engine import EngineLineDetectorSimple

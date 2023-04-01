@@ -6,7 +6,7 @@ from configparser import SectionProxy
 from sklearn.cluster import DBSCAN
 from typing import List
 
-from pero_ocr.document_ocr.layout import PageLayout, RegionLayout
+from pero_ocr.core.layout import PageLayout, RegionLayout
 
 
 class Region:

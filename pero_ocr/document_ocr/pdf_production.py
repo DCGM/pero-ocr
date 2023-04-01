@@ -2,13 +2,12 @@ import lxml.etree as ET
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 
 import PIL
 import fpdf
 
-from pero_ocr.document_ocr.layout import PageLayout, element_schema
+from pero_ocr.core.layout import PageLayout, element_schema
 
 
 class Merger:

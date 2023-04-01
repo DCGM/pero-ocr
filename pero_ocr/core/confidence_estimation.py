@@ -2,7 +2,7 @@ import numpy as np
 from scipy.special import logsumexp
 import typing
 
-from pero_ocr.force_alignment import align_text
+from pero_ocr.core.force_alignment import align_text
 
 
 def get_letter_confidence(logits: np.ndarray, alignment: typing.List[int], blank_ind: int) -> typing.List[float]:

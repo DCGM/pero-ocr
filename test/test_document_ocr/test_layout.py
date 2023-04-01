@@ -3,7 +3,7 @@ from unittest import TestCase
 import numpy as np
 from scipy import sparse
 
-from pero_ocr.document_ocr.layout import TextLine
+from pero_ocr.core.layout import TextLine
 from pero_ocr.ocr_engine.softmax import softmax
 
 

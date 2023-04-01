@@ -16,7 +16,7 @@ from sklearn.cluster import KMeans
 
 from safe_gpu import safe_gpu
 
-from pero_ocr.document_ocr.layout import PageLayout
+from pero_ocr.core.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 from pero_ocr.utils import compose_path
 
@@ -130,7 +130,7 @@ def select_representative_embeddings(ocr_engine, n_clusters, mean_cluster_embedd
 
 
 def get_line_crops_and_transcriptions_from_images_and_xmls(page_parser, input_image_path, input_xml_path, n_lines,
-                                                           max_lines=5000):
+                                                           max_lines=500000):
     ignored_extensions = ['', '.xml', '.logits']
     images_to_process = [f for f in os.listdir(input_image_path) if
                          os.path.splitext(f)[1].lower() not in ignored_extensions]

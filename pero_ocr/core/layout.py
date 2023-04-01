@@ -11,10 +11,10 @@ import lxml.etree as ET
 import cv2
 from shapely.geometry import LineString, Polygon
 
-from pero_ocr.document_ocr.crop_engine import EngineLineCropper
-from pero_ocr.force_alignment import align_text
-from pero_ocr.confidence_estimation import get_line_confidence
-from pero_ocr.document_ocr.arabic_helper import ArabicHelper
+from pero_ocr.core.crop_engine import EngineLineCropper
+from pero_ocr.core.force_alignment import align_text
+from pero_ocr.core.confidence_estimation import get_line_confidence
+from pero_ocr.core.arabic_helper import ArabicHelper
 
 
 class PAGEVersion(Enum):

@@ -5,13 +5,12 @@ import warnings
 import numpy as np
 import cv2
 from scipy import ndimage
-from scipy.spatial import Delaunay, distance
-from sklearn import cluster
+from scipy.spatial import Delaunay
 import shapely
 import shapely.geometry as sg
 from shapely.ops import cascaded_union, polygonize
 
-from pero_ocr.document_ocr.layout import PageLayout, RegionLayout, TextLine
+from pero_ocr.core.layout import TextLine
 
 
 def check_line_position(baseline, page_size, margin=20, min_ratio=0.125):
@@ -388,12 +387,12 @@ def rotate_coords(coords, rotation, center):
 
 
 def adjust_baselines_to_intensity(baselines, img, tolerance=5):
-    grad_img = np.gradient(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float))[0]
+    grad_img = np.gradient(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(float))[0]
     grad_img = ndimage.gaussian_filter(grad_img, 3)
     new_baselines = []
     for baseline in baselines:
         num_points = baseline[-1][0] - baseline[0][0]
-        baseline_pts = np.round(resample_baselines([baseline], num_points=num_points)[0]).astype(np.int)
+        baseline_pts = np.round(resample_baselines([baseline], num_points=num_points)[0]).astype(int)
         best_score = -np.inf
         for offset in range(-tolerance, tolerance):
             score = np.sum(grad_img[

@@ -112,7 +112,7 @@ def find_peaks(array, min_distance=1, min_height=0.05):
     # array = np.concatenate((array, [0]), axis=0)
     peaks, _ = signal.find_peaks(array, distance=min_distance, height=min_height)
 
-    peaks_float = peaks.copy().astype(np.float)
+    peaks_float = peaks.copy().astype(float)
     for i, x in enumerate(peaks):
         xs = np.clip(np.array(range(x - 2, x + 3)), 0, array.shape[0]-1)
         ys = array[xs]

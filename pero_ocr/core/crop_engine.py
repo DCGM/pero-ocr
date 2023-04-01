@@ -2,7 +2,6 @@ import numpy as np
 import math
 import cv2
 from scipy import interpolate, ndimage
-# from numba import jit
 from pero_ocr.utils import jit
 
 
@@ -115,15 +114,15 @@ class EngineLineCropper(object):
     def reverse_xy_mapping(self, forward_mapping, shape):
         y_mapping = forward_mapping[:,:,1]
         y_mapping = np.clip(cv2.resize(y_mapping, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR), 0, shape[0]-1)
-        y_mapping = np.round(y_mapping).astype(np.int)
-        ystart = np.round(np.amin(y_mapping)).astype(np.int)
-        ystop = np.round(np.amax(y_mapping)).astype(np.int) + 1
+        y_mapping = np.round(y_mapping).astype(int)
+        ystart = np.round(np.amin(y_mapping)).astype(int)
+        ystop = np.round(np.amax(y_mapping)).astype(int) + 1
 
         x_mapping = forward_mapping[:,:,0]
         x_mapping = np.clip(cv2.resize(x_mapping, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR), 0, shape[1]-1)
-        x_mapping = np.round(x_mapping).astype(np.int)
-        xstart = np.round(np.amin(x_mapping)).astype(np.int)
-        xstop = np.round(np.amax(x_mapping)).astype(np.int) + 1
+        x_mapping = np.round(x_mapping).astype(int)
+        xstart = np.round(np.amin(x_mapping)).astype(int)
+        xstop = np.round(np.amax(x_mapping)).astype(int) + 1
         y_map = np.tile(np.arange(0, forward_mapping.shape[0]), (forward_mapping.shape[1], 1)).T.astype(np.float32)
         y_map = cv2.resize(y_map, (0,0), fx=4, fy=4, interpolation=cv2.INTER_LINEAR)
         x_map = np.tile(np.arange(0, forward_mapping.shape[1]), (forward_mapping.shape[0], 1)).astype(np.float32)
@@ -139,7 +138,7 @@ class EngineLineCropper(object):
     def get_blend_mask(self, mapping):
         mask = mapping[:,:,0] > -1
         mask = np.pad(mask, ((self.blend_border,self.blend_border), (self.blend_border,self.blend_border)))
-        mask = ndimage.uniform_filter(mask.astype(np.float), size=2*self.blend_border+1)
+        mask = ndimage.uniform_filter(mask.astype(float), size=2*self.blend_border+1)
         mask = mask[self.blend_border:-self.blend_border, self.blend_border:-self.blend_border]
         mask = 2 * np.clip(mask-0.5, 0, 1)
         return mask[:, :, np.newaxis]
@@ -164,7 +163,7 @@ class EngineLineCropper(object):
         return line_crop
 
 def main():
-    from pero_ocr.document_ocr import layout
+    from pero_ocr.core import layout
     import matplotlib.pyplot as plt
 
     page_img = cv2.imread('../../../example/82f4ac84-6f1e-43ba-b1d5-e2b28d69508d.jpg')
@@ -179,7 +178,7 @@ def main():
     plt.subplot(132)
     plt.imshow(back_mapped[410:420, 1200:1240])
     plt.subplot(133)
-    plt.imshow(np.concatenate((mapping, mapping[:,:,:1]), axis=2).astype(np.int)[410:420, 1200:1240])
+    plt.imshow(np.concatenate((mapping, mapping[:,:,:1]), axis=2).astype(int)[410:420, 1200:1240])
     plt.show()
 
 
