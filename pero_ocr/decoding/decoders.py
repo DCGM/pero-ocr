@@ -1,13 +1,13 @@
 import itertools
+from typing import Final, List, Any
 import numpy as np
 
 from .bag_of_hypotheses import BagOfHypotheses, logsumexp
 from .multisort import top_k
 
-from .lm_wrapper import LMWrapper, HiddenState
 
-
-BLANK_SYMBOL = '<BLANK>'
+BLANK_SYMBOL: Final = '<BLANK>'
+EMPTY_PREFIX: Final[List[Any]] = []
 
 
 def duplicit_elements(a_list):
@@ -78,11 +78,11 @@ def build_boh(prefixes, probs, lm_probs=None, lm_weight=1.0):
     bag_of_hyps = BagOfHypotheses(lm_weight)
 
     if lm_probs is not None:
-        for l, P_l, P_lm in zip(prefixes, probs, lm_probs):
-            bag_of_hyps.add(l, P_l, P_lm)
+        for prefix, P_prefix, P_lm in zip(prefixes, probs, lm_probs):
+            bag_of_hyps.add(prefix, P_prefix, P_lm)
     else:
-        for l, P_l in zip(prefixes, probs):
-            bag_of_hyps.add(l, P_l, 0)
+        for prefix, P_prefix in zip(prefixes, probs):
+            bag_of_hyps.add(prefix, P_prefix, 0)
 
     bag_of_hyps.sort()
     return bag_of_hyps
@@ -112,7 +112,7 @@ def update_lm_things(lm, h_prev, lm_preds, best_inds_l, blank_ind):
     return h_new, lm_preds_new
 
 
-def find_new_prefixes(prev_l_last, best_inds, A_prev, letters, blank_ind):
+def find_new_prefixes(prev_l_last, best_inds, A_prev, blank_ind):
     new_l_last = np.ones((len(best_inds[0]),)) * -1
     A_new = [None] * len(best_inds[0])
 
@@ -120,7 +120,7 @@ def find_new_prefixes(prev_l_last, best_inds, A_prev, letters, blank_ind):
         l_ind = best_inds[0][i]
         c_ind = best_inds[1][i]
         new_l_last[i] = c_ind
-        A_new[i] = A_prev[l_ind] + letters[c_ind]
+        A_new[i] = A_prev[l_ind][:] + [c_ind]
 
     for i in get_old_prefixes_positions(best_inds, blank_ind):
         l_ind = best_inds[0][i]
@@ -136,14 +136,14 @@ def find_matching(elems, pattern):
 
 def adjust_for_prefix_joining(P_visual, A_prev, last_chars):
     for p_ind, prefix in enumerate(A_prev):
-        if prefix == '':
+        if prefix == EMPTY_PREFIX:
             continue
 
         joinable_prefix_inds = find_matching(A_prev, prefix[:-1])
         if len(joinable_prefix_inds) == 0:
             continue
 
-        assert(len(joinable_prefix_inds) == 1)
+        assert len(joinable_prefix_inds) == 1
         joinable_prefix_ind = joinable_prefix_inds[0]
 
         original_P = P_visual[p_ind, -1]
@@ -211,7 +211,7 @@ class CTCPrefixLogRawNumpyDecoder:
     def get_reduced_last_chars(self, last_chars, selected_chars, impossible_index):
         reduced_last_chars = last_chars.copy()
         inv_sel = {v: i for i, v in enumerate(selected_chars)}
-        return np.asarray([(inv_sel[l] if l in inv_sel else impossible_index) for l in reduced_last_chars])
+        return np.asarray([(inv_sel[c] if c in inv_sel else impossible_index) for c in reduced_last_chars])
 
     def __call__(self, logits, model_eos=False, max_unnormalization=1e-5, return_h=False, init_h=None):
         ''' inspired by https://medium.com/corti-ai/ctc-networks-and-language-models-prefix-beam-search-explained-c11d1ee23306
@@ -219,8 +219,7 @@ class CTCPrefixLogRawNumpyDecoder:
         if logprobs_max_deviation(logits) > max_unnormalization:
             raise ValueError('Expected properly normalized logits')
 
-        empty = ''
-        prefixes = [empty]
+        prefixes = [EMPTY_PREFIX]
 
         if self._lm:
             if init_h is None:
@@ -280,7 +279,7 @@ class CTCPrefixLogRawNumpyDecoder:
 
             best_inds = best_inds[0], np.asarray([selected_chars[x] for x in best_inds[1]])
 
-            prefixes, last_chars = find_new_prefixes(last_chars, best_inds, prefixes, self._letters, self._blank_ind)
+            prefixes, last_chars = find_new_prefixes(last_chars, best_inds, prefixes, self._blank_ind)
             h_prev, lm_preds = update_lm_things(self._lm, h_prev, lm_preds, best_inds, self._blank_ind)
 
         if model_eos:
@@ -288,7 +287,7 @@ class CTCPrefixLogRawNumpyDecoder:
             Plm += eos_scores
 
         Pom = np.logaddexp(Pb, Pnb)
-        bag_of_hypotheses = build_boh(prefixes, Pom, Plm, lm_weight=self._lm_scale)
+        bag_of_hypotheses = build_boh([''.join(self._letters[i] for i in prefix) for prefix in prefixes], Pom, Plm, lm_weight=self._lm_scale)
         if return_h:
             idx_of_best = np.argmax(Pom + Plm*self._lm_scale)
             return bag_of_hypotheses, h_prev[[idx_of_best]]  # a single-item list is needed to keep shape
