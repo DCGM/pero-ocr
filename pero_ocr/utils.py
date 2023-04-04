@@ -3,11 +3,8 @@ import sys
 import subprocess
 
 try:
-    subprocess.check_output(
-        '{} -c "import numba"'.format(sys.executable), shell=True
-    )
-    print('numba available, importing jit')
     from numba import jit
+    print('numba available, importing jit')
 except Exception:
     print('cannot import numba, creating dummy jit definition')
 
