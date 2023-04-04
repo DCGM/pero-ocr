@@ -40,10 +40,11 @@ def logprobs_max_deviation(log_probs):
 
 
 class GreedyDecoder:
-    def __init__(self, letters):
+    def __init__(self, letters, symbol_separator=''):
         assert_letters_valid(letters, BLANK_SYMBOL)
         self._letters = letters
         self._blank_ind = letters.index(BLANK_SYMBOL)
+        self.symbol_separator = symbol_separator
 
     def __call__(self, logits, max_unnormalization=1e-5):
         if logprobs_max_deviation(logits) > max_unnormalization:
@@ -53,7 +54,7 @@ class GreedyDecoder:
         argmaxes = logits.argmax(axis=1)
 
         reduced = [g[0] for g in itertools.groupby(argmaxes)]
-        decoded = ''.join(self._letters[ind] for ind in reduced if ind != self._blank_ind)
+        decoded = self.symbol_separator.join(self._letters[ind] for ind in reduced if ind != self._blank_ind)
 
         bag_of_hyps = BagOfHypotheses()
         bag_of_hyps.add(decoded, logsumexp(maxes))
@@ -169,7 +170,8 @@ def select_relevant_logits(logits):
 class CTCPrefixLogRawNumpyDecoder:
     def __init__(self, letters, k,
                  lm=None, lm_scale=1.0, insertion_bonus=0.0,
-                 relevant_logits_selector=select_relevant_logits):
+                 relevant_logits_selector=select_relevant_logits,
+                 symbol_separator=''):
         assert_letters_valid(letters, BLANK_SYMBOL)
 
         self._letters = letters
@@ -185,6 +187,8 @@ class CTCPrefixLogRawNumpyDecoder:
         self._lm = lm
 
         self.LOG_ZERO_PROBABILITY = -np.inf
+        self.symbol_separator = symbol_separator
+
 
     def compute_Pnb(self, Pnb_old, Pb_old, Pc, last_chars):
         P_continued_letter = Pnb_old + Pc[last_chars]  # multiplication of probabilities
@@ -287,7 +291,7 @@ class CTCPrefixLogRawNumpyDecoder:
             Plm += eos_scores
 
         Pom = np.logaddexp(Pb, Pnb)
-        bag_of_hypotheses = build_boh([''.join(self._letters[i] for i in prefix) for prefix in prefixes], Pom, Plm, lm_weight=self._lm_scale)
+        bag_of_hypotheses = build_boh([self.symbol_separator.join(self._letters[i] for i in prefix) for prefix in prefixes], Pom, Plm, lm_weight=self._lm_scale)
         if return_h:
             idx_of_best = np.argmax(Pom + Plm*self._lm_scale)
             return bag_of_hypotheses, h_prev[[idx_of_best]]  # a single-item list is needed to keep shape
