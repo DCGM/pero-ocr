@@ -235,6 +235,8 @@ class PageLayout(object):
                     if t_unicode is None:
                         t_unicode = ''
                     new_textline.transcription = t_unicode
+                    conf = transcription.get('conf', None)
+                    new_textline.transcription_confidence = float(conf) if conf is not None else None
                 region_layout.lines.append(new_textline)
 
             self.regions.append(region_layout)
