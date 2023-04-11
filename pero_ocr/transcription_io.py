@@ -1,5 +1,5 @@
 def save_transcriptions(path, transcriptions):
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding="utf-8") as f:
         for key in transcriptions:
             f.write('{} {}\n'.format(key, transcriptions[key]))
 
