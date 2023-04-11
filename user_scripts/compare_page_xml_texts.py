@@ -33,8 +33,8 @@ def compare_page_layouts(hyp_fn, ref_fn):
     if hyp_page is None or ref_page is None:
         return None
 
-    hyp_lines = {line.id: line.transcription for line in hyp_page.lines_iterator()}
-    ref_lines = {line.id: line.transcription for line in ref_page.lines_iterator()}
+    hyp_lines = {line.id: line.transcription if line.transcription is not None else "" for line in hyp_page.lines_iterator()}
+    ref_lines = {line.id: line.transcription if line.transcription is not None else "" for line in ref_page.lines_iterator()}
 
     char_sum = 0
     char_dist = 0
@@ -47,8 +47,11 @@ def compare_page_layouts(hyp_fn, ref_fn):
             # sys.stderr.write(f'Warning: Line "{line_id}" missing in "{ref_fn}"\n')
             continue
 
-        char_sum += len(ref_lines[line_id])
-        char_dist += Levenshtein.distance(ref_lines[line_id].strip(), hyp_lines[line_id].strip())
+        ref_line = ref_lines[line_id].strip()
+        hyp_line = hyp_lines[line_id].strip()
+
+        char_sum += len(ref_line)
+        char_dist += Levenshtein.distance(ref_line, hyp_line)
 
     return char_sum, char_dist
 
