@@ -112,32 +112,92 @@ def get_region_from_page_xml(region_element, schema):
     return layout_region
 
 
-def guess_line_heights_from_polygon(text_line: TextLine):
+def guess_line_heights_from_polygon(text_line: TextLine, use_center=False, n=10, interpolate=False):
     '''
     Guess line heights for line if missing (e.g. import from Transkribus).
     Heights are computed from polygon intersection with baseline normal in the middle of baseline.
     '''
     try:
-        if text_line.baseline.shape[0] % 2 == 0:
-            center = (text_line.baseline[text_line.baseline.shape[0]//2 - 1] + text_line.baseline[text_line.baseline.shape[0]//2]) / 2
+        heights_up = []
+        heights_down = []
+        points = []
+
+        if use_center:
+            if text_line.baseline.shape[0] % 2 == 0:
+                center = (text_line.baseline[text_line.baseline.shape[0]//2 - 1] + text_line.baseline[text_line.baseline.shape[0]//2]) / 2
+            else:
+                center = text_line.baseline[text_line.baseline.shape[0]//2]
+
+            points = [center]
+            n -= 1
+
+        replace = len(text_line.baseline) < n
+
+        if interpolate:
+            points_per_segment = int(n / len(text_line.baseline))
+
+            for start_point, end_point in zip(text_line.baseline[:-1], text_line.baseline[1:]):
+                points.append(np.linspace(start_point, end_point, points_per_segment, endpoint=False))
+
+            points.append(text_line.baseline[-1])
+
         else:
-            center = text_line.baseline[text_line.baseline.shape[0]//2]
-        direction = text_line.baseline[0] - text_line.baseline[-1]
-        direction = direction[::-1]
-        direction[0] = -direction[0]
-        cross_line = np.stack([center - direction * 10, center + direction * 10])
+            points += text_line.baseline[np.random.choice(text_line.baseline.shape[0], n, replace=replace), :].tolist()
 
-        cross_line = LineString(cross_line)
-        polygon = Polygon(text_line.polygon)
-        intersection = polygon.intersection(cross_line)
-        intersection = np.asarray(intersection.coords.xy).T
+        for point in points:
+            heights = guess_height_at_point(text_line, point)
+            if heights is None:
+                continue
 
-        text_line.heights = [((center - intersection[0]) ** 2).sum() ** 0.5,
-                             ((center - intersection[1]) ** 2).sum() ** 0.5]
-        text_line.heights = sorted(text_line.heights)[::-1]
+            up, down = heights
+            heights_up.append(up)
+            heights_down.append(down)
+
+        if len(heights_up) > 0:
+            height_up = np.mean(heights_up)
+            height_down = np.mean(heights_down)
+
+        else:
+            height_up, height_down = guess_height_simple(text_line)
+
     except:
-        height = text_line.polygon[:, 1].max() - text_line.polygon[:, 1].min()
-        text_line.heights = [height * 0.8, height * 0.2]
+        height_up, height_down = guess_height_simple(text_line)
+
+    text_line.heights = [height_up, height_down]
+
+
+def guess_height_simple(text_line):
+    height = text_line.polygon[:, 1].max() - text_line.polygon[:, 1].min()
+    return [height * 0.8, height * 0.2]
+
+
+def guess_height_at_point(text_line, point):
+    direction = text_line.baseline[0] - text_line.baseline[-1]
+    direction = direction[::-1]
+    direction[0] = -direction[0]
+    cross_line = np.stack([point - direction * 10, point + direction * 10])
+
+    cross_line = LineString(cross_line)
+    polygon = Polygon(text_line.polygon)
+    intersection = polygon.intersection(cross_line)
+
+    if type(intersection) == LineString:
+        intersection = np.asarray(intersection.coords.xy).T
+    else:
+        return None
+
+    if len(intersection) == 0:
+        return None
+
+    if intersection[0][1] < intersection[1][1]:
+        intersection_above = intersection[0]
+        intersection_below = intersection[1]
+    else:
+        intersection_above = intersection[1]
+        intersection_below = intersection[0]
+
+    heights = [((point - intersection_above) ** 2).sum() ** 0.5, ((point - intersection_below) ** 2).sum() ** 0.5]
+    return heights
 
 
 def get_reading_order(page_element, schema):
@@ -227,7 +287,7 @@ class PageLayout(object):
                     new_textline.polygon = get_coords_form_page_xml(textline, schema)
 
                 if not new_textline.heights:
-                    guess_line_heights_from_polygon(new_textline)
+                    guess_line_heights_from_polygon(new_textline, use_center=False, n=len(new_textline.baseline))
 
                 transcription = line.find(schema + 'TextEquiv')
                 if transcription is not None:
