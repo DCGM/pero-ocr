@@ -76,7 +76,12 @@ def produce_cn_from_boh(boh, visual_weight=1.0, lm_weight=1.0, normalize=True):
 
 def best_cn_path(cn):
     best_symbols = [sorted(position.keys(), key=lambda symbol: position[symbol], reverse=True)[0] for position in cn]
-    return ''.join([s for s in best_symbols if s is not None])
+    best_symbols = [s for s in best_symbols if s is not None]
+
+    if all([type(s) == str for s in best_symbols]):
+        best_symbols = ''.join(best_symbols)
+
+    return best_symbols
 
 
 def sorted_cn_paths(cn):
