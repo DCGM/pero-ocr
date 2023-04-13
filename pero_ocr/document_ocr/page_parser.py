@@ -6,10 +6,13 @@ import math
 import time
 
 import torch.cuda
+from transformers.models.auto.configuration_auto import model_type_to_module_name
+
 from pero_ocr.utils import compose_path
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 import pero_ocr.core.crop_engine as cropper
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
+from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
 from pero_ocr.layout_engines.simple_baseline_engine import EngineLineDetectorSimple
 from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEngine
@@ -407,7 +410,11 @@ class PageOCR(object):
         use_cpu = config.getboolean('USE_CPU')
 
         self.device = device if not use_cpu else torch.device("cpu")
-        self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
+
+        if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
+            self.ocr_engine = TransformerEngineLineOCR(json_file, self.device)
+        else:
+            self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
 
     def process_page(self, img, page_layout: PageLayout):
         for line in page_layout.lines_iterator():

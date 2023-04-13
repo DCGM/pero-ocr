@@ -12,7 +12,7 @@ from .softmax import softmax
 
 
 class BaseEngineLineOCR(object):
-    def __init__(self, json_def, device, batch_size=8):
+    def __init__(self, json_def, device, batch_size=8, model_type="ctc"):
         with open(json_def, 'r', encoding='utf8') as f:
             self.config = json.load(f)
 
@@ -37,6 +37,8 @@ class BaseEngineLineOCR(object):
                 self.embed_id = "mean"
         else:
             self.embed_id = None
+
+        self.model_type = model_type
 
         self.device = device
 
@@ -103,10 +105,11 @@ class BaseEngineLineOCR(object):
                     #    line_logits = line_logits[
                     #              int(self.line_padding_px // self.net_subsampling - 2):int(
                     #                  lines[ids].shape[1] // self.net_subsampling + 8)]
-                    else:
+                    elif self.model_type == "ctc":
                         all_logit_coords[ids] = [
                             int(self.line_padding_px // self.net_subsampling),
                             int((self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
+
                     if sparse_logits:
                         line_probs = softmax(line_logits, axis=1)
                         line_logits[line_probs < 0.0001] = 0
