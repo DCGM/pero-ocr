@@ -6,7 +6,6 @@ import math
 import time
 
 import torch.cuda
-from transformers.models.auto.configuration_auto import model_type_to_module_name
 
 from pero_ocr.utils import compose_path
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
