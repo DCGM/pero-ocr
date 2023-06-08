@@ -1,5 +1,5 @@
 def save_transcriptions(path, transcriptions):
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         for key in transcriptions:
             f.write('{} {}\n'.format(key, transcriptions[key]))
 
@@ -7,9 +7,10 @@ def save_transcriptions(path, transcriptions):
 def load_transcriptions(path):
     transcriptions = {}
 
-    with open(path, "r") as f:
-        for line_no, line in enumerate(f):
-            if len(line) == 0:
+    with open(path, "r", encoding='utf-8') as f:
+        for line_no, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
                 continue
 
             try:
@@ -24,8 +25,5 @@ def load_transcriptions(path):
 
 def parse_transcription_line(line):
     image_id, transcription = line.split(" ", maxsplit=1)
-
-    if transcription[-1] == '\n':
-        transcription = transcription[:-1]
-
+    transcription = transcription.rstrip()
     return image_id, transcription
