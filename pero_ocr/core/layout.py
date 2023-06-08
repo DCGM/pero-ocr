@@ -369,7 +369,7 @@ class PageLayout(object):
                     text_element = ET.SubElement(text_element, "Unicode")
                     text_element.text = line.transcription
 
-        return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
+        return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_pagexml(self, file_name, version=PAGEVersion.PAGE_2019_07_15):
         xml_string = self.to_pagexml_string(version=version)
@@ -568,10 +568,10 @@ class PageLayout(object):
         print_space.set("VPOS", str(int(print_space_vpos)))
         print_space.set("HPOS", str(int(print_space_hpos)))
 
-        return ET.tostring(root, pretty_print=True, encoding="utf-8").decode("utf-8")
+        return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_altoxml(self, file_name, ocr_processing=None, page_uuid=None):
-        alto_string = "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n" + self.to_altoxml_string(ocr_processing, page_uuid)
+        alto_string = self.to_altoxml_string(ocr_processing, page_uuid)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
