@@ -58,6 +58,6 @@ done
 
 # compare with example output
 python3 user_scripts/compare_page_xml_texts.py \
-    --hyp "$EXAMPLE/$f" \
-    --ref "$OUTPUT_DIR/$f" \
+    --hyp "$EXAMPLE" \
+    --ref "$OUTPUT_DIR" \
     --print-all
