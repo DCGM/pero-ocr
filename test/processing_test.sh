@@ -50,14 +50,14 @@ done
 
 # generate results
 for f in $(ls "$INPUT_DIR"); do
-    user_scripts/parse_folder.py \
+    python3 user_scripts/parse_folder.py \
         -c "$CONFIG" \
         --output-xml-path "$OUTPUT_DIR" \
         -i "$INPUT_DIR/$f"
 done
 
 # compare with example output
-user_scripts/compare_page_xml_texts.py \
+python3 user_scripts/compare_page_xml_texts.py \
     --hyp "$EXAMPLE/$f" \
     --ref "$OUTPUT_DIR/$f" \
     --print-all
