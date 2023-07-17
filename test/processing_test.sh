@@ -48,16 +48,12 @@ while true; do
     esac
 done
 
-# run parse_folder (in container) with correct params
-# (include all inputs for given test)
-# compare results with example results
-
 # generate results
 for f in $(ls "$INPUT_DIR"); do
     user_scripts/parse_folder.py \
         -c "$CONFIG" \
         --output-xml-path "$OUTPUT_DIR" \
-        -i "$f"
+        -i "$INPUT_DIR/$f"
 done
 
 # compare with example output
