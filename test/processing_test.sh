@@ -49,12 +49,10 @@ while true; do
 done
 
 # generate results
-for f in $(ls "$INPUT_DIR"); do
-    python3 user_scripts/parse_folder.py \
-        -c "$CONFIG" \
-        --output-xml-path "$OUTPUT_DIR" \
-        -i "$INPUT_DIR/$f"
-done
+python3 user_scripts/parse_folder.py \
+    -c "$CONFIG" \
+    --output-xml-path "$OUTPUT_DIR" \
+    -i "$INPUT_DIR"
 
 # compare with example output
 python3 user_scripts/compare_page_xml_texts.py \
