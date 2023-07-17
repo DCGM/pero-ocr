@@ -61,9 +61,7 @@ for f in $(ls "$INPUT_DIR/images"); do
 done
 
 # compare with example output
-for f in $(ls "$INPUT_DIR/images"); do
-    user_scripts/compare_page_xml_tests.py \
-        --hyp "$EXAMPLE/$f" \
-        --ref "$OUTPUT_DIR/$f" \
-        --print-all
-done
+user_scripts/compare_page_xml_tests.py \
+    --hyp "$EXAMPLE/$f" \
+    --ref "$OUTPUT_DIR/$f" \
+    --print-all
