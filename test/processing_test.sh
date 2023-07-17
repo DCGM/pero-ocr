@@ -53,10 +53,10 @@ done
 # compare results with example results
 
 # generate results
-for f in $(ls "$INPUT_DIR/images"); do
+for f in $(ls "$INPUT_DIR"); do
     user_scripts/parse_folder.py \
         -c "$CONFIG" \
-        -o "$OUTPUT_DIR" \
+        --output-xml-path "$OUTPUT_DIR" \
         -i "$f"
 done
 
