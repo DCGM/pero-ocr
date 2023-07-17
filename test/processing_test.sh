@@ -23,7 +23,7 @@ print_help() {
 while true; do
     case "$1" in
         --input-dir|-i )
-            add_host "$2"
+            INPUT_DIR="$2"
             shift 2
             ;;
         --output-dir|-o )
@@ -61,7 +61,7 @@ for f in $(ls "$INPUT_DIR"); do
 done
 
 # compare with example output
-user_scripts/compare_page_xml_tests.py \
+user_scripts/compare_page_xml_texts.py \
     --hyp "$EXAMPLE/$f" \
     --ref "$OUTPUT_DIR/$f" \
     --print-all
