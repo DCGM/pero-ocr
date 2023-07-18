@@ -1,29 +1,38 @@
 #!/bin/sh
 
-INPUT_DIR=
+INPUT_IMAGE_DIR=
+INPUT_XML_DIR=
 OUTPUT_DIR=
 CONFIG=
 EXAMPLE=
-
-. ./.venv/bin/activate
+TEST_UTIL=
+TEST_OUTPUT_DIR=
+TEST_SET=
 
 print_help() {
     echo "Processing test"
     echo "Tests processing of images using PERO-OCR."
     echo "$ sh processing_test.sh -i in_dir -o out_dir -c config.ini -e example_out_dir"
     echo "Options:"
-    echo "  -i|--input-dir      Input directory with tests."
+    echo "  -i|--input-images   Input directory with test images."
+    echo "  -x|--input-xmls     Input directory with xml files."
     echo "  -o|--output-dir     Output directory for results."
     echo "  -c|--configuration  Configuration file for ocr."
     echo "  -e|--example        Example outputs for comparison."
+    echo "  -u|--test-utility   Path to test utility."
+    echo "  -t|--test-output    Test utility output folder."
     echo "  -h|--help           Shows this help message."
 }
 
 # parse args
 while true; do
     case "$1" in
-        --input-dir|-i )
+        --input-images|-i )
             INPUT_DIR="$2"
+            shift 2
+            ;;
+        --input-xmls|-x )
+            INPUT_XML_DIR="$2"
             shift 2
             ;;
         --output-dir|-o )
@@ -38,6 +47,14 @@ while true; do
             EXAMPLE="$2"
             shift 2
             ;;
+        --test-utility|-u )
+            TEST_UTIL="$2"
+            shift 2
+            ;;
+        --test-output|-t )
+            TEST_OUTPUT_DIR="$2"
+            shift 2
+            ;;
         --help|-h )
             print_help
             exit 0
@@ -49,13 +66,35 @@ while true; do
 done
 
 # generate results
-python3 user_scripts/parse_folder.py \
-    -c "$CONFIG" \
-    --output-xml-path "$OUTPUT_DIR" \
-    -i "$INPUT_DIR"
+if [ -z "$INPUT_XML_DIR" ]; then
+    python3 user_scripts/parse_folder.py \
+        -c "$CONFIG" \
+        --output-xml-path "$OUTPUT_DIR" \
+        -i "$INPUT_IMAGE_DIR"
+else
+    python3 user_scripts/parse_folder.py \
+        -c "$CONFIG" \
+        --output-xml-path "$OUTPUT_DIR" \
+        -i "$INPUT_IMAGE_DIR" \
+        -x "$INPUT_XML_DIR"
+fi
+
+# test if all options for tests are set
+[ -n "$EXAMPLE" ] && TEST_SET=1
+[ -n "$TEST_UTIL" ] && TEST_SET=1
+[ -n "$TEST_OUTPUT_DIR" ] && TEST_SET=1
 
 # compare with example output
-python3 user_scripts/compare_page_xml_texts.py \
-    --hyp "$EXAMPLE" \
-    --ref "$OUTPUT_DIR" \
-    --print-all
+if [ -n "$EXAMPLE" ] && [ -n "$TEST_OUTPUT_DIR" ] && [ -n "$TEST_UTIL" ]; then
+    python3 "$TEST_UTIL" \
+        --input-path "$OUTPUT_DIR" \
+        --gt-path "$EXAMPLE" \
+        --image-path "$IMPUT_IMAGE_DIR" \
+        --output-image-path "$TEST_OUTPUT_DIR/output-image.jpg" \
+        --log-path "$TEST_OUTPUT_DIR/log.json"
+else
+    if [ -n "$TEST_SET" ]; then
+        echo "For running test, example output directory, test utility path"
+        echo "and test output dir have to be set!"
+    fi
+fi
