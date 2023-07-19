@@ -90,7 +90,7 @@ if [ -n "$EXAMPLE" ] && [ -n "$TEST_OUTPUT_DIR" ] && [ -n "$TEST_UTIL" ]; then
         --input-path "$OUTPUT_DIR" \
         --gt-path "$EXAMPLE" \
         --image-path "$INPUT_IMAGE_DIR" \
-        --output-image-path "$TEST_OUTPUT_DIR/output-image.jpg" \
+        --output-image-path "$TEST_OUTPUT_DIR/output-images" \
         --log-path "$TEST_OUTPUT_DIR/log.json"
 else
     if [ -n "$TEST_SET" ]; then
