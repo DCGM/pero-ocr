@@ -73,6 +73,8 @@ fi
 config_name="$(basename "$CONFIG")"
 config_path="$(dirname "$CONFIG")"
 
+# TODO -- remove device cpu to allow gpu processing!
+
 # generate results
 if [ -z "$INPUT_XML_DIR" ]; then
     docker run --rm --tty --interactive \
