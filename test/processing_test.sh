@@ -78,8 +78,8 @@ if [ -z "$INPUT_XML_DIR" ]; then
     docker run --rm --tty --interactive \
     --volume "$INPUT_IMAGE_DIR":/input \
     --volume "$OUTPUT_DIR":/output \
-    --volume "$dirname":/engine pero-ocr \
-    /usr/bin/python3 user_scripts/parse_folder.py \
+    --volume "$config_path":/engine \
+    pero-ocr /usr/bin/python3 user_scripts/parse_folder.py \
         --config /engine/"$config_name" \
         --input-image-path /input \
         --output-xml-path /output \
@@ -89,8 +89,8 @@ else
     --volume "$INPUT_IMAGE_DIR":/input \
     --volume "$INPUT_XML_DIR":/input_xml \
     --volume "$OUTPUT_DIR":/output \
-    --volume "$dirname":/engine pero-ocr \
-    /usr/bin/python3 user_scripts/parse_folder.py \
+    --volume "$config_path":/engine \
+    pero-ocr /usr/bin/python3 user_scripts/parse_folder.py \
         --config /engine/"$config_name" \
         --input-image-path /input \
         --input-xml-path /input_xml \
