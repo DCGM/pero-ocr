@@ -28,7 +28,7 @@ print_help() {
 while true; do
     case "$1" in
         --input-images|-i )
-            INPUT_DIR="$2"
+            INPUT_IMAGE_DIR="$2"
             shift 2
             ;;
         --input-xmls|-x )
@@ -89,7 +89,7 @@ if [ -n "$EXAMPLE" ] && [ -n "$TEST_OUTPUT_DIR" ] && [ -n "$TEST_UTIL" ]; then
     python3 "$TEST_UTIL" \
         --input-path "$OUTPUT_DIR" \
         --gt-path "$EXAMPLE" \
-        --image-path "$IMPUT_IMAGE_DIR" \
+        --image-path "$INPUT_IMAGE_DIR" \
         --output-image-path "$TEST_OUTPUT_DIR/output-image.jpg" \
         --log-path "$TEST_OUTPUT_DIR/log.json"
 else
