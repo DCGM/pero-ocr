@@ -12,7 +12,7 @@ TEST_SET=
 print_help() {
     echo "Processing test"
     echo "Tests processing of images using PERO-OCR."
-    echo "$ sh processing_test.sh -i in_dir -o out_dir -c config.ini -e example_out_dir"
+    echo "$ sh processing_test.sh -i in_dir -o out_dir -c engine_dir/config.ini"
     echo "Options:"
     echo "  -i|--input-images   Input directory with test images."
     echo "  -x|--input-xmls     Input directory with xml files."
@@ -113,7 +113,6 @@ if [ -n "$EXAMPLE" ] && [ -n "$TEST_OUTPUT_DIR" ] && [ -n "$TEST_UTIL" ]; then
         --log-path "$TEST_OUTPUT_DIR/log.json"
 else
     if [ -n "$TEST_SET" ]; then
-        echo "For running test, example output directory, test utility path"
-        echo "and test output dir have to be set!"
+        echo "For running test, example output directory, test utility path and test output dir have to be set!"
     fi
 fi
