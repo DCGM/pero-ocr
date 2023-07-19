@@ -65,18 +65,37 @@ while true; do
     esac
 done
 
+if [ -z "$INPUT_IMAGE_DIR" ] || [ -z "$OUTPUT_DIR" ] || [ -z "$CONFIG" ]; then
+    echo 'Input image directory, output directory and configuration path must be set!' >&2
+    exit 1
+fi
+
+config_name="$(basename "$CONFIG")"
+config_path="$(dirname "$CONFIG")"
+
 # generate results
 if [ -z "$INPUT_XML_DIR" ]; then
-    python3 user_scripts/parse_folder.py \
-        -c "$CONFIG" \
-        --output-xml-path "$OUTPUT_DIR" \
-        -i "$INPUT_IMAGE_DIR"
+    docker run --rm --tty --interactive \
+    --volume "$INPUT_IMAGE_DIR":/input \
+    --volume "$OUTPUT_DIR":/output \
+    --volume "$dirname":/engine pero-ocr \
+    /usr/bin/python3 user_scripts/parse_folder.py \
+        --config /engine/"$config_name" \
+        --input-image-path /input \
+        --output-xml-path /output \
+        --device cpu
 else
-    python3 user_scripts/parse_folder.py \
-        -c "$CONFIG" \
-        --output-xml-path "$OUTPUT_DIR" \
-        -i "$INPUT_IMAGE_DIR" \
-        -x "$INPUT_XML_DIR"
+    docker run --rm --tty --interactive \
+    --volume "$INPUT_IMAGE_DIR":/input \
+    --volume "$INPUT_XML_DIR":/input_xml \
+    --volume "$OUTPUT_DIR":/output \
+    --volume "$dirname":/engine pero-ocr \
+    /usr/bin/python3 user_scripts/parse_folder.py \
+        --config /engine/"$config_name" \
+        --input-image-path /input \
+        --input-xml-path /input_xml \
+        --output-xml-path /output \
+        --device cpu
 fi
 
 # test if all options for tests are set
