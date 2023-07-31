@@ -89,8 +89,7 @@ if [ -z "$INPUT_XML_DIR" ]; then
     pero-ocr /usr/bin/python3 user_scripts/parse_folder.py \
         --config /engine/"$config_name" \
         --input-image-path /input \
-        --output-xml-path /output \
-        --device cpu
+        --output-xml-path /output
 else
     docker run --rm --tty --interactive \
     --volume "$INPUT_IMAGE_DIR":/input \
@@ -102,8 +101,7 @@ else
         --config /engine/"$config_name" \
         --input-image-path /input \
         --input-xml-path /input_xml \
-        --output-xml-path /output \
-        --device cpu
+        --output-xml-path /output
 fi
 
 # test if all options for tests are set
