@@ -8,6 +8,7 @@ EXAMPLE=
 TEST_UTIL=
 TEST_OUTPUT_DIR=
 TEST_SET=
+GPUS='all'
 
 print_help() {
     echo "Processing test"
@@ -21,6 +22,7 @@ print_help() {
     echo "  -e|--example        Example outputs for comparison."
     echo "  -u|--test-utility   Path to test utility."
     echo "  -t|--test-output    Test utility output folder."
+    echo "  -g|--gpu-ids        Ids of GPU to use for ocr processing. (default=all)"
     echo "  -h|--help           Shows this help message."
 }
 
@@ -55,6 +57,10 @@ while true; do
             TEST_OUTPUT_DIR="$2"
             shift 2
             ;;
+        --gpu-ids|-g )
+            GPUS="$2"
+            shift 2
+            ;;
         --help|-h )
             print_help
             exit 0
@@ -73,14 +79,13 @@ fi
 config_name="$(basename "$CONFIG")"
 config_path="$(dirname "$CONFIG")"
 
-# TODO -- remove device cpu to allow gpu processing!
-
 # generate results
 if [ -z "$INPUT_XML_DIR" ]; then
     docker run --rm --tty --interactive \
     --volume "$INPUT_IMAGE_DIR":/input \
     --volume "$OUTPUT_DIR":/output \
     --volume "$config_path":/engine \
+    --gpus "$GPUS" \
     pero-ocr /usr/bin/python3 user_scripts/parse_folder.py \
         --config /engine/"$config_name" \
         --input-image-path /input \
@@ -92,6 +97,7 @@ else
     --volume "$INPUT_XML_DIR":/input_xml \
     --volume "$OUTPUT_DIR":/output \
     --volume "$config_path":/engine \
+    --gpus "$GPUS" \
     pero-ocr /usr/bin/python3 user_scripts/parse_folder.py \
         --config /engine/"$config_name" \
         --input-image-path /input \
