@@ -6,7 +6,7 @@ COPY ./ /pero-ocr/
 RUN cat /etc/apt/sources.list | sed -e 's/main/main contrib non-free/g' > /etc/apt/tmp.list && mv /etc/apt/tmp.list /etc/apt/sources.list
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3-pip ffmpeg nvidia-smi && \
+    apt-get install -y --no-install-recommends python3-pip ffmpeg && \
     apt-get clean
 
 RUN pip install --no-cache --upgrade pip
