@@ -1,7 +1,7 @@
 FROM debian:bullseye
 
-WORKDIR /opt/PERO/pero-ocr/
-COPY ./ /opt/PERO/pero-ocr/
+WORKDIR /opt/pero/pero-ocr/
+COPY ./ /opt/pero/pero-ocr/
 
 RUN cat /etc/apt/sources.list | sed -e 's/main/main contrib non-free/g' > /etc/apt/tmp.list && mv /etc/apt/tmp.list /etc/apt/sources.list
 
