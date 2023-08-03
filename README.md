@@ -35,10 +35,30 @@ General layout analysis (printed and handwritten) with european printed OCR spec
 ## Command line application
 A command line application is ./user_scripts/parse_folder.py. It is able to process images in a directory using an OCR engine. It can render detected lines in an image and provide document content in Page XML and ALTO XML formats. Additionally, it is able to crop all text lines as rectangular regions of normalized size and save them into separate image files.
 
+## Running command line application in container
+A docker container can be built from the sourcecode to run scripts and programs based on the pero-ocr. Example of running the `parse_folder.py` script to generate page-xml files for images in input directory:
+```shell
+docker run --rm --tty --interactive \
+     --volume path/to/input/dir:/input \
+     --volume path/to/output/dir:/output \
+     --volume path/to/ocr/engine:/engine \
+     --gpus all \
+     pero-ocr /usr/bin/python3 user_scripts/parse_folder.py \
+          --config /engine/config.ini \
+          --input-image-path /input \
+          --output-xml-path /output
+```
+Be sure to use container internal paths for passed in data in the command. All input and output data locations have to be passed to container via `--volume` argument due to container isolation. See [docker run command reference](https://docs.docker.com/engine/reference/run/) for more information.
+
+Container can be built like this:
+```shell
+docker build -f Dockerfile -t pero-ocr .
+```
+
 ## Integration of the pero-ocr python module
 This example shows how to directly use the OCR pipeline provided by pero-ocr package. This shows how to integrate pero-ocr into other applications. Class PageLayout represents content of a single document page and can be loaded from Page XMl and exported to Page XML and ALTO XML formats. The OCR pipeline is represented by the PageParser class.
 
-```
+```python
 import os
 import configparser
 import cv2
@@ -96,3 +116,18 @@ Currently, only unittests are provided with the code. Some of the code. So simpl
 ~/pero-ocr $ green
 ```
 
+#### Simple regression testing
+Regression testing can be done by `test/processing_test.sh`. Script calls containerized `parser_folder.py` to process input images and page-xml files and calls user suplied comparison script to compare outputs to example outputs suplied by user. `PERO-OCR` container have to be built in advance to run the test, see 'Running command line application in container' chapter. Script can be called like this:
+```shell
+sh test/processing_test.sh \
+     --input-images path/to/input/image/directory \
+     --input-xmls path/to/input/page-xml/directory \
+     --output-dir path/to/output/dir \
+     --configuration path/to/ocr/engine/config.ini \
+     --example path/to/example/output/data \
+     --test-utility path/to/test/script \
+     --test-output path/to/testscript/output/dir \
+     --gpu-ids gpu ids for docker container
+```
+
+First 4 arguments are manadatory, `--gpu-ids` is preset by value 'all' which passes all gpus to the container. Test utility, example outputs and test output folder have to be set only if comparison of results should be performed. Test utility is expected to be path to `eval_ocr_pipeline_xml.py` script from `pero` repository. Be sure to correctly set PYTHONPATH and install dependencies for `pero` repository for the utility to work. Other script can be used if takes the same arguments. In other cases output data can be of course compared manually after processing.
