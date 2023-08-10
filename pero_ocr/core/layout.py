@@ -433,7 +433,7 @@ class PageLayout(object):
             print_space_width = print_space_width - print_space_hpos
 
             for l, line in enumerate(block.lines):
-                if not line.transcription:
+                if not line.transcription or line.transcription.strip() == "":
                     continue
                 arabic_line = False
                 if arabic_helper.is_arabic_line(line.transcription):
