@@ -33,7 +33,7 @@ def export_id(id, validate_change_id):
 
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None, logit_coords=None, transcription_confidence=None, index=None):
+                 characters=None, logit_coords=None, transcription_confidence=None, index=None, line_type=None):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -45,6 +45,7 @@ class TextLine(object):
         self.characters = characters
         self.logit_coords = logit_coords
         self.transcription_confidence = transcription_confidence
+        self.line_type = line_type
 
     def get_dense_logits(self, zero_logit_value=-80):
         dense_logits = self.logits.toarray()

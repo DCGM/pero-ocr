@@ -4,8 +4,10 @@ import logging
 from multiprocessing import Pool
 import math
 import time
+import re
 
 import torch.cuda
+from PIL import Image
 
 from pero_ocr.utils import compose_path
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
@@ -14,7 +16,7 @@ from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
 from pero_ocr.layout_engines.simple_baseline_engine import EngineLineDetectorSimple
-from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEngine
+from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEngine, LayoutEngineYolo
 from pero_ocr.layout_engines.line_postprocessing_engine import PostprocessingEngine
 from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
@@ -34,6 +36,8 @@ def layout_parser_factory(config, device, config_path='', order=1):
         layout_parser = SimpleThresholdRegion(config, config_path=config_path)
     elif config['METHOD'] == 'LAYOUT_CNN':
         layout_parser = LayoutExtractor(config, device, config_path=config_path)
+    elif config['METHOD'] == 'LAYOUT_YOLO':
+        layout_parser = LayoutExtractorYolo(config, device, config_path=config_path)
     elif config['METHOD'] == 'LINES_SIMPLE_THRESHOLD':
         layout_parser = TextlineExtractorSimple(config, config_path=config_path)
     elif config['METHOD'] == 'LINE_FILTER':
@@ -297,6 +301,101 @@ class LayoutExtractor(object):
                 line.baseline = refine_baseline(line.baseline, line.heights, maps, ds, crop_engine)
                 line.polygon = helpers.baseline_to_textline(line.baseline, line.heights)
         return page_layout
+
+
+class LayoutExtractorYolo(object):
+    def __init__(self, config, device, config_path=''):
+        self.detect_regions = config.getboolean('DETECT_REGIONS')
+        self.detect_lines = config.getboolean('DETECT_LINES')
+        # self.detect_straight_lines_in_regions = config.getboolean('DETECT_STRAIGHT_LINES_IN_REGIONS')
+        # self.merge_lines = config.getboolean('MERGE_LINES')
+        # self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
+        # self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
+        # self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
+
+        use_cpu = config.getboolean('USE_CPU')
+        self.device = device if not use_cpu else torch.device("cpu")
+
+        self.engine = LayoutEngineYolo(
+            model_path=compose_path(config['MODEL_PATH'], config_path),
+            device=self.device,
+            detection_threshold=config.getfloat('DETECTION_THRESHOLD'),
+            # downsample=config.getint('DOWNSAMPLE'),
+            # adaptive_downsample=config.getboolean('ADAPTIVE_DOWNSAMPLE', fallback=True),
+            # max_mp=config.getfloat('MAX_MEGAPIXELS'),
+            # line_end_weight=config.getfloat('LINE_END_WEIGHT', fallback=1.0),
+            # vertical_line_connection_range=config.getint('VERTICAL_LINE_CONNECTION_RANGE', fallback=5),
+            # smooth_line_predictions=config.getboolean('SMOOTH_LINE_PREDICTIONS', fallback=True),
+            # paragraph_line_threshold=config.getfloat('PARAGRAPH_LINE_THRESHOLD', fallback=0.3),
+        )
+        # self.pool = Pool(1)
+
+    def process_page(self, img, page_layout: PageLayout):
+        result = self.engine.detect(img)
+        # Show the result
+        # im_array = result.plot()  # plot a BGR numpy array of predictions
+        # im = Image.fromarray(im_array[..., ::-1])  # RGB PIL image
+        # im.show()  # show image
+
+        polygons, baselines, heights = self.boxes_to_polygons(result.boxes.data)
+
+        start_id = self.get_start_id(page_layout)
+
+        # Add music regions to page layout
+        for id, (polygon, baseline, height) in enumerate(zip(polygons, baselines, heights)):
+            id_str = 'r{:03d}'.format(start_id + id)
+            region = RegionLayout(id_str, polygon, region_type='music notation')
+
+            line = TextLine(
+                id=f'{id_str}-l000',
+                polygon=polygon,
+                baseline=baseline,
+                heights=height,
+                line_type='music notation'
+            )
+
+            region.lines.append(line)
+            page_layout.regions.append(region)
+
+        return page_layout
+
+    @staticmethod
+    def boxes_to_polygons(boxes: torch.Tensor) -> (list[np.ndarray], list[np.ndarray], list[np.ndarray]):
+        NOTE_LABEL = 10
+        boxes = boxes[(boxes[:, 5] == NOTE_LABEL)].to(torch.int)
+
+        polygons = []
+        heights = []
+        baselines = []
+        for box in boxes:
+            x_min, y_min, x_max, y_max, *_ = box.cpu().tolist()
+            polygons.append(
+                np.array([[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min], [x_min, y_min]]))
+
+            baseline_y = y_min + (y_max - y_min) / 2
+            baselines.append(np.array([[x_min, baseline_y], [x_max, baseline_y]]))
+
+            heights.append(np.array([baseline_y - y_min, y_max - baseline_y]))
+        return polygons, baselines, heights
+
+    @staticmethod
+    def get_start_id(page_layout: PageLayout) -> int | None:
+        used_region_ids = sorted([region.id for region in page_layout.regions])
+        if not used_region_ids:
+            return 0
+        else:
+            start_id = self.get_last_region_id(used_region_ids) + 1
+
+        ids = []
+        for id in used_region_ids:
+            id = re.match(r'r(\d+)', id).group(1)
+            try:
+                ids.append(int(id))
+            except ValueError:
+                pass
+
+        last_used_id = sorted(ids)[-1]
+        return last_used_id + 1
 
 
 class LineFilter(object):
