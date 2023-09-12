@@ -13,7 +13,11 @@ from typing import Set, List, Optional
 import traceback
 import sys
 import time
+import requests
 from multiprocessing import Pool
+import multiprocessing
+
+
 
 from safe_gpu import safe_gpu
 
@@ -22,11 +26,13 @@ from pero_ocr.document_ocr.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
 
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', required=True, help='Path to input config file.')
     parser.add_argument('-s', '--skip-processed', action='store_true', required=False,
                         help='If set, already processed files are skipped.')
+    parser.add_argument('--url-file', help='File with images to download and process. Pairs url, uuid.')
     parser.add_argument('-i', '--input-image-path', help='')
     parser.add_argument('-x', '--input-xml-path', help='')
     parser.add_argument('--input-logit-path', help='')
@@ -39,6 +45,9 @@ def parse_arguments():
     parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
     parser.add_argument('--set-gpu', action='store_true', help='Sets visible CUDA device to first unused GPU.')
     parser.add_argument('--process-count', type=int, default=1, help='Number of parallel processes (this works mostly only for line cropping and it probably fails and crashes for most other uses cases).')
+    parser.add_argument('--dont-start-engines', action='store_true', help='Do not start engines using Neural networks. Will try to use remote engines using ZeroMQ.')
+    parser.add_argument('--background', action='store_true', help='Run in background and do nothing.')
+
     args = parser.parse_args()
     return args
 
@@ -132,18 +141,52 @@ class Computator:
         self.output_alto_path = output_alto_path
         self.output_xml_path = output_xml_path
         self.output_line_path = output_line_path
+        self.session = None
+
+        print('Computator initialized')
+
+    def get_session(self):
+        if self.session is None:
+            self.session = requests.Session()
+            self.session.headers.update({'User-Agent': 'PERO OCR'})
+        return self.session
+    
+    def restart_session(self):
+        if self.session:
+            self.session.close()
+            self.session = None
+        return self.get_session()
 
     def __call__(self, image_file_name, file_id, index, ids_count):
-        print(f"Processing {file_id}")
-        t1 = time.time()
+        print(f"Processing {file_id} {image_file_name}")
         annotations = []
         try:
-            if self.input_image_path is not None:
-                image = cv2.imread(os.path.join(self.input_image_path, image_file_name), 1)
+            t1 = time.time()
+            if 'http://' in image_file_name or 'https://' in image_file_name:
+                session = self.get_session()
+                for i in range(5):
+                    try:
+                        response = session.get(image_file_name, timeout=10)
+                    except requests.exceptions.Timeout:
+                        session = self.restart_session()
+                        print(f"Request timeout {i}.")
+                        response = None
+
+                if not response or response.status_code != 200:
+                    raise Exception(f'Unable to download image "{image_file_name}"')
+                data = response.content
+                data = np.asarray(bytearray(data), dtype="uint8")
+                image = cv2.imdecode(data, 1)
                 if image is None:
-                    raise Exception(f'Unable to read image "{os.path.join(self.input_image_path, image_file_name)}"')
+                    raise Exception(f'Unable to read image "{image_file_name}"')
+                print(f"Downloaded {image_file_name} in {time.time() - t1} seconds")
             else:
-                image = None
+                if self.input_image_path is not None:
+                    image = cv2.imread(os.path.join(self.input_image_path, image_file_name), 1)
+                    if image is None:
+                        raise Exception(f'Unable to read image "{os.path.join(self.input_image_path, image_file_name)}"')
+                else:
+                    image = None
 
             if self.input_xml_path:
                 page_layout = PageLayout(file=os.path.join(self.input_xml_path, file_id + '.xml'))
@@ -243,7 +286,10 @@ def main():
     if args.set_gpu:
         gpu_owner = safe_gpu.GPUOwner(logger=logger)  # noqa: F841
 
-    page_parser = PageParser(config, config_path=os.path.dirname(config_path))
+    if args.background:
+        page_parser = PageParser(config, config_path=os.path.dirname(config_path))
+        while True:
+           time.sleep(1)
 
     input_image_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_IMAGE_PATH')
     input_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_XML_PATH')
@@ -270,7 +316,13 @@ def main():
         input_logit_path = None
         logger.warning('Logit path specified and Page XML path not specified. Logits will be ignored.')
 
-    if input_image_path is not None:
+    if args.url_file is not None:
+        logger.info(f'Reading url from {args.url_file}.')
+        with open(args.url_file, 'r') as f:
+            lines = [l.strip() for l in f.readlines()]
+            ids_to_process = lines
+            images_to_process = [f'https://kramerius.mzk.cz/search/img?pid=uuid:{uuid}&stream=IMG_FULL' for uuid in lines]
+    elif input_image_path is not None:
         logger.info(f'Reading images from {input_image_path}.')
         ignored_extensions = ['', '.xml', '.logits']
         images_to_process = [f for f in os.listdir(input_image_path) if
@@ -294,7 +346,6 @@ def main():
         already_processed_files = load_already_processed_files([output_xml_path, output_logit_path, output_render_path])
         if len(already_processed_files) > 0:
             logger.info(f"Already processed {len(already_processed_files)} file(s).")
-
             images_to_process = [image for id, image in zip(ids_to_process, images_to_process) if id not in already_processed_files]
             ids_to_process = [id for id in ids_to_process if id not in already_processed_files]
 
@@ -308,6 +359,13 @@ def main():
                 filtered_images_to_process.append(image_file_name)
         ids_to_process = filtered_ids_to_process
         images_to_process = filtered_images_to_process
+
+    if len(ids_to_process) == 0:
+        logger.info('No files to process.')
+        return
+
+    print(f'Dont start engines: {args.dont_start_engines}')
+    page_parser = PageParser(config, config_path=os.path.dirname(config_path), start_engines= not args.dont_start_engines)
 
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
                             output_logit_path, output_alto_path, output_xml_path, output_line_path)

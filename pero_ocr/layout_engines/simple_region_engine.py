@@ -8,7 +8,7 @@ from pero_ocr.document_ocr.layout import PageLayout, RegionLayout
 
 
 class SimpleThresholdRegion:
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, config_path='', start_engines=True):
         pass
 
     def process_page(self, img: np.ndarray, page_layout: PageLayout):

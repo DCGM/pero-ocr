@@ -272,7 +272,7 @@ class CoupledRegions:
 
 
 class SmartRegionSorter:
-    def __init__(self, config: SectionProxy, config_path=""):
+    def __init__(self, config: SectionProxy, config_path="", start_engines=True):
         # if intersection of two regions is less than given parameter w.r.t. both regions, intersection doesn't count
         self.intersect_param = config.getfloat('FakeIntersectionParameter', fallback=0.1)
 

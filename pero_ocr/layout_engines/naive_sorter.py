@@ -39,7 +39,7 @@ class Region:
 
 
 class NaiveRegionSorter:
-    def __init__(self, config: SectionProxy, config_path=""):
+    def __init__(self, config: SectionProxy, config_path="", start_engines=True):
         # minimal distance between clusters = page_width / width_denom
         self.width_denom = config.getint('ImageWidthDenominator', fallback=10)
 

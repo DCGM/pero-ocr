@@ -23,42 +23,46 @@ from pero_ocr.layout_engines import layout_helpers as helpers
 logger = logging.getLogger(__name__)
 
 
-def layout_parser_factory(config, config_path='', order=1):
+def layout_parser_factory(config, config_path='', order=1, start_engines=True):
     config = config['LAYOUT_PARSER_{}'.format(order)]
     if config['METHOD'] == 'REGION_WHOLE_PAGE':
-        layout_parser = WholePageRegion(config, config_path=config_path)
+        layout_parser = WholePageRegion(config, config_path=config_path, start_engines=start_engines)
     elif config['METHOD'] == 'REGION_SIMPLE_THRESHOLD':
-        layout_parser = SimpleThresholdRegion(config, config_path=config_path)
+        layout_parser = SimpleThresholdRegion(config, config_path=config_path, start_engines=start_engines)
     elif config['METHOD'] == 'LAYOUT_CNN':
-        layout_parser = LayoutExtractor(config, config_path=config_path)
+        layout_parser = LayoutExtractor(config, config_path=config_path, start_engines=start_engines)
     elif config['METHOD'] == 'LINES_SIMPLE_THRESHOLD':
-        layout_parser = TextlineExtractorSimple(config, config_path=config_path)
+        layout_parser = TextlineExtractorSimple(config, config_path=config_path, start_engines=start_engines)
     elif config['METHOD'] == 'LINE_FILTER':
-        layout_parser = LineFilter(config, config_path=config_path)
+        layout_parser = LineFilter(config, config_path=config_path, start_engines=start_engines)
     elif config['METHOD'] == 'LINE_POSTPROCESSING':
-        layout_parser = LinePostprocessor(config, config_path=config_path)
+        layout_parser = LinePostprocessor(config, config_path=config_path, start_engines=start_engines)
     elif config['METHOD'] == 'LAYOUT_POSTPROCESSING':
-        layout_parser = LayoutPostprocessor(config, config_path=config_path)
+        layout_parser = LayoutPostprocessor(config, config_path=config_path, start_engines=start_engines)
     elif config['METHOD'] == 'REGION_SORTER_NAIVE':
-        layout_parser = NaiveRegionSorter(config, config_path=config_path)
+        layout_parser = NaiveRegionSorter(config, config_path=config_path, start_engines=start_engines)
     elif config['METHOD'] == 'REGION_SORTER_SMART':
-        layout_parser = SmartRegionSorter(config, config_path=config_path)
+        layout_parser = SmartRegionSorter(config, config_path=config_path, start_engines=start_engines)
     else:
         raise ValueError('Unknown layout parser method: {}'.format(config['METHOD']))
     return layout_parser
 
 
-def line_cropper_factory(config, config_path=''):
+def line_cropper_factory(config, config_path='', start_engines=True):
     config = config['LINE_CROPPER']
     return LineCropper(config, config_path=config_path)
 
 
-def ocr_factory(config, config_path=''):
+def ocr_factory(config, config_path='', start_engines=True):
     config = config['OCR']
-    return PageOCR(config, config_path=config_path)
+    return PageOCR(config, config_path=config_path, start_engines=start_engines)
 
 
-def page_decoder_factory(config, config_path=''):
+def page_decoder_factory(config, config_path='', start_engines=True):
+    if not start_engines:
+        logging.error('Start engines "False" is not supported for page decoder factory')
+        exit(-1)
+
     from pero_ocr.decoding import decoding_itf
     ocr_chars = decoding_itf.get_ocr_charset(compose_path(config['OCR']['OCR_JSON'], config_path))
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, allow_no_decoder=False, use_gpu=True,
@@ -151,7 +155,7 @@ class PageDecoder:
 
 
 class WholePageRegion(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, config_path='', start_engines=True):
         pass
 
     def process_page(self, img, page_layout: PageLayout):
@@ -166,7 +170,7 @@ class WholePageRegion(object):
 
 
 class TextlineExtractorSimple(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, config_path='', start_engines=True):
         adaptive_threshold = config.getint('ADAPTIVE_THRESHOLD')
         block_size = config.getint('BLOCK_SIZE')
         minimum_length = config.getint('MINIMUM_LENGTH')
@@ -194,7 +198,7 @@ class TextlineExtractorSimple(object):
 
 
 class LayoutExtractor(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, config_path='', start_engines=True):
         self.detect_regions = config.getboolean('DETECT_REGIONS')
         self.detect_lines = config.getboolean('DETECT_LINES')
         self.detect_straight_lines_in_regions = config.getboolean('DETECT_STRAIGHT_LINES_IN_REGIONS')
@@ -215,8 +219,8 @@ class LayoutExtractor(object):
             vertical_line_connection_range=config.getint('VERTICAL_LINE_CONNECTION_RANGE', fallback=5),
             smooth_line_predictions=config.getboolean('SMOOTH_LINE_PREDICTIONS', fallback=True),
             paragraph_line_threshold=config.getfloat('PARAGRAPH_LINE_THRESHOLD', fallback=0.3),
+            start_engines=start_engines
         )
-        self.pool = Pool(1)
 
     def process_page(self, img, page_layout: PageLayout):
         if self.detect_regions or self.detect_lines:
@@ -292,7 +296,7 @@ class LayoutExtractor(object):
 
 
 class LineFilter(object):
-    def __init__(self, config, config_path):
+    def __init__(self, config, config_path, start_engines=True):
         self.filter_directions = config.getboolean('FILTER_DIRECTIONS')
         self.filter_incomplete_pages = config.getboolean('FILTER_INCOMPLETE_PAGES')
         self.filter_pages_with_short_lines = config.getboolean('FILTER_PAGES_WITH_SHORT_LINES')
@@ -326,7 +330,7 @@ class LineFilter(object):
 
 
 class LinePostprocessor(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, config_path='', start_engines=True):
         stretch_lines = config['STRETCH_LINES']
         if stretch_lines != 'max':
             stretch_lines = int(stretch_lines)
@@ -348,7 +352,7 @@ class LinePostprocessor(object):
 
 
 class LayoutPostprocessor(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, config_path='', start_engines=True):
         self.retrace_regions = config.getboolean('RETRACE_REGIONS')
 
     def process_page(self, img, page_layout: PageLayout):
@@ -394,10 +398,10 @@ class LineCropper(object):
 
 
 class PageOCR(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, config_path='', start_engines=True):
         json_file = compose_path(config['OCR_JSON'], config_path)
 
-        self.ocr_engine = PytorchEngineLineOCR(json_file, gpu_id=0)
+        self.ocr_engine = PytorchEngineLineOCR(json_file, gpu_id=0, start_engines=start_engines)
 
     def process_page(self, img, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
@@ -431,7 +435,7 @@ def get_prob(best_ids, best_probs):
 
 
 class PageParser(object):
-    def __init__(self, config, config_path=''):
+    def __init__(self, config, config_path='', start_engines=True):
         self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER', fallback=False)
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
@@ -448,13 +452,13 @@ class PageParser(object):
             self.layout_parsers = []
             for i in range(1, 10):
                 if config.has_section('LAYOUT_PARSER_{}'.format(i)):
-                    self.layout_parsers.append(layout_parser_factory(config, config_path=config_path, order=i))
+                    self.layout_parsers.append(layout_parser_factory(config, config_path=config_path, order=i, start_engines=start_engines))
         if self.run_line_cropper:
-            self.line_cropper = line_cropper_factory(config, config_path=config_path)
+            self.line_cropper = line_cropper_factory(config, config_path=config_path, start_engines=start_engines)
         if self.run_ocr:
-            self.ocr = ocr_factory(config, config_path=config_path)
+            self.ocr = ocr_factory(config, config_path=config_path, start_engines=start_engines)
         if self.run_decoder:
-            self.decoder = page_decoder_factory(config, config_path=config_path)
+            self.decoder = page_decoder_factory(config, config_path=config_path, start_engines=start_engines)
 
     @staticmethod
     def compute_line_confidence(line, threshold=None):
