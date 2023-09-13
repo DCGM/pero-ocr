@@ -304,6 +304,7 @@ class LayoutExtractor(object):
 
 
 class LayoutExtractorYolo(object):
+    REGION_TYPE = 'music'
     def __init__(self, config, device, config_path=''):
         self.detect_regions = config.getboolean('DETECT_REGIONS')
         self.detect_lines = config.getboolean('DETECT_LINES')
@@ -318,6 +319,8 @@ class LayoutExtractorYolo(object):
         )
 
     def process_page(self, img, page_layout: PageLayout):
+        page_layout.delete_regions_of_type(self.REGION_TYPE)
+
         result = self.engine.detect(img)
         polygons, baselines, heights = self.boxes_to_polygons(result.boxes.data)
         start_id = self.get_start_id(page_layout)
@@ -325,14 +328,14 @@ class LayoutExtractorYolo(object):
         # Add music regions to page layout
         for id, (polygon, baseline, height) in enumerate(zip(polygons, baselines, heights)):
             id_str = 'r{:03d}'.format(start_id + id)
-            region = RegionLayout(id_str, polygon, region_type='music notation')
+            region = RegionLayout(id_str, polygon, music_region=True)
 
             line = TextLine(
                 id=f'{id_str}-l000',
+                index=0,
                 polygon=polygon,
                 baseline=baseline,
-                heights=height,
-                line_type='music notation'
+                heights=height
             )
 
             region.lines.append(line)
@@ -356,7 +359,7 @@ class LayoutExtractorYolo(object):
             baseline_y = y_min + (y_max - y_min) / 2
             baselines.append(np.array([[x_min, baseline_y], [x_max, baseline_y]]))
 
-            heights.append(np.array([baseline_y - y_min, y_max - baseline_y]))
+            heights.append(np.floor(np.array([baseline_y - y_min, y_max - baseline_y])))
         return polygons, baselines, heights
 
     @staticmethod

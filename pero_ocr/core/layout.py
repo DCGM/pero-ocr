@@ -33,7 +33,7 @@ def export_id(id, validate_change_id):
 
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None, logit_coords=None, transcription_confidence=None, index=None, line_type=None):
+                 characters=None, logit_coords=None, transcription_confidence=None, index=None):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -45,7 +45,6 @@ class TextLine(object):
         self.characters = characters
         self.logit_coords = logit_coords
         self.transcription_confidence = transcription_confidence
-        self.line_type = line_type
 
     def get_dense_logits(self, zero_logit_value=-80):
         dense_logits = self.logits.toarray()
@@ -58,12 +57,13 @@ class TextLine(object):
 
 
 class RegionLayout(object):
-    def __init__(self, id, polygon, region_type=None):
+    def __init__(self, id, polygon, region_type=None, music_region=False):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
         self.lines = []
         self.transcription = None
+        self.music_region = music_region
 
     def to_page_xml(self, page_element, validate_id=False):
         region_element = ET.SubElement(page_element, "TextRegion")
@@ -820,6 +820,18 @@ class PageLayout(object):
             return (1 / len(bbox_confidences) * (np.power(bbox_confidences, power).sum())) ** (1 / power)
         else:
             return -1
+
+    def delete_regions_of_type(self, type=None):
+        self.regions = [region for region in self.regions if region.type == type]
+
+    def regions_of_type_iterator(self, type=None):
+        if type is None:
+            for region in self.regions:
+                yield region
+        else:
+            for region in self.regions:
+                if region.type == type:
+                    yield region
 
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):
