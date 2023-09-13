@@ -372,37 +372,21 @@ class LayoutEngine(object):
 
 class LayoutEngineYolo(object):
     def __init__(self, model_path, device, detection_threshold=0.2):
-                 # downsample=4, max_mp=5, , adaptive_downsample=True,
-                 # line_end_weight=1.0, vertical_line_connection_range=5, smooth_line_predictions=True,
-                 # paragraph_line_threshold=0.3):
         self.yolo_net = YoloNet(
             model_path,
             device=device,
             detection_threshold=detection_threshold
-            # downsample=downsample,
-            # adaptive_downsample=adaptive_downsample,
-            # max_mp=max_mp,
         )
 
         self.line_detection_threshold = detection_threshold
-        # self.line_end_weight = line_end_weight
-        # self.vertical_line_connection_range = vertical_line_connection_range
-        # self.smooth_line_predictions = smooth_line_predictions
-        # self.adaptive_downsample = adaptive_downsample
-        # self.paragraph_line_threshold = paragraph_line_threshold
 
         params = ' '.join([f'{name}:{str(getattr(self, name))}'
                            for name in ['line_detection_threshold']])
-                 # for name in ['line_end_weight', 'vertical_line_connection_range', 'smooth_line_predictions', 'line_detection_threshold', 'adaptive_downsample']])
-        print(f'LayoutEngine params are {params}')
+        print(f'LayoutEngineYolo params are {params}')
 
     def detect(self, image):
-               # , rot=0):
-        """Uses parsenet to find lines and region separators, clusters vertically
-        close lines by computing penalties and postprocesses the resulting
-        regions.
+        """Uses yolo_net to find bounding boxes.
         :param image: input image
-        :param rot: number of counter-clockwise 90degree rotations (0 <= n <= 3)
         """
         return self.yolo_net.detect_using_yolo(image)
 
@@ -410,28 +394,15 @@ class LayoutEngineYolo(object):
 class YoloNet:
 
     def __init__(self, model_path, device, detection_threshold=0.2):
-        # downsample=4, max_mp=5, adaptive_downsample=True):
-
         self.detection_threshold = detection_threshold
-        # self.min_line_processing_height = 9
-        # self.max_line_processing_height = 15
-        # self.optimal_line_processing_height = 12
-
         self.yolo_net = YOLO(model_path).to(device)
         self.net = torch.load(model_path)  # .eval().to(device)
-
-        # self.adaptive_downsample = adaptive_downsample
-        # self.init_downsample = downsample
-        # self.last_downsample = downsample
-        # self.downsample_line_pixel_adapt_threshold = 100
-        # self.min_downsample = 1
-        # self.max_downsample = 8
 
     def detect_using_yolo(self, img):
         return self.yolo_net(img, conf=self.detection_threshold)[0]
 
     def detect(self, img):
-        print('Detect NOT implemented yet, use detect_using_yolo instead.')
+        print('ERR: Detect NOT implemented yet, use detect_using_yolo instead.')
         return self.net(img)
 
 

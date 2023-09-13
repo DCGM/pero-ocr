@@ -307,11 +307,6 @@ class LayoutExtractorYolo(object):
     def __init__(self, config, device, config_path=''):
         self.detect_regions = config.getboolean('DETECT_REGIONS')
         self.detect_lines = config.getboolean('DETECT_LINES')
-        # self.detect_straight_lines_in_regions = config.getboolean('DETECT_STRAIGHT_LINES_IN_REGIONS')
-        # self.merge_lines = config.getboolean('MERGE_LINES')
-        # self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
-        # self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
-        # self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -320,25 +315,11 @@ class LayoutExtractorYolo(object):
             model_path=compose_path(config['MODEL_PATH'], config_path),
             device=self.device,
             detection_threshold=config.getfloat('DETECTION_THRESHOLD'),
-            # downsample=config.getint('DOWNSAMPLE'),
-            # adaptive_downsample=config.getboolean('ADAPTIVE_DOWNSAMPLE', fallback=True),
-            # max_mp=config.getfloat('MAX_MEGAPIXELS'),
-            # line_end_weight=config.getfloat('LINE_END_WEIGHT', fallback=1.0),
-            # vertical_line_connection_range=config.getint('VERTICAL_LINE_CONNECTION_RANGE', fallback=5),
-            # smooth_line_predictions=config.getboolean('SMOOTH_LINE_PREDICTIONS', fallback=True),
-            # paragraph_line_threshold=config.getfloat('PARAGRAPH_LINE_THRESHOLD', fallback=0.3),
         )
-        # self.pool = Pool(1)
 
     def process_page(self, img, page_layout: PageLayout):
         result = self.engine.detect(img)
-        # Show the result
-        # im_array = result.plot()  # plot a BGR numpy array of predictions
-        # im = Image.fromarray(im_array[..., ::-1])  # RGB PIL image
-        # im.show()  # show image
-
         polygons, baselines, heights = self.boxes_to_polygons(result.boxes.data)
-
         start_id = self.get_start_id(page_layout)
 
         # Add music regions to page layout
