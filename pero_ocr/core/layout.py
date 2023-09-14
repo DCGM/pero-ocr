@@ -821,17 +821,11 @@ class PageLayout(object):
         else:
             return -1
 
-    def delete_regions_of_type(self, type=None):
-        self.regions = [region for region in self.regions if region.type == type]
+    def delete_text_regions(self):
+        self.regions = [region for region in self.regions if region.music_regions]
 
-    def regions_of_type_iterator(self, type=None):
-        if type is None:
-            for region in self.regions:
-                yield region
-        else:
-            for region in self.regions:
-                if region.type == type:
-                    yield region
+    def delete_music_regions(self):
+        self.regions = [region for region in self.regions if not region.music_regions]
 
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):

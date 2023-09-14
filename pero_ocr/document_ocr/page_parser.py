@@ -233,10 +233,11 @@ class LayoutExtractor(object):
     def process_page(self, img, page_layout: PageLayout):
         if self.detect_regions or self.detect_lines:
             if self.detect_regions:
-                page_layout.regions = []
+                page_layout.delete_text_regions()
             if self.detect_lines:
                 for region in page_layout.regions:
-                    region.lines = []
+                    if not region.music_region:
+                        region.lines = []
 
             if self.multi_orientation:
                 orientations = [0, 1, 3]
@@ -306,9 +307,6 @@ class LayoutExtractor(object):
 class LayoutExtractorYolo(object):
     REGION_TYPE = 'music'
     def __init__(self, config, device, config_path=''):
-        self.detect_regions = config.getboolean('DETECT_REGIONS')
-        self.detect_lines = config.getboolean('DETECT_LINES')
-
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
 
@@ -319,7 +317,7 @@ class LayoutExtractorYolo(object):
         )
 
     def process_page(self, img, page_layout: PageLayout):
-        page_layout.delete_regions_of_type(self.REGION_TYPE)
+        page_layout.delete_music_regions()
 
         result = self.engine.detect(img)
         polygons, baselines, heights = self.boxes_to_polygons(result.boxes.data)
