@@ -10,7 +10,7 @@ import torch.cuda
 from PIL import Image
 
 from pero_ocr.utils import compose_path
-from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine, RegionCategory
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine, RegionCategory, LineCategory
 import pero_ocr.core.crop_engine as cropper
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
@@ -330,17 +330,19 @@ class LayoutExtractorYolo(object):
             baseline = np.array([[x_min, baseline_y], [x_max, baseline_y]])
             height = np.floor(np.array([baseline_y - y_min, y_max - baseline_y]))
 
-            region = RegionLayout(id_str, polygon, category=RegionCategory(class_label))
+            region_category = RegionCategory(class_label)
+            region = RegionLayout(id_str, polygon, category=region_category)
 
-            line = TextLine(
-                id=f'{id_str}-l000',
-                index=0,
-                polygon=polygon,
-                baseline=baseline,
-                heights=height
-            )
-
-            region.lines.append(line)
+            if region_category == RegionCategory.music:
+                line = TextLine(
+                    id=f'{id_str}-l000',
+                    index=0,
+                    polygon=polygon,
+                    baseline=baseline,
+                    heights=height,
+                    category=LineCategory.music
+                )
+                region.lines.append(line)
             page_layout.regions.append(region)
 
         return page_layout

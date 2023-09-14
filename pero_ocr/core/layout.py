@@ -31,9 +31,19 @@ def export_id(id, validate_change_id):
     return 'id_' + id if validate_change_id else id
 
 
+class LineCategory(Enum):
+    music = 10
+    text = 42
+    unknown = 99
+
+    @classmethod
+    def _missing_(cls, value):
+        return cls.unknown
+
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None, logit_coords=None, transcription_confidence=None, index=None):
+                 characters=None, logit_coords=None, transcription_confidence=None, index=None,
+                 category=LineCategory.unknown):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -45,6 +55,7 @@ class TextLine(object):
         self.characters = characters
         self.logit_coords = logit_coords
         self.transcription_confidence = transcription_confidence
+        self.category = category
 
     def get_dense_logits(self, zero_logit_value=-80):
         dense_logits = self.logits.toarray()
@@ -273,26 +284,31 @@ class PageLayout(object):
             for line_i, line in enumerate(region.iter(schema + 'TextLine')):
                 new_textline = TextLine(id=line.attrib['id'])
                 if 'custom' in line.attrib:
-                    custom_str = line.attrib['custom']
-                    if 'heights_v2' in custom_str:
-                        for word in custom_str.split():
-                            if 'heights_v2' in word:
-                                new_textline.heights = json.loads(word.split(":")[1])
-                    else:
-                        if re.findall("heights", line.attrib['custom']):
-                            heights = re.findall("\d+", line.attrib['custom'])
-                            heights_array = np.asarray([float(x) for x in heights])
-                            if heights_array.shape[0] == 4:
-                                heights = np.zeros(2, dtype=np.float32)
-                                heights[0] = heights_array[0]
-                                heights[1] = heights_array[2]
-                            elif heights_array.shape[0] == 3:
-                                heights = np.zeros(2, dtype=np.float32)
-                                heights[0] = heights_array[1]
-                                heights[1] = heights_array[2] - heights_array[0]
-                            else:
-                                heights = heights_array
-                            new_textline.heights = heights.tolist()
+                    try:
+                        custom = json.loads(line.attrib['custom'])
+                        new_textline.category = RegionCategory[custom.get('category', 'unknown')]
+                        new_textline.heights = custom.get('heights', None)
+                    except json.decoder.JSONDecodeError:
+                        custom_str = line.attrib['custom']
+                        if 'heights_v2' in custom_str:
+                            for word in custom_str.split():
+                                if 'heights_v2' in word:
+                                    new_textline.heights = json.loads(word.split(":")[1])
+                        else:
+                            if re.findall("heights", line.attrib['custom']):
+                                heights = re.findall("\d+", line.attrib['custom'])
+                                heights_array = np.asarray([float(x) for x in heights])
+                                if heights_array.shape[0] == 4:
+                                    heights = np.zeros(2, dtype=np.float32)
+                                    heights[0] = heights_array[0]
+                                    heights[1] = heights_array[2]
+                                elif heights_array.shape[0] == 3:
+                                    heights = np.zeros(2, dtype=np.float32)
+                                    heights[0] = heights_array[1]
+                                    heights[1] = heights_array[2] - heights_array[0]
+                                else:
+                                    heights = heights_array
+                                new_textline.heights = heights.tolist()
 
                 if 'index' in line.attrib:
                     try:
@@ -373,7 +389,11 @@ class PageLayout(object):
                 else:
                     text_line.set("index", f'{i:d}')
                 if line.heights is not None:
-                    text_line.set("custom", f"heights_v2:[{line.heights[0]:.1f},{line.heights[1]:.1f}]")
+                    custom = {
+                        "heights": list(np.round(line.heights, decimals=1)),
+                        "category": line.category.name
+                    }
+                    text_line.set("custom", json.dumps(custom))
 
                 coords = ET.SubElement(text_line, "Coords")
 
