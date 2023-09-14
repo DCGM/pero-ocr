@@ -12,7 +12,7 @@ from enum import Enum
 import logging
 
 import music21 as music
-from music_symbols import Symbol, SymbolType, AlteredPitches, LENGTH_TO_SYMBOL
+from pero_ocr.music.music_symbols import Symbol, SymbolType, AlteredPitches, LENGTH_TO_SYMBOL
 
 
 class Measure:

@@ -24,8 +24,8 @@ import json
 
 import music21 as music
 
-from music_structures import Measure
-from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine, RegionCategory, LineCategory
+from pero_ocr.music.music_structures import Measure
 
 
 def parseargs():
@@ -49,6 +49,10 @@ def parseargs():
         "-m", "--export-midi", action='store_true',
         help=("Enable exporting midi file to output_folder."
               "Exports whole file and individual lines with names corresponding to them TextLine IDs."))
+    parser.add_argument(
+        "-m", "--export-musicxml", action='store_true',
+        help=("Enable exporting musicxml file to output_folder."
+              "Exports whole file as one MusicXML."))
     parser.add_argument(
         '-v', "--verbose", action='store_true', default=False,
         help="Activate verbose logging.")
@@ -76,9 +80,8 @@ def main():
 class ExportMusicPage:
     """Take pageLayout XML exported from pero-ocr with transcriptions and re-construct page of musical notation."""
 
-    def __init__(self, input_xml_path: str = '', translator_path: str = '',
-                 input_transcription_files: list[str] = None,
-                 output_folder: str = 'output_page', export_midi: bool = False,
+    def __init__(self, input_xml_path: str = '', input_transcription_files: list[str] = None, translator_path: str = '',
+                 output_folder: str = 'output_page', export_midi: bool = False, export_musicxml: bool = False,
                  verbose: bool = False):
         self.translator_path = translator_path
         if verbose:
@@ -97,68 +100,78 @@ class ExportMusicPage:
             os.makedirs(output_folder)
         self.output_folder = output_folder
         self.export_midi = export_midi
+        self.export_musicxml = export_musicxml
 
         self.translator = Translator(file_name=self.translator_path)
 
-    def __call__(self) -> None:
+    def __call__(self, page_layout = None) -> None:
         if self.input_transcription_files:
             ExportMusicLines(input_files=self.input_transcription_files, output_folder=self.output_folder,
                              translator=self.translator, verbose=self.verbose)()
+        if page_layout:
+            self.process_page(page_layout)
 
         if self.input_xml_path:
-            self.export_xml()
+            input_page_layout = PageLayout(file=self.input_xml_path)
+            self.export_page_layout(input_page_layout)
 
-    def export_xml(self) -> None:
-        page = PageLayout(file=self.input_xml_path)
-        print(f'Page {self.input_xml_path} loaded successfully.')
+    def process_page(self, page_layout: PageLayout) -> None:
+        self.export_page_layout(page_layout, page_layout.id)
 
-        parts = ExportMusicPage.regions_to_parts(page.regions, self.translator, self.export_midi)
-        music_parts = []
-        for part in parts:
-            music_parts.append(part.encode_to_music21())
+    def export_page_layout(self, page_layout: PageLayout, file_id: str = None) -> None:
+        if self.export_musicxml or self.export_midi:
+            parts = ExportMusicPage.regions_to_parts(
+                page_layout.get_regions_of_category(RegionCategory.music),
+                self.translator)
 
-        # Finalize score creation
-        metadata = music.metadata.Metadata()
-        metadata.title = metadata.composer = ''
-        score = music.stream.Score([metadata] + music_parts)
+            music_parts = []
+            for part in parts:
+                music_parts.append(part.encode_to_music21())
 
-        # Export score to MusicXML or something
-        output_file = self.get_output_file('musicxml')
-        xml = music21_to_musicxml(score)
-        write_to_file(output_file, xml)
+            # Finalize score creation
+            metadata = music.metadata.Metadata()
+            metadata.title = metadata.composer = ''
+            score = music.stream.Score([metadata] + music_parts)
 
-        if self.export_midi:
-            self.export_to_midi(score, parts)
+            if self.export_musicxml:
+                output_file = self.get_output_file(file_id, extension='musicxml')
+                xml = music21_to_musicxml(score)
+                write_to_file(output_file, xml)
 
-    def get_output_file(self, extension: str = 'musicxml') -> str:
-        base = self.get_output_file_base()
+            if self.export_midi:
+                self.export_to_midi(score, parts, file_id)
+
+    def get_output_file(self, file_id: str=None, extension: str = 'musicxml') -> str:
+        base = self.get_output_file_base(file_id)
         return f'{base}.{extension}'
 
-    def get_output_file_base(self) -> str:
-        input_file = os.path.basename(self.input_xml_path)
-        name, *_ = re.split(r'\.', input_file)
+    def get_output_file_base(self, file_id: str=None) -> str:
+        if not file_id:
+            file_id = os.path.basename(self.input_xml_path)
+            if not file_id:
+                file_id = 'output'
+        name, *_ = re.split(r'\.', file_id)
         return os.path.join(self.output_folder, f'{name}')
 
-    def export_to_midi(self, score, parts):
+    def export_to_midi(self, score, parts, file_id: str=None):
         # Export whole score to midi
-        output_file = self.get_output_file('mid')
+        output_file = self.get_output_file(file_id, extension='mid')
         score.write("midi", output_file)
 
         for part in parts:
-            base = self.get_output_file_base()
+            base = self.get_output_file_base(file_id)
             part.export_to_midi(base)
 
     @staticmethod
-    def regions_to_parts(regions: list[RegionLayout], translator, export_midi: bool = False
-                         ) -> list:  # -> list[Part]:
+    def regions_to_parts(regions: list[RegionLayout], translator) -> list[Part]:  # -> list
         """Takes a list of regions and splits them to parts."""
-        max_parts = max([len(region.lines) for region in regions])
-
-        # TODO add empty measure padding to parts without textlines in multi-part scores.
+        max_parts = max(
+            [len(region.get_lines_of_category(LineCategory.music)) for region in regions]
+        )
 
         parts = [Part(translator) for _ in range(max_parts)]
         for region in regions:
-            for part, line in zip(parts, region.lines):
+            for part, line in zip(parts, region.get_lines_of_category(LineCategory.music)):
                 part.add_textline(line)
 
         return parts
@@ -289,7 +302,6 @@ class TextLineWrapper:
     """Class to wrap one TextLine for easier export etc."""
     def __init__(self, text_line: TextLine, measures: list[music.stream.Measure]):
         self.text_line = text_line
-        print(f'len of measures: {len(measures)}')
         self.repr_music21 = music.stream.Part([music.instrument.Piano()] + measures)
 
     def export_midi(self, file_base: str = 'out'):
@@ -327,6 +339,9 @@ class Translator:
 
     @staticmethod
     def read_json(filename) -> dict:
+        if not os.path.isfile(filename):
+            raise FileNotFoundError(f'Translator file ({filename}) not found. Cannot export music.')
+
         with open(filename) as f:
             data = json.load(f)
         return data

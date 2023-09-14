@@ -115,6 +115,10 @@ class RegionLayout(object):
             text_element.text = self.transcription
         return region_element
 
+    def get_lines_of_category(self, category: LineCategory):
+        return [line for line in self.lines if line.category == category]
+
+
 
 def get_coords_form_page_xml(coords_element, schema):
     if 'points' in coords_element.attrib:
@@ -877,6 +881,9 @@ class PageLayout(object):
     def delete_yolo_regions(self):
         self.regions = [region for region in self.regions
                         if region.category in [RegionCategory.text, RegionCategory.unknown]]
+
+    def get_regions_of_category(self, category: RegionCategory):
+        return [region for region in self.regions if region.category == category]
 
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):
