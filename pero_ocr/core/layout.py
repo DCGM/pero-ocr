@@ -56,14 +56,32 @@ class TextLine(object):
         return log_softmax(dense_logits)
 
 
+class RegionCategory(Enum):
+    chemical_formula = 0
+    logo_symbol = 1
+    ex_libris = 2
+    photo = 3
+    geometric_drawing = 4
+    initial = 5
+    music = 10
+    # ... and other label classes of layout detector
+    text = 42
+    unknown = 99
+
+    @classmethod
+    def _missing_(cls, value):
+        return cls.unknown
+
+
 class RegionLayout(object):
-    def __init__(self, id, polygon, region_type=None, music_region=False):
+    def __init__(self, id, polygon, region_type=None, category=RegionCategory.unknown):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
+        self.category = category
+
         self.lines = []
         self.transcription = None
-        self.music_region = music_region
 
     def to_page_xml(self, page_element, validate_id=False):
         region_element = ET.SubElement(page_element, "TextRegion")
@@ -72,6 +90,10 @@ class RegionLayout(object):
 
         if self.region_type is not None:
             region_element.set("type", self.region_type)
+
+        if self.category is not RegionCategory.unknown:
+            custom = json.dumps({"category": self.category.name})
+            region_element.set("custom", custom)
 
         points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in self.polygon]
         points = " ".join(points)
@@ -103,7 +125,12 @@ def get_region_from_page_xml(region_element, schema):
     if "type" in region_element.attrib:
         region_type = region_element.attrib["type"]
 
-    layout_region = RegionLayout(region_element.attrib['id'], region_coords, region_type)
+    category = RegionCategory.unknown
+    if "custom" in region_element.attrib:
+        custom = json.loads(region_element.attrib["custom"])
+        category = RegionCategory[custom.get('category', 'unknown')]
+
+    layout_region = RegionLayout(region_element.attrib['id'], region_coords, region_type, category=category)
 
     transcription = region_element.find(schema + 'TextEquiv')
     if transcription is not None:
@@ -822,10 +849,12 @@ class PageLayout(object):
             return -1
 
     def delete_text_regions(self):
-        self.regions = [region for region in self.regions if region.music_regions]
+        self.regions = [region for region in self.regions
+                        if region.category not in [RegionCategory.text, RegionCategory.unknown]]
 
-    def delete_music_regions(self):
-        self.regions = [region for region in self.regions if not region.music_regions]
+    def delete_yolo_regions(self):
+        self.regions = [region for region in self.regions
+                        if region.category in [RegionCategory.text, RegionCategory.unknown]]
 
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):

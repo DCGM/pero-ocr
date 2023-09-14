@@ -372,39 +372,14 @@ class LayoutEngine(object):
 
 class LayoutEngineYolo(object):
     def __init__(self, model_path, device, detection_threshold=0.2):
-        self.yolo_net = YoloNet(
-            model_path,
-            device=device,
-            detection_threshold=detection_threshold
-        )
-
-        self.line_detection_threshold = detection_threshold
-
-        params = ' '.join([f'{name}:{str(getattr(self, name))}'
-                           for name in ['line_detection_threshold']])
-        print(f'LayoutEngineYolo params are {params}')
+        self.yolo_net = YOLO(model_path).to(device)
+        self.detection_threshold = detection_threshold
 
     def detect(self, image):
         """Uses yolo_net to find bounding boxes.
         :param image: input image
         """
-        return self.yolo_net.detect_using_yolo(image)
-
-
-class YoloNet:
-
-    def __init__(self, model_path, device, detection_threshold=0.2):
-        self.detection_threshold = detection_threshold
-        self.yolo_net = YOLO(model_path).to(device)
-        self.net = torch.load(model_path)  # .eval().to(device)
-
-    def detect_using_yolo(self, img):
-        return self.yolo_net(img, conf=self.detection_threshold)[0]
-
-    def detect(self, img):
-        print('ERR: Detect NOT implemented yet, use detect_using_yolo instead.')
-        return self.net(img)
-
+        return self.yolo_net(image, conf=self.detection_threshold)[0]
 
 def nonmaxima_suppression(input, element_size=(7, 1)):
     """Vertical non-maxima suppression.

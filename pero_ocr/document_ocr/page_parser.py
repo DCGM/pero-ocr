@@ -10,7 +10,7 @@ import torch.cuda
 from PIL import Image
 
 from pero_ocr.utils import compose_path
-from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine, RegionCategory
 import pero_ocr.core.crop_engine as cropper
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
@@ -236,7 +236,7 @@ class LayoutExtractor(object):
                 page_layout.delete_text_regions()
             if self.detect_lines:
                 for region in page_layout.regions:
-                    if not region.music_region:
+                    if region.category == RegionCategory.text:
                         region.lines = []
 
             if self.multi_orientation:
@@ -253,7 +253,7 @@ class LayoutExtractor(object):
                             id = 'r{:03d}_{}'.format(id, rot)
                         else:
                             id = 'r{:03d}'.format(id)
-                        region = RegionLayout(id, polygon)
+                        region = RegionLayout(id, polygon, category=RegionCategory.text)
                         regions.append(region)
                 if self.detect_lines:
                     if not self.detect_regions:
@@ -305,7 +305,6 @@ class LayoutExtractor(object):
 
 
 class LayoutExtractorYolo(object):
-    REGION_TYPE = 'music'
     def __init__(self, config, device, config_path=''):
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -317,16 +316,21 @@ class LayoutExtractorYolo(object):
         )
 
     def process_page(self, img, page_layout: PageLayout):
-        page_layout.delete_music_regions()
-
+        page_layout.delete_yolo_regions()
         result = self.engine.detect(img)
-        polygons, baselines, heights = self.boxes_to_polygons(result.boxes.data)
         start_id = self.get_start_id(page_layout)
 
-        # Add music regions to page layout
-        for id, (polygon, baseline, height) in enumerate(zip(polygons, baselines, heights)):
+        boxes = result.boxes.data.cpu()
+        for id, box in enumerate(boxes):
             id_str = 'r{:03d}'.format(start_id + id)
-            region = RegionLayout(id_str, polygon, music_region=True)
+
+            x_min, y_min, x_max, y_max, _, class_label = box.tolist()
+            polygon = np.array([[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min], [x_min, y_min]])
+            baseline_y = y_min + (y_max - y_min) / 2
+            baseline = np.array([[x_min, baseline_y], [x_max, baseline_y]])
+            height = np.floor(np.array([baseline_y - y_min, y_max - baseline_y]))
+
+            region = RegionLayout(id_str, polygon, category=RegionCategory(class_label))
 
             line = TextLine(
                 id=f'{id_str}-l000',
@@ -340,25 +344,6 @@ class LayoutExtractorYolo(object):
             page_layout.regions.append(region)
 
         return page_layout
-
-    @staticmethod
-    def boxes_to_polygons(boxes: torch.Tensor) -> (list[np.ndarray], list[np.ndarray], list[np.ndarray]):
-        NOTE_LABEL = 10
-        boxes = boxes[(boxes[:, 5] == NOTE_LABEL)].to(torch.int)
-
-        polygons = []
-        heights = []
-        baselines = []
-        for box in boxes:
-            x_min, y_min, x_max, y_max, *_ = box.cpu().tolist()
-            polygons.append(
-                np.array([[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min], [x_min, y_min]]))
-
-            baseline_y = y_min + (y_max - y_min) / 2
-            baselines.append(np.array([[x_min, baseline_y], [x_max, baseline_y]]))
-
-            heights.append(np.floor(np.array([baseline_y - y_min, y_max - baseline_y])))
-        return polygons, baselines, heights
 
     @staticmethod
     def get_start_id(page_layout: PageLayout) -> int | None:
