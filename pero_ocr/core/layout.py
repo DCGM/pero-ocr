@@ -284,31 +284,7 @@ class PageLayout(object):
             for line_i, line in enumerate(region.iter(schema + 'TextLine')):
                 new_textline = TextLine(id=line.attrib['id'])
                 if 'custom' in line.attrib:
-                    try:
-                        custom = json.loads(line.attrib['custom'])
-                        new_textline.category = RegionCategory[custom.get('category', 'unknown')]
-                        new_textline.heights = custom.get('heights', None)
-                    except json.decoder.JSONDecodeError:
-                        custom_str = line.attrib['custom']
-                        if 'heights_v2' in custom_str:
-                            for word in custom_str.split():
-                                if 'heights_v2' in word:
-                                    new_textline.heights = json.loads(word.split(":")[1])
-                        else:
-                            if re.findall("heights", line.attrib['custom']):
-                                heights = re.findall("\d+", line.attrib['custom'])
-                                heights_array = np.asarray([float(x) for x in heights])
-                                if heights_array.shape[0] == 4:
-                                    heights = np.zeros(2, dtype=np.float32)
-                                    heights[0] = heights_array[0]
-                                    heights[1] = heights_array[2]
-                                elif heights_array.shape[0] == 3:
-                                    heights = np.zeros(2, dtype=np.float32)
-                                    heights[0] = heights_array[1]
-                                    heights[1] = heights_array[2] - heights_array[0]
-                                else:
-                                    heights = heights_array
-                                new_textline.heights = heights.tolist()
+                    self.from_pagexml_parse_line_custom(new_textline, line.attrib['custom'])
 
                 if 'index' in line.attrib:
                     try:
@@ -344,6 +320,32 @@ class PageLayout(object):
                 region_layout.lines.append(new_textline)
 
             self.regions.append(region_layout)
+
+    def from_pagexml_parse_line_custom(self, textline: TextLine, custom_str):
+        try:
+            custom = json.loads(custom_str)
+            textline.category = RegionCategory[custom.get('category', 'unknown')]
+            textline.heights = custom.get('heights', None)
+        except json.decoder.JSONDecodeError:
+            if 'heights_v2' in custom_str:
+                for word in custom_str.split():
+                    if 'heights_v2' in word:
+                        textline.heights = json.loads(word.split(":")[1])
+            else:
+                if re.findall("heights", custom_str):
+                    heights = re.findall("\d+", custom_str)
+                    heights_array = np.asarray([float(x) for x in heights])
+                    if heights_array.shape[0] == 4:
+                        heights = np.zeros(2, dtype=np.float32)
+                        heights[0] = heights_array[0]
+                        heights[1] = heights_array[2]
+                    elif heights_array.shape[0] == 3:
+                        heights = np.zeros(2, dtype=np.float32)
+                        heights[0] = heights_array[1]
+                        heights[1] = heights_array[2] - heights_array[0]
+                    else:
+                        heights = heights_array
+                    textline.heights = heights.tolist()
 
     def to_pagexml_string(self, creator='Pero OCR', validate_id=False, version=PAGEVersion.PAGE_2019_07_15):
         if version == PAGEVersion.PAGE_2019_07_15:
