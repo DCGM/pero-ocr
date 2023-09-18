@@ -360,6 +360,8 @@ class LayoutExtractorYolo(object):
                 region.lines.append(line)
             page_layout.regions.append(region)
 
+        page_layout = self.sort_music_regions_in_reading_order(page_layout)
+
         return page_layout
 
     @staticmethod
@@ -382,6 +384,26 @@ class LayoutExtractorYolo(object):
 
         last_used_id = sorted(ids)[-1]
         return last_used_id + 1
+
+    @staticmethod
+    def sort_music_regions_in_reading_order(page_layout: PageLayout) -> PageLayout:
+        music_regions = [region for region in page_layout.regions if region.category == RegionCategory.music]
+        music_region_ids = [region.id for region in music_regions]
+
+        regions_with_bounding_boxes = {}
+        for region in music_regions:
+            regions_with_bounding_boxes[region] = {'id': region.id, 'bounding_box': region.get_polygon_bounding_box()}
+
+        regions_sorted = sorted(regions_with_bounding_boxes.items(), key=lambda x: x[1]['bounding_box'][0])
+
+        # Rename all music regions as rXXX_tmp to prevent two regions having the same id while renaming them
+        for region in music_regions:
+            region.replace_id(region.id + '_tmp')
+
+        for sorted_region, region_id in zip(regions_sorted, music_region_ids):
+            page_layout.rename_region_id(sorted_region[1]['id'] + '_tmp', region_id)
+
+        return page_layout
 
 
 class LineFilter(object):

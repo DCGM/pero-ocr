@@ -121,7 +121,7 @@ class ExportMusicPage:
     def export_page_layout(self, page_layout: PageLayout, file_id: str = None) -> None:
         if self.export_musicxml or self.export_midi:
             parts = ExportMusicPage.regions_to_parts(
-                page_layout.get_regions_of_category(RegionCategory.music),
+                page_layout.get_music_regions_in_reading_order(),
                 self.translator)
 
             music_parts = []

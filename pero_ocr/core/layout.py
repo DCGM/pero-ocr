@@ -118,6 +118,22 @@ class RegionLayout(object):
     def get_lines_of_category(self, category: LineCategory):
         return [line for line in self.lines if line.category == category]
 
+    def replace_id(self, new_id):
+        """Replace region ID and all IDs in TextLines which has region ID inside them."""
+        for line in self.lines:
+            line.id = line.id.replace(self.id, new_id)
+        self.id = new_id
+
+    def get_polygon_bounding_box(self) -> tuple[int, int, int, int]:
+        """Get bounding box of region polygon that includes all polygon points.
+        :return: tuple[int, int, int, int]: (x_min, y_min, x_max, y_max)
+        """
+        x_min = min(self.polygon[:, 0])
+        x_max = max(self.polygon[:, 0])
+        y_min = min(self.polygon[:, 1])
+        y_max = max(self.polygon[:, 1])
+
+        return x_min, y_min, x_max, y_max
 
 
 def get_coords_form_page_xml(coords_element, schema):
@@ -884,6 +900,28 @@ class PageLayout(object):
 
     def get_regions_of_category(self, category: RegionCategory):
         return [region for region in self.regions if region.category == category]
+
+    def rename_region_id(self, old_id, new_id):
+        for region in self.regions:
+            if region.id == old_id:
+                region.replace_id(new_id)
+                break
+        else:
+            raise ValueError(f'Region with id {old_id} not found.')
+
+    def get_music_regions_in_reading_order(self):
+        music_regions = [region for region in self.regions if region.category == RegionCategory.music]
+
+        regions_with_bounding_boxes = {}
+        for region in music_regions:
+            regions_with_bounding_boxes[region] = {
+                'id': region.id,
+                'bounding_box': region.get_polygon_bounding_box(),
+                'region': region}
+
+        regions_sorted = sorted(regions_with_bounding_boxes.items(), key=lambda x: x[1]['bounding_box'][1])
+
+        return [region[1]['region'] for region in regions_sorted]
 
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):
