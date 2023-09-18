@@ -7,7 +7,6 @@ import time
 import re
 
 import torch.cuda
-from PIL import Image
 
 from pero_ocr.utils import compose_path
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine, RegionCategory, LineCategory
@@ -337,8 +336,8 @@ class LayoutExtractorYolo(object):
         start_id = self.get_start_id(page_layout)
 
         boxes = result.boxes.data.cpu()
-        for id, box in enumerate(boxes):
-            id_str = 'r{:03d}'.format(start_id + id)
+        for box_id, box in enumerate(boxes):
+            id_str = 'r{:03d}'.format(start_id + box_id)
 
             x_min, y_min, x_max, y_max, _, class_label = box.tolist()
             polygon = np.array([[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min], [x_min, y_min]])
@@ -364,12 +363,14 @@ class LayoutExtractorYolo(object):
         return page_layout
 
     @staticmethod
-    def get_start_id(page_layout: PageLayout) -> int | None:
+    def get_start_id(page_layout: PageLayout) -> int:
+        """Get int from which to start id naming for new regions.
+
+        Expected region id is in format rXXX, where XXX is number.
+        """
         used_region_ids = sorted([region.id for region in page_layout.regions])
         if not used_region_ids:
             return 0
-        else:
-            start_id = self.get_last_region_id(used_region_ids) + 1
 
         ids = []
         for id in used_region_ids:
