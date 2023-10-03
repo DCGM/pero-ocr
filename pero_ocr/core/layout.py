@@ -89,11 +89,11 @@ class RegionLayout(object):
             text_element.text = self.transcription
         return region_element
 
-    def get_lines_of_category(self, category: str):
-        return [line for line in self.lines if line.category == category]
+    def get_lines_of_category(self, categories: str | list):
+        if isinstance(categories, str):
+            categories = [categories]
 
-    def get_music_lines(self):
-        return [line for line in self.lines if line.category == 'Notový zápis']
+        return [line for line in self.lines if line.category in categories]
 
     def replace_id(self, new_id):
         """Replace region ID and all IDs in TextLines which has region ID inside them."""
@@ -875,19 +875,20 @@ class PageLayout(object):
         self.regions = [region for region in self.regions
                         if region.category in ['text', None]]
 
-    def get_regions_of_category(self, category: str):
-        return [region for region in self.regions if region.category == category]
+    def get_regions_of_category(self, categories: str | list, reading_order=False):
+        if isinstance(categories, str):
+            category = [categories]
 
-    def rename_region_id(self, old_id, new_id):
+        if not reading_order:
+            return [region for region in self.regions if region.category in categories]
+
+        print('self.regions:')
         for region in self.regions:
-            if region.id == old_id:
-                region.replace_id(new_id)
-                break
-        else:
-            raise ValueError(f'Region with id {old_id} not found.')
+            print(f'({region.category}) in ({categories}) => {region.category in categories}')
 
-    def get_music_regions_in_reading_order(self):
-        music_regions = [region for region in self.regions if region.category == 'Notový zápis']
+        music_regions = [region for region in self.regions if region.category in categories]
+        print('music regions:')
+        print(music_regions)
 
         regions_with_bounding_boxes = {}
         for region in music_regions:
@@ -899,6 +900,14 @@ class PageLayout(object):
         regions_sorted = sorted(regions_with_bounding_boxes.items(), key=lambda x: x[1]['bounding_box'][1])
 
         return [region[1]['region'] for region in regions_sorted]
+
+    def rename_region_id(self, old_id, new_id):
+        for region in self.regions:
+            if region.id == old_id:
+                region.replace_id(new_id)
+                break
+        else:
+            raise ValueError(f'Region with id {old_id} not found.')
 
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):

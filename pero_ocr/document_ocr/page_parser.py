@@ -5,6 +5,7 @@ from multiprocessing import Pool
 import math
 import time
 import re
+import json
 
 import torch.cuda
 
@@ -78,18 +79,20 @@ def page_decoder_factory(config, device, config_path=''):
     return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over)
 
 
-def music_exporter_factory(config, config_path=''):
+def music_exporter_factory(config):
     output_folder = config['PARSE_FOLDER']['OUTPUT_MUSIC_PATH']
     config = config['MUSIC_EXPORTER']
     export_midi = config.getboolean('EXPORT_MIDI')
     export_musicxml = config.getboolean('EXPORT_MUSICXML')
-    translator_path =  config.get('TRANSLATOR_PATH', None)
+    translator_path = config.get('TRANSLATOR_PATH', None)
+    categories = json.loads(config.get('CATEGORIES', []))
 
     return ExportMusicPage(
         translator_path=translator_path,
         export_midi=export_midi,
         export_musicxml=export_musicxml,
-        output_folder=output_folder
+        output_folder=output_folder,
+        categories=categories
     )
 
 
@@ -323,6 +326,7 @@ class LayoutExtractorYolo(object):
     def __init__(self, config, device, config_path=''):
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
+        self.categories_for_transcription = config.get('CATEGORIES_FOR_TRANSCRIPTION', [])
 
         self.engine = LayoutEngineYolo(
             model_path=compose_path(config['MODEL_PATH'], config_path),
@@ -348,19 +352,19 @@ class LayoutExtractorYolo(object):
             category = result.names[class_id]
             region = RegionLayout(id_str, polygon, category=category)
 
-            if category == 'Notový zápis':
+            if category in self.categories_for_transcription:
                 line = TextLine(
                     id=f'{id_str}-l000',
                     index=0,
                     polygon=polygon,
                     baseline=baseline,
                     heights=height,
-                    category='Notový zápis'
+                    category=category
                 )
                 region.lines.append(line)
             page_layout.regions.append(region)
 
-        page_layout = self.sort_music_regions_in_reading_order(page_layout)
+        page_layout = self.sort_regions_in_reading_order(page_layout, self.categories_for_transcription)
 
         return page_layout
 
@@ -386,8 +390,12 @@ class LayoutExtractorYolo(object):
         return last_used_id + 1
 
     @staticmethod
-    def sort_music_regions_in_reading_order(page_layout: PageLayout) -> PageLayout:
-        music_regions = [region for region in page_layout.regions if region.category == 'Notový zápis']
+    def sort_regions_in_reading_order(page_layout: PageLayout, categories_to_sort: list = None) -> PageLayout:
+        if not categories_to_sort:
+            music_regions = page_layout.regions
+        else:
+            music_regions = [region for region in page_layout.regions if region.category in categories_to_sort]
+
         music_region_ids = [region.id for region in music_regions]
 
         regions_with_bounding_boxes = {}
@@ -587,7 +595,7 @@ class PageParser(object):
         if self.run_decoder:
             self.decoder = page_decoder_factory(config, self.device, config_path=config_path)
         if self.export_music:
-            self.music_exporter = music_exporter_factory(config, config_path=config_path)
+            self.music_exporter = music_exporter_factory(config)
 
     @staticmethod
     def compute_line_confidence(line, threshold=None):

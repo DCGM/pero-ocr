@@ -82,7 +82,7 @@ class ExportMusicPage:
 
     def __init__(self, input_xml_path: str = '', input_transcription_files: list[str] = None, translator_path: str = '',
                  output_folder: str = 'output_page', export_midi: bool = False, export_musicxml: bool = False,
-                 verbose: bool = False):
+                 categories: list = None, verbose: bool = False):
         self.translator_path = translator_path
         if verbose:
             logging.basicConfig(level=logging.DEBUG, format='[%(levelname)-s]  \t- %(message)s')
@@ -103,6 +103,7 @@ class ExportMusicPage:
         self.export_musicxml = export_musicxml
 
         self.translator = Translator(file_name=self.translator_path)
+        self.categories = categories
 
     def __call__(self, page_layout = None) -> None:
         if self.input_transcription_files:
@@ -120,9 +121,11 @@ class ExportMusicPage:
 
     def export_page_layout(self, page_layout: PageLayout, file_id: str = None) -> None:
         if self.export_musicxml or self.export_midi:
-            parts = ExportMusicPage.regions_to_parts(
-                page_layout.get_music_regions_in_reading_order(),
+            parts = self.regions_to_parts(
+                page_layout.get_regions_of_category(self.categories, reading_order=True),
                 self.translator)
+            if not parts:
+                return
 
             music_parts = []
             for part in parts:
@@ -162,16 +165,19 @@ class ExportMusicPage:
             base = self.get_output_file_base(file_id)
             part.export_to_midi(base)
 
-    @staticmethod
-    def regions_to_parts(regions: list[RegionLayout], translator) -> list[Part]:  # -> list
+    def regions_to_parts(self, regions: list[RegionLayout], translator) -> list[Part]:
         """Takes a list of regions and splits them to parts."""
         max_parts = max(
-            [len(region.get_music_lines()) for region in regions]
+            [len(region.get_lines_of_category(self.categories)) for region in regions],
+            default=0
         )
+        if max_parts == 0:
+            print('Warning: No music lines found in page.')
+            return []
 
         parts = [Part(translator) for _ in range(max_parts)]
         for region in regions:
-            for part, line in zip(parts, region.get_music_lines()):
+            for part, line in zip(parts, region.get_lines_of_category(self.categories)):
                 part.add_textline(line)
 
         return parts
