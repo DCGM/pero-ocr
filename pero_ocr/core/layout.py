@@ -31,19 +31,10 @@ def export_id(id, validate_change_id):
     return 'id_' + id if validate_change_id else id
 
 
-class LineCategory(Enum):
-    music = 10
-    text = 42
-    unknown = 99
-
-    @classmethod
-    def _missing_(cls, value):
-        return cls.unknown
-
 class TextLine(object):
     def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
                  characters=None, logit_coords=None, transcription_confidence=None, index=None,
-                 category=LineCategory.unknown):
+                 category: str = None):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -67,25 +58,8 @@ class TextLine(object):
         return log_softmax(dense_logits)
 
 
-class RegionCategory(Enum):
-    chemical_formula = 0
-    logo_symbol = 1
-    ex_libris = 2
-    photo = 3
-    geometric_drawing = 4
-    initial = 5
-    music = 10
-    # ... and other label classes of layout detector
-    text = 42
-    unknown = 99
-
-    @classmethod
-    def _missing_(cls, value):
-        return cls.unknown
-
-
 class RegionLayout(object):
-    def __init__(self, id, polygon, region_type=None, category=RegionCategory.unknown):
+    def __init__(self, id, polygon, region_type=None, category: str = None):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
@@ -102,8 +76,8 @@ class RegionLayout(object):
         if self.region_type is not None:
             region_element.set("type", self.region_type)
 
-        if self.category is not RegionCategory.unknown:
-            custom = json.dumps({"category": self.category.name})
+        if self.category:
+            custom = json.dumps({"category": self.category})
             region_element.set("custom", custom)
 
         points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in self.polygon]
@@ -115,8 +89,11 @@ class RegionLayout(object):
             text_element.text = self.transcription
         return region_element
 
-    def get_lines_of_category(self, category: LineCategory):
+    def get_lines_of_category(self, category: str):
         return [line for line in self.lines if line.category == category]
+
+    def get_music_lines(self):
+        return [line for line in self.lines if line.category == 'Notový zápis']
 
     def replace_id(self, new_id):
         """Replace region ID and all IDs in TextLines which has region ID inside them."""
@@ -156,10 +133,10 @@ def get_region_from_page_xml(region_element, schema):
     if "type" in region_element.attrib:
         region_type = region_element.attrib["type"]
 
-    category = RegionCategory.unknown
+    category = None
     if "custom" in region_element.attrib:
         custom = json.loads(region_element.attrib["custom"])
-        category = RegionCategory[custom.get('category', 'unknown')]
+        category = custom.get('category', None)
 
     layout_region = RegionLayout(region_element.attrib['id'], region_coords, region_type, category=category)
 
@@ -344,7 +321,7 @@ class PageLayout(object):
     def from_pagexml_parse_line_custom(self, textline: TextLine, custom_str):
         try:
             custom = json.loads(custom_str)
-            textline.category = RegionCategory[custom.get('category', 'unknown')]
+            textline.category = custom.get('category', None)
             textline.heights = custom.get('heights', None)
         except json.decoder.JSONDecodeError:
             if 'heights_v2' in custom_str:
@@ -413,7 +390,7 @@ class PageLayout(object):
                 if line.heights is not None:
                     custom = {
                         "heights": list(np.round(line.heights, decimals=1)),
-                        "category": line.category.name
+                        "category": line.category
                     }
                     text_line.set("custom", json.dumps(custom))
 
@@ -892,13 +869,13 @@ class PageLayout(object):
 
     def delete_text_regions(self):
         self.regions = [region for region in self.regions
-                        if region.category not in [RegionCategory.text, RegionCategory.unknown]]
+                        if region.category not in ['text', None]]
 
     def delete_yolo_regions(self):
         self.regions = [region for region in self.regions
-                        if region.category in [RegionCategory.text, RegionCategory.unknown]]
+                        if region.category in ['text', None]]
 
-    def get_regions_of_category(self, category: RegionCategory):
+    def get_regions_of_category(self, category: str):
         return [region for region in self.regions if region.category == category]
 
     def rename_region_id(self, old_id, new_id):
@@ -910,7 +887,7 @@ class PageLayout(object):
             raise ValueError(f'Region with id {old_id} not found.')
 
     def get_music_regions_in_reading_order(self):
-        music_regions = [region for region in self.regions if region.category == RegionCategory.music]
+        music_regions = [region for region in self.regions if region.category == 'Notový zápis']
 
         regions_with_bounding_boxes = {}
         for region in music_regions:

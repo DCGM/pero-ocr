@@ -9,7 +9,7 @@ import re
 import torch.cuda
 
 from pero_ocr.utils import compose_path
-from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine, RegionCategory, LineCategory
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 import pero_ocr.core.crop_engine as cropper
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
@@ -251,7 +251,7 @@ class LayoutExtractor(object):
                 page_layout.delete_text_regions()
             if self.detect_lines:
                 for region in page_layout.regions:
-                    if region.category == RegionCategory.text:
+                    if region.category == 'text':
                         region.lines = []
 
             if self.multi_orientation:
@@ -268,7 +268,7 @@ class LayoutExtractor(object):
                             id = 'r{:03d}_{}'.format(id, rot)
                         else:
                             id = 'r{:03d}'.format(id)
-                        region = RegionLayout(id, polygon, category=RegionCategory.text)
+                        region = RegionLayout(id, polygon, category='text')
                         regions.append(region)
                 if self.detect_lines:
                     if not self.detect_regions:
@@ -339,23 +339,23 @@ class LayoutExtractorYolo(object):
         for box_id, box in enumerate(boxes):
             id_str = 'r{:03d}'.format(start_id + box_id)
 
-            x_min, y_min, x_max, y_max, _, class_label = box.tolist()
+            x_min, y_min, x_max, y_max, _, class_id = box.tolist()
             polygon = np.array([[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min], [x_min, y_min]])
             baseline_y = y_min + (y_max - y_min) / 2
             baseline = np.array([[x_min, baseline_y], [x_max, baseline_y]])
             height = np.floor(np.array([baseline_y - y_min, y_max - baseline_y]))
 
-            region_category = RegionCategory(class_label)
-            region = RegionLayout(id_str, polygon, category=region_category)
+            category = result.names[class_id]
+            region = RegionLayout(id_str, polygon, category=category)
 
-            if region_category == RegionCategory.music:
+            if category == 'Notový zápis':
                 line = TextLine(
                     id=f'{id_str}-l000',
                     index=0,
                     polygon=polygon,
                     baseline=baseline,
                     heights=height,
-                    category=LineCategory.music
+                    category='Notový zápis'
                 )
                 region.lines.append(line)
             page_layout.regions.append(region)
@@ -387,7 +387,7 @@ class LayoutExtractorYolo(object):
 
     @staticmethod
     def sort_music_regions_in_reading_order(page_layout: PageLayout) -> PageLayout:
-        music_regions = [region for region in page_layout.regions if region.category == RegionCategory.music]
+        music_regions = [region for region in page_layout.regions if region.category == 'Notový zápis']
         music_region_ids = [region.id for region in music_regions]
 
         regions_with_bounding_boxes = {}

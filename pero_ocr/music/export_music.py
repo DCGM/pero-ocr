@@ -24,7 +24,7 @@ import json
 
 import music21 as music
 
-from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine, RegionCategory, LineCategory
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.music.music_structures import Measure
 
 
@@ -166,12 +166,12 @@ class ExportMusicPage:
     def regions_to_parts(regions: list[RegionLayout], translator) -> list[Part]:  # -> list
         """Takes a list of regions and splits them to parts."""
         max_parts = max(
-            [len(region.get_lines_of_category(LineCategory.music)) for region in regions]
+            [len(region.get_music_lines()) for region in regions]
         )
 
         parts = [Part(translator) for _ in range(max_parts)]
         for region in regions:
-            for part, line in zip(parts, region.get_lines_of_category(LineCategory.music)):
+            for part, line in zip(parts, region.get_music_lines()):
                 part.add_textline(line)
 
         return parts
