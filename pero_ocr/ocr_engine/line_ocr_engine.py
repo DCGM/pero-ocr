@@ -129,16 +129,16 @@ class BaseEngineLineOCR(object):
 
             if self.model_type == "transformer":
                 merged_transcriptions = []
+                merged_logits = []
                 start = 0
                 for span in batch_image_spans:
-                    # partial_transcription = '|'.join(out_transcriptions[start:start+span])
-                    merged_transcription = merge_transcriptions(out_transcriptions[start:start+span])
-                    merged_transcriptions.append(merged_transcription)
+                    merged_line_transcription, merged_line_logits = merge_transcriptions_and_logits(out_transcriptions[start:start+span], out_logits[start:start+span])
+                    merged_transcriptions.append(merged_line_transcription)
+                    merged_logits.append(merged_line_logits)
                     start += span
 
-                    # print(partial_transcription, '--->>>', merged_transcription)
-
                 out_transcriptions = merged_transcriptions
+                out_logits = merged_logits
 
             if no_logits:
                 for ids, transcription in zip(batch_line_ids, out_transcriptions):
@@ -161,6 +161,9 @@ class BaseEngineLineOCR(object):
                             int(self.line_padding_px // self.net_subsampling),
                             int((self.line_padding_px + lines[ids].shape[1]) // self.net_subsampling)]
 
+                    elif self.model_type == "transformer":
+                        all_logit_coords[ids] = [0, len(transcription)]
+
                     if sparse_logits:
                         line_probs = softmax(line_logits, axis=1)
                         line_logits[line_probs < 0.0001] = 0
@@ -170,14 +173,20 @@ class BaseEngineLineOCR(object):
         return all_transcriptions, all_logits, all_logit_coords
 
 
-def merge_transcriptions(transcription_parts):
-    result = transcription_parts[0]
+def merge_transcriptions_and_logits(transcription_parts, logits_parts):
+    logits_parts_shrinked = []
+    for transcription, logits in zip(transcription_parts, logits_parts):
+        logits_parts_shrinked.append(logits[:len(transcription)])
 
-    for transcription in transcription_parts[1:]:
-        overlap = find_best_overlap(result, transcription)
-        result = result[:-overlap // 2] + transcription[overlap // 2:]
+    result_transcription = transcription_parts[0]
+    result_logits = logits_parts_shrinked[0]
 
-    return result
+    for transcription, logits in zip(transcription_parts[1:], logits_parts_shrinked[1:]):
+        overlap = find_best_overlap(result_transcription, transcription)
+        result_transcription = result_transcription[:-overlap // 2] + transcription[overlap // 2:]
+        result_logits = np.concatenate([result_logits[:-overlap // 2], logits[overlap // 2:]], axis=0)
+
+    return result_transcription, result_logits
 
 
 def find_best_overlap(text1, text2):
