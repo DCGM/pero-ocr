@@ -84,7 +84,9 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
 
         outs = self.postprocess_decoded(partial_transcripts[1:].permute(1, 0), self.ignore_ind, self.sentence_boundary_ind)
 
-        return outs, torch.cat(logits)
+        logits = torch.stack(logits).permute(1, 0, 2)
+
+        return outs, logits
 
     def postprocess_decoded(self, transcripts, ignore_ind, sentence_boundary_ind):
         outputs = []
