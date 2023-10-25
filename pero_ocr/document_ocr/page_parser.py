@@ -23,7 +23,6 @@ from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
 from pero_ocr.layout_engines.baseline_refiner import refine_baseline
 from pero_ocr.layout_engines import layout_helpers as helpers
-from pero_ocr.music.export_music import ExportMusicPage
 
 
 logger = logging.getLogger(__name__)
@@ -77,23 +76,6 @@ def page_decoder_factory(config, device, config_path=''):
     confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
     carry_h_over = config['DECODER'].getboolean('CARRY_H_OVER')
     return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over)
-
-
-def music_exporter_factory(config):
-    output_folder = config['PARSE_FOLDER']['OUTPUT_MUSIC_PATH']
-    config = config['MUSIC_EXPORTER']
-    export_midi = config.getboolean('EXPORT_MIDI')
-    export_musicxml = config.getboolean('EXPORT_MUSICXML')
-    translator_path = config.get('TRANSLATOR_PATH', None)
-    categories = json.loads(config.get('CATEGORIES', []))
-
-    return ExportMusicPage(
-        translator_path=translator_path,
-        export_midi=export_midi,
-        export_musicxml=export_musicxml,
-        output_folder=output_folder,
-        categories=categories
-    )
 
 
 class MissingLogits(Exception):
@@ -571,7 +553,6 @@ class PageParser(object):
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
         self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER', fallback=False)
-        self.export_music = config['PAGE_PARSER'].getboolean('EXPORT_MUSIC', fallback=False)
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
                                                                                fallback=-1)
 
@@ -579,7 +560,6 @@ class PageParser(object):
         self.line_cropper = None
         self.ocr = None
         self.decoder = None
-        self.music_exporter = None
 
         self.device = device if device is not None else get_default_device()
 
@@ -594,8 +574,6 @@ class PageParser(object):
             self.ocr = ocr_factory(config, self.device, config_path=config_path)
         if self.run_decoder:
             self.decoder = page_decoder_factory(config, self.device, config_path=config_path)
-        if self.export_music:
-            self.music_exporter = music_exporter_factory(config)
 
     @staticmethod
     def compute_line_confidence(line, threshold=None):
@@ -630,8 +608,6 @@ class PageParser(object):
             page_layout = self.ocr.process_page(image, page_layout)
         if self.run_decoder:
             page_layout = self.decoder.process_page(page_layout)
-        if self.export_music:
-            self.music_exporter.process_page(page_layout)
 
         self.update_confidences(page_layout)
 

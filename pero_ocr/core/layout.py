@@ -882,13 +882,7 @@ class PageLayout(object):
         if not reading_order:
             return [region for region in self.regions if region.category in categories]
 
-        print('self.regions:')
-        for region in self.regions:
-            print(f'({region.category}) in ({categories}) => {region.category in categories}')
-
         music_regions = [region for region in self.regions if region.category in categories]
-        print('music regions:')
-        print(music_regions)
 
         regions_with_bounding_boxes = {}
         for region in music_regions:

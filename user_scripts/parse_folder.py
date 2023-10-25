@@ -37,8 +37,6 @@ def parse_arguments():
     parser.add_argument('--output-logit-path', help='')
     parser.add_argument('--output-alto-path', help='')
     parser.add_argument('--output-transcriptions-file-path', help='')
-    parser.add_argument('--output-music-path', help='Where to export music files (MusicXML/midi). '
-                                                    'More options in config.ini')
     parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
 
     parser.add_argument('--device', choices=["gpu", "cpu"], default="gpu")
@@ -141,7 +139,7 @@ class LMDB_writer(object):
 
 class Computator:
     def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                 output_logit_path, output_alto_path, output_xml_path, output_line_path, output_music_path):
+                 output_logit_path, output_alto_path, output_xml_path, output_line_path):
         self.page_parser = page_parser
         self.input_image_path = input_image_path
         self.input_xml_path = input_xml_path
@@ -151,7 +149,6 @@ class Computator:
         self.output_alto_path = output_alto_path
         self.output_xml_path = output_xml_path
         self.output_line_path = output_line_path
-        self.output_music_path = output_music_path
 
     def __call__(self, image_file_name, file_id, index, ids_count):
         print(f"Processing {file_id}")
@@ -256,8 +253,6 @@ def main():
         config['PARSE_FOLDER']['OUTPUT_LOGIT_PATH'] = args.output_logit_path
     if args.output_alto_path is not None:
         config['PARSE_FOLDER']['OUTPUT_ALTO_PATH'] = args.output_alto_path
-    if args.output_music_path is not None:
-        config['PARSE_FOLDER']['OUTPUT_MUSIC_PATH'] = args.output_music_path
 
     setup_logging(config['PARSE_FOLDER'])
     logger = logging.getLogger()
@@ -275,7 +270,6 @@ def main():
     output_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_XML_PATH')
     output_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LOGIT_PATH')
     output_alto_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_ALTO_PATH')
-    output_music_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_MUSIC_PATH')
 
     if output_render_path is not None:
         create_dir_if_not_exists(output_render_path)
@@ -287,8 +281,6 @@ def main():
         create_dir_if_not_exists(output_logit_path)
     if output_alto_path is not None:
         create_dir_if_not_exists(output_alto_path)
-    if output_music_path is not None:
-        create_dir_if_not_exists(output_music_path)
 
     if input_logit_path is not None and input_xml_path is None:
         input_logit_path = None
@@ -334,7 +326,7 @@ def main():
         images_to_process = filtered_images_to_process
 
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                            output_logit_path, output_alto_path, output_xml_path, output_line_path, output_music_path)
+                            output_logit_path, output_alto_path, output_xml_path, output_line_path)
 
     t_start = time.time()
     results = []

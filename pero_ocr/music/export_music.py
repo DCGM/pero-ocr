@@ -50,7 +50,7 @@ def parseargs():
         help=("Enable exporting midi file to output_folder."
               "Exports whole file and individual lines with names corresponding to them TextLine IDs."))
     parser.add_argument(
-        "-m", "--export-musicxml", action='store_true',
+        "-M", "--export-musicxml", action='store_true',
         help=("Enable exporting musicxml file to output_folder."
               "Exports whole file as one MusicXML."))
     parser.add_argument(
@@ -71,6 +71,7 @@ def main():
         translator_path=args.translator_path,
         output_folder=args.output_folder,
         export_midi=args.export_midi,
+        export_musicxml=args.export_musicxml,
         verbose=args.verbose)()
 
     end = time.time()
@@ -103,7 +104,7 @@ class ExportMusicPage:
         self.export_musicxml = export_musicxml
 
         self.translator = Translator(file_name=self.translator_path)
-        self.categories = categories
+        self.categories = categories if categories else ['Notový zápis']
 
     def __call__(self, page_layout = None) -> None:
         if self.input_transcription_files:
