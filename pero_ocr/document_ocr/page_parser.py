@@ -517,7 +517,7 @@ class PageOCR(object):
         use_cpu = config.getboolean('USE_CPU')
 
         self.device = device if not use_cpu else torch.device("cpu")
-        self.categories = config.get('CATEGORIES', [])
+        self.categories = config.get('CATEGORIES', ['text'])
 
         if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
             self.ocr_engine = TransformerEngineLineOCR(json_file, self.device)
@@ -525,13 +525,16 @@ class PageOCR(object):
             self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
 
     def process_page(self, img, page_layout: PageLayout):
+        lines_to_process = []
         for line in page_layout.lines_iterator(self.categories):
             if line.crop is None:
-                raise Exception(f'Missing crop in line {line.id}.')
+                logger.error(f'Missing crop in line {line.id}.')
+                continue
+            lines_to_process.append(line)
 
-        transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in page_layout.lines_iterator(self.categories)])
+        transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in lines_to_process])
 
-        for line, line_transcription, line_logits, line_logit_coords in zip(page_layout.lines_iterator(self.categories), transcriptions, logits, logit_coords):
+        for line, line_transcription, line_logits, line_logit_coords in zip(lines_to_process, transcriptions, logits, logit_coords):
             line.transcription = line_transcription
             line.logits = line_logits
             line.characters = self.ocr_engine.characters
