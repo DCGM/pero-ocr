@@ -68,7 +68,8 @@ def assign_lines_to_regions(baseline_list, heights_list, textline_list, regions)
                 id='{}-l{:03d}'.format(region.id, line_id+1),
                 baseline=baseline_intersection,
                 polygon=textline_intersection,
-                heights=heights
+                heights=heights,
+                category='text'
                 )
             region.lines.append(new_textline)
 

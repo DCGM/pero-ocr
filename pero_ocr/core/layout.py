@@ -791,10 +791,16 @@ class PageLayout(object):
 
         return image
 
-    def lines_iterator(self):
-        for r in self.regions:
-            for l in r.lines:
-                yield l
+    def lines_iterator(self, categories: list = None):
+        if not categories:
+            for r in self.regions:
+                for l in r.lines:
+                    yield l
+        else:
+            for r in self.regions:
+                for l in r.lines:
+                    if l.category in categories:
+                        yield l
 
     def get_quality(self, x=None, y=None, width=None, height=None, power=6):
         bbox_confidences = []

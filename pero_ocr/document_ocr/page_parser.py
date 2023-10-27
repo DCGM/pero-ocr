@@ -55,13 +55,19 @@ def layout_parser_factory(config, device, config_path='', order=1):
     return layout_parser
 
 
-def line_cropper_factory(config, config_path=''):
-    config = config['LINE_CROPPER']
+def line_cropper_factory(config, config_path='', order=0):
+    if order == 0:
+        config = config['LINE_CROPPER'.format(order)]
+    else:
+        config = config['LINE_CROPPER_{}'.format(order)]
     return LineCropper(config, config_path=config_path)
 
 
-def ocr_factory(config, device, config_path=''):
-    config = config['OCR']
+def ocr_factory(config, device, config_path='', order=0):
+    if order == 0:
+        config = config['OCR'.format(order)]
+    else:
+        config = config['OCR_{}'.format(order)]
     return PageOCR(config, device, config_path=config_path)
 
 
@@ -105,13 +111,14 @@ class PageDecoder:
         self.lines_decoded = 0
         self.seconds_decoding = 0.0
         self.continue_lines = carry_h_over
+        self.categories = ['text']
 
         self.last_h = None
         self.last_line = None
 
     def process_page(self, page_layout: PageLayout):
         self.last_h = None
-        for line in page_layout.lines_iterator():
+        for line in page_layout.lines_iterator(self.categories):
             try:
                 line.transcription = self.decode_line(line)
             except Exception:
@@ -197,7 +204,8 @@ class TextlineExtractorSimple(object):
                     id='{}-l{:03d}'.format(region.id, line_num+1),
                     baseline=baseline,
                     polygon=textline,
-                    heights=heights
+                    heights=heights,
+                    category='text'
                 )
                 region.lines.append(new_textline)
         return page_layout
@@ -212,6 +220,7 @@ class LayoutExtractor(object):
         self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
+        self.categories = config.get('CATEGORIES', ['text'])
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -288,7 +297,7 @@ class LayoutExtractor(object):
                 region = helpers.assign_lines_to_regions(pb_list, ph_list, pt_list, [region])[0]
 
         if self.adjust_heights:
-            for line in page_layout.lines_iterator():
+            for line in page_layout.lines_iterator(self.categories):
                 sample_points = helpers.resample_baselines(
                     [line.baseline], num_points=40)[0]
                 line.heights = self.engine.get_heights(maps, ds, sample_points)
@@ -298,7 +307,7 @@ class LayoutExtractor(object):
         if self.adjust_baselines:
             crop_engine = cropper.EngineLineCropper(
                 line_height=32, poly=0, scale=1)
-            for line in page_layout.lines_iterator():
+            for line in page_layout.lines_iterator(self.categories):
                 line.baseline = refine_baseline(line.baseline, line.heights, maps, ds, crop_engine)
                 line.polygon = helpers.baseline_to_textline(line.baseline, line.heights)
         return page_layout
@@ -402,6 +411,7 @@ class LineFilter(object):
         self.filter_incomplete_pages = config.getboolean('FILTER_INCOMPLETE_PAGES')
         self.filter_pages_with_short_lines = config.getboolean('FILTER_PAGES_WITH_SHORT_LINES')
         self.length_threshold = config.getint('LENGTH_THRESHOLD')
+        self.categories = config.get('CATEGORIES', ['text'])
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -423,7 +433,7 @@ class LineFilter(object):
                 region.lines = [line for line in region.lines if helpers.check_line_position(line.baseline, page_layout.page_size)]
 
         if self.filter_pages_with_short_lines:
-            b_list = [line.baseline for line in page_layout.lines_iterator()]
+            b_list = [line.baseline for line in page_layout.lines_iterator(self.categories)]
             if helpers.get_max_line_length(b_list) < self.length_threshold:
                 page_layout.regions = []
 
@@ -475,11 +485,12 @@ class LineCropper(object):
         poly = config.getint('INTERP')
         line_scale = config.getfloat('LINE_SCALE')
         line_height = config.getint('LINE_HEIGHT')
+        self.categories = config.get('CATEGORIES', [])
         self.crop_engine = cropper.EngineLineCropper(
             line_height=line_height, poly=poly, scale=line_scale)
 
     def process_page(self, img, page_layout: PageLayout):
-        for line in page_layout.lines_iterator():
+        for line in page_layout.lines_iterator(self.categories):
             try:
                 line.crop = self.crop_engine.crop(
                     img, line.baseline, line.heights)
@@ -506,6 +517,7 @@ class PageOCR(object):
         use_cpu = config.getboolean('USE_CPU')
 
         self.device = device if not use_cpu else torch.device("cpu")
+        self.categories = config.get('CATEGORIES', [])
 
         if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
             self.ocr_engine = TransformerEngineLineOCR(json_file, self.device)
@@ -513,13 +525,13 @@ class PageOCR(object):
             self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
 
     def process_page(self, img, page_layout: PageLayout):
-        for line in page_layout.lines_iterator():
+        for line in page_layout.lines_iterator(self.categories):
             if line.crop is None:
                 raise Exception(f'Missing crop in line {line.id}.')
 
-        transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in page_layout.lines_iterator()])
+        transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in page_layout.lines_iterator(self.categories)])
 
-        for line, line_transcription, line_logits, line_logit_coords in zip(page_layout.lines_iterator(), transcriptions, logits, logit_coords):
+        for line, line_transcription, line_logits, line_logit_coords in zip(page_layout.lines_iterator(self.categories), transcriptions, logits, logit_coords):
             line.transcription = line_transcription
             line.logits = line_logits
             line.characters = self.ocr_engine.characters
@@ -561,6 +573,7 @@ class PageParser(object):
         self.ocr = None
         self.decoder = None
 
+        self.MAX_ENGINES = 10
         self.device = device if device is not None else get_default_device()
 
         if self.run_layout_parser:
@@ -569,9 +582,19 @@ class PageParser(object):
                 if config.has_section('LAYOUT_PARSER_{}'.format(i)):
                     self.layout_parsers.append(layout_parser_factory(config, self.device, config_path=config_path, order=i))
         if self.run_line_cropper:
-            self.line_cropper = line_cropper_factory(config, config_path=config_path)
+            self.line_croppers = {}
+            if config.has_section('LINE_CROPPER'):
+                self.line_croppers[0] = (line_cropper_factory(config, config_path=config_path))
+            for i in range(1, self.MAX_ENGINES):
+                if config.has_section('LINE_CROPPER_{}'.format(i)):
+                    self.line_croppers[i] = (line_cropper_factory(config, config_path=config_path, order=i))
         if self.run_ocr:
-            self.ocr = ocr_factory(config, self.device, config_path=config_path)
+            self.ocrs = {}
+            if config.has_section('OCR'):
+                self.ocrs[0] = (ocr_factory(config, self.device, config_path=config_path))
+            for i in range(1, self.MAX_ENGINES):
+                if config.has_section('OCR_{}'.format(i)):
+                    self.ocrs[i] = (ocr_factory(config, self.device, config_path=config_path, order=i))
         if self.run_decoder:
             self.decoder = page_decoder_factory(config, self.device, config_path=config_path)
 
@@ -602,10 +625,11 @@ class PageParser(object):
         if self.run_layout_parser:
             for layout_parser in self.layout_parsers:
                 page_layout = layout_parser.process_page(image, page_layout)
-        if self.run_line_cropper:
-            page_layout = self.line_cropper.process_page(image, page_layout)
-        if self.run_ocr:
-            page_layout = self.ocr.process_page(image, page_layout)
+        for i in range(0, self.MAX_ENGINES):
+            if self.run_line_cropper and i in self.line_croppers:
+                page_layout = self.line_croppers[i].process_page(image, page_layout)
+            if self.run_ocr and i in self.ocrs:
+                page_layout = self.ocrs[i].process_page(image, page_layout)
         if self.run_decoder:
             page_layout = self.decoder.process_page(page_layout)
 
