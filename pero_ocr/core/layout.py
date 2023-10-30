@@ -393,7 +393,7 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self, ocr_processing_element=None, page_uuid: str = None, min_line_confidence: float = 0):
+    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None, min_line_confidence: float = 0):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -587,8 +587,8 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
-    def to_altoxml(self, file_name: str, ocr_processing=None, page_uuid: str = None):
-        alto_string = self.to_altoxml_string(ocr_processing, page_uuid)
+    def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None):
+        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
