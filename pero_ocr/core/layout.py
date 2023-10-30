@@ -5,16 +5,20 @@ import json
 from io import BytesIO
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Optional
 
 import numpy as np
 import lxml.etree as ET
 import cv2
 from shapely.geometry import LineString, Polygon
+import scipy
 
 from pero_ocr.core.crop_engine import EngineLineCropper
 from pero_ocr.core.force_alignment import align_text
 from pero_ocr.core.confidence_estimation import get_line_confidence
 from pero_ocr.core.arabic_helper import ArabicHelper
+
+Num = int | float
 
 
 class PAGEVersion(Enum):
@@ -32,8 +36,17 @@ def export_id(id, validate_change_id):
 
 
 class TextLine(object):
-    def __init__(self, id=None, baseline=None, polygon=None, heights=None, transcription=None, logits=None, crop=None,
-                 characters=None, logit_coords=None, transcription_confidence=None, index=None):
+    def __init__(self, id: str = None,
+                 baseline: Optional[np.ndarray] = None,
+                 polygon: Optional[np.ndarray] = None,
+                 heights: Optional[np.ndarray] = None,
+                 transcription: Optional[str] = None,
+                 logits: Optional[scipy.sparse.csc_matrix | np.ndarray] = None,
+                 crop: Optional[np.ndarray] = None,
+                 characters: Optional[list[str]] = None,
+                 logit_coords: Optional[list[int, int] | list[None, None]] = None,
+                 transcription_confidence: Optional[Num] = None,
+                 index: Optional[int] = None):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -46,25 +59,27 @@ class TextLine(object):
         self.logit_coords = logit_coords
         self.transcription_confidence = transcription_confidence
 
-    def get_dense_logits(self, zero_logit_value=-80):
+    def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
         dense_logits[dense_logits == 0] = zero_logit_value
         return dense_logits
 
-    def get_full_logprobs(self, zero_logit_value=-80):
+    def get_full_logprobs(self, zero_logit_value: int = -80):
         dense_logits = self.get_dense_logits(zero_logit_value)
         return log_softmax(dense_logits)
 
 
 class RegionLayout(object):
-    def __init__(self, id, polygon, region_type=None):
+    def __init__(self, id: str,
+                 polygon: np.ndarray,
+                 region_type=None):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
-        self.lines = []
+        self.lines: list[TextLine] = []
         self.transcription = None
 
-    def to_page_xml(self, page_element, validate_id=False):
+    def to_page_xml(self, page_element: ET.SubElement, validate_id: bool = False):
         region_element = ET.SubElement(page_element, "TextRegion")
         coords = ET.SubElement(region_element, "Coords")
         region_element.set("id", export_id(self.id, validate_id))
@@ -112,7 +127,7 @@ def get_region_from_page_xml(region_element, schema):
     return layout_region
 
 
-def guess_line_heights_from_polygon(text_line: TextLine, use_center=False, n=10, interpolate=False):
+def guess_line_heights_from_polygon(text_line: TextLine, use_center: bool = False, n: int = 10, interpolate=False):
     '''
     Guess line heights for line if missing (e.g. import from Transkribus).
     Heights are computed from polygon intersection with baseline normal in the middle of baseline.
@@ -166,12 +181,12 @@ def guess_line_heights_from_polygon(text_line: TextLine, use_center=False, n=10,
     text_line.heights = [height_up, height_down]
 
 
-def guess_height_simple(text_line):
+def guess_height_simple(text_line: TextLine):
     height = text_line.polygon[:, 1].max() - text_line.polygon[:, 1].min()
     return [height * 0.8, height * 0.2]
 
 
-def guess_height_at_point(text_line, point):
+def guess_height_at_point(text_line: TextLine, point):
     direction = text_line.baseline[0] - text_line.baseline[-1]
     direction = direction[::-1]
     direction[0] = -direction[0]
@@ -214,10 +229,10 @@ def get_reading_order(page_element, schema):
 
 
 class PageLayout(object):
-    def __init__(self, id=None, page_size=(0, 0), file=None):
+    def __init__(self, id: str = None, page_size: list[int, int] = (0, 0), file: str = None):
         self.id = id
         self.page_size = page_size  # (height, width)
-        self.regions = []  # list of RegionLayout objects
+        self.regions: list[RegionLayout] = []
         self.reading_order = None
 
         if file is not None:
@@ -226,10 +241,10 @@ class PageLayout(object):
         if self.reading_order is not None and len(self.regions) > 0:
             self.sort_regions_by_reading_order()
 
-    def from_pagexml_string(self, pagexml_string):
-        self.from_pagexml(BytesIO(pagexml_string))
+    def from_pagexml_string(self, pagexml_string: str):
+        self.from_pagexml(BytesIO(pagexml_string.encode('utf-8')))
 
-    def from_pagexml(self, file):
+    def from_pagexml(self, file: str | BytesIO):
         page_tree = ET.parse(file)
         schema = element_schema(page_tree.getroot())
 
@@ -301,7 +316,8 @@ class PageLayout(object):
 
             self.regions.append(region_layout)
 
-    def to_pagexml_string(self, creator='Pero OCR', validate_id=False, version=PAGEVersion.PAGE_2019_07_15):
+    def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
+                          version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
         if version == PAGEVersion.PAGE_2019_07_15:
             attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
             root = ET.Element(
@@ -371,12 +387,13 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
-    def to_pagexml(self, file_name, version=PAGEVersion.PAGE_2019_07_15):
-        xml_string = self.to_pagexml_string(version=version)
+    def to_pagexml(self, file_name: str, creator: str = 'Pero OCR',
+                   validate_id: bool = False, version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
+        xml_string = self.to_pagexml_string(version=version, creator=creator, validate_id=validate_id)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self, ocr_processing=None, page_uuid=None, min_line_confidence=0):
+    def to_altoxml_string(self, ocr_processing_element=None, page_uuid: str = None, min_line_confidence: float = 0):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -389,11 +406,11 @@ class PageLayout(object):
         source_image_information = ET.SubElement(description, "sourceImageInformation")
         file_name = ET.SubElement(source_image_information, "fileName")
         file_name.text = self.id
-        if ocr_processing is not None:
-            description.append(ocr_processing)
+        if ocr_processing_element is not None:
+            description.append(ocr_processing_element)
         else:
-            ocr_processing = create_ocr_processing_element()
-            description.append(ocr_processing)
+            ocr_processing_element = create_ocr_processing_element()
+            description.append(ocr_processing_element)
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
         if page_uuid is not None:
@@ -570,15 +587,15 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
-    def to_altoxml(self, file_name, ocr_processing=None, page_uuid=None):
+    def to_altoxml(self, file_name: str, ocr_processing=None, page_uuid: str = None):
         alto_string = self.to_altoxml_string(ocr_processing, page_uuid)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
-    def from_altoxml_string(self, pagexml_string):
-        self.from_pagexml(BytesIO(pagexml_string))
+    def from_altoxml_string(self, altoxml_string: str):
+        self.from_altoxml(BytesIO(altoxml_string.encode('utf-8')))
 
-    def from_altoxml(self, file):
+    def from_altoxml(self, file: str | BytesIO):
         page_tree = ET.parse(file)
         schema = element_schema(page_tree.getroot())
         root = page_tree.getroot()
@@ -598,22 +615,24 @@ class PageLayout(object):
                                   int(region.get('VPOS')) + int(region.get('HEIGHT'))])
             region_coords.append([int(region.get('HPOS')), int(region.get('VPOS')) + int(region.get('HEIGHT'))])
 
-            region_layout = RegionLayout(region.attrib['ID'], np.asarray(region_coords))
+            region_layout = RegionLayout(region.attrib['ID'], np.asarray(region_coords).tolist())
 
             for line in region.iter(schema + 'TextLine'):
-                new_textline = TextLine(baseline=[[int(line.attrib['HPOS']), int(line.attrib['BASELINE'])],
-                                                  [int(line.attrib['HPOS']) + int(line.attrib['WIDTH']),
-                                                   int(line.attrib['BASELINE'])]], polygon=[])
-                new_textline.heights = [
+                new_textline = TextLine(baseline=np.asarray(
+                    [[int(line.attrib['HPOS']), int(line.attrib['BASELINE'])],
+                       [int(line.attrib['HPOS']) + int(line.attrib['WIDTH']), int(line.attrib['BASELINE'])]]))
+                polygon = []
+                new_textline.heights = np.asarray([
                     int(line.attrib['HEIGHT']) + int(line.attrib['VPOS']) - int(line.attrib['BASELINE']),
-                    int(line.attrib['BASELINE']) - int(line.attrib['VPOS'])]
-                new_textline.polygon.append([int(line.attrib['HPOS']), int(line.attrib['VPOS'])])
-                new_textline.polygon.append(
+                    int(line.attrib['BASELINE']) - int(line.attrib['VPOS'])])
+                polygon.append([int(line.attrib['HPOS']), int(line.attrib['VPOS'])])
+                polygon.append(
                     [int(line.attrib['HPOS']) + int(line.attrib['WIDTH']), int(line.attrib['VPOS'])])
-                new_textline.polygon.append([int(line.attrib['HPOS']) + int(line.attrib['WIDTH']),
+                polygon.append([int(line.attrib['HPOS']) + int(line.attrib['WIDTH']),
                                              int(line.attrib['VPOS']) + int(line.attrib['HEIGHT'])])
-                new_textline.polygon.append(
+                polygon.append(
                     [int(line.attrib['HPOS']), int(line.attrib['VPOS']) + int(line.attrib['HEIGHT'])])
+                new_textline.polygon = np.asarray(polygon)
                 word = ''
                 start = True
                 for text in line.iter(schema + 'String'):
@@ -630,7 +649,7 @@ class PageLayout(object):
     def sort_regions_by_reading_order(self):
         self.regions = sorted(self.regions, key=lambda k: self.reading_order[k] if k in self.reading_order else float("inf"))
 
-    def reading_order_to_page_xml(self, page_element):
+    def reading_order_to_page_xml(self, page_element: ET.SubElement):
         reading_order_element = ET.SubElement(page_element, "ReadingOrder")
         ordered_group_element = ET.SubElement(reading_order_element, "OrderedGroup")
         ordered_group_element.set("id", "reading_order")
@@ -664,7 +683,7 @@ class PageLayout(object):
         logits_dict['logit_coords'] = dict(logit_coords)
         return logits_dict
 
-    def save_logits(self, file_name):
+    def save_logits(self, file_name: str):
         """Save page logits as a pickled dictionary of sparse matrices.
         :param file_name: to pickle into.
         """
@@ -680,7 +699,7 @@ class PageLayout(object):
         logist_dict = self._gen_logits()
         return pickle.dumps(logist_dict, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def load_logits(self, file):
+    def load_logits(self, file: str):
         """Load pagelogits as a pickled dictionary of sparse matrices.
         :param file: file name to pickle into, or already loaded bytes like object
         """
@@ -708,7 +727,7 @@ class PageLayout(object):
                 line.characters = characters[line.id]
                 line.logit_coords = logit_coords[line.id]
 
-    def render_to_image(self, image, thickness=2, circles=True, render_order=False):
+    def render_to_image(self, image, thickness: int = 2, circles: bool = True, render_order: bool = False):
         """Render layout into image.
         :param image: image to render layout into
         """
@@ -745,11 +764,11 @@ class PageLayout(object):
         return image
 
     def lines_iterator(self):
-        for r in self.regions:
-            for l in r.lines:
-                yield l
+        for region in self.regions:
+            for line in region.lines:
+                yield line
 
-    def get_quality(self, x=None, y=None, width=None, height=None, power=6):
+    def get_quality(self, x: int = None, y: int = None, width: int = None, height: int = None, power: int = 6):
         bbox_confidences = []
         for b, block in enumerate(self.regions):
             for l, line in enumerate(block.lines):
@@ -886,7 +905,11 @@ def get_hwvh(polygon):
     return height, width, vpos, hpos
 
 
-def create_ocr_processing_element(id="IdOcr", software_creator_str="Project PERO", software_name_str="PERO OCR", software_version_str="v0.1.0", processing_datetime=None):
+def create_ocr_processing_element(id: str = "IdOcr",
+                                  software_creator_str: str = "Project PERO",
+                                  software_name_str: str = "PERO OCR",
+                                  software_version_str: str = "v0.1.0",
+                                  processing_datetime=None):
     ocr_processing = ET.Element("OCRProcessing")
     ocr_processing.set("ID", id)
     ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
@@ -894,7 +917,7 @@ def create_ocr_processing_element(id="IdOcr", software_creator_str="Project PERO
     if processing_datetime is not None:
         processing_date_time.text = processing_datetime
     else:
-        processing_date_time.text = datetime.now(timezone.utc).isoformat()
+        processing_date_time.text = datetime.utcnow().isoformat()
     processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
     processing_creator = ET.SubElement(processing_software, "softwareCreator")
     processing_creator.text = software_creator_str
@@ -905,26 +928,3 @@ def create_ocr_processing_element(id="IdOcr", software_creator_str="Project PERO
 
     return ocr_processing
 
-
-if __name__ == '__main__':
-    """
-    l = PageLayout(
-        file='/home/ikohut/data/pero_ocr_web_data/ocr_client/0fb06b7c-92b3-41cd-9523-5a869dccd7dc/output/page/9baa3b0d-3a6c-41b9-86b3-a012ea0ed378.xml')
-    l.load_logits(
-        '/home/ikohut/data/pero_ocr_web_data/ocr_client/0fb06b7c-92b3-41cd-9523-5a869dccd7dc/output/logits/9baa3b0d-3a6c-41b9-86b3-a012ea0ed378.logits')
-    print(l.to_altoxml_string())
-    """
-
-    # test_layout = PageLayout(file='/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_gt.xml')
-    # test_layout.to_pagexml('/mnt/matylda1/ikodym/junk/refactor_test/test.xml')
-    # image = cv2.imread('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624.jpg')
-    # img = test_layout.render_to_image(image)
-    # cv2.imwrite('/mnt/matylda1/ikodym/junk/refactor_test/8e41ecc2-57ed-412a-aa4f-d945efa7c624_RENDER.jpg', img)
-
-    def save():
-        test_layout = PageLayout()
-        test_layout.from_pagexml('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00cfab43-a5bc-4af0-b1c4-b26925679afd.xml')
-        test_layout.load_logits('C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/00cfab43-a5bc-4af0-b1c4-b26925679afd.logits')
-        test_layout.to_altoxml("C:/Users/LachubCz_NTB/Documents/GitHub/pero-ocr/test_alto.xml")
-
-    save()
