@@ -71,6 +71,11 @@ def squeeze(sequence):
 
 
 def get_line_confidence(line, labels, aligned_letters=None, log_probs=None):
+    # There is the same number of outputs as labels (probably transformer model was used) --> each letter has only one
+    # possible frame in logits and thus it is not needed to align them
+    if line.logits.shape[0] == len(labels):
+        return get_line_confidence_transformer(line, labels)
+
     if log_probs is None:
         log_probs = line.get_full_logprobs()
 
@@ -96,4 +101,10 @@ def get_line_confidence(line, labels, aligned_letters=None, log_probs=None):
         last_border = next_border
 
     #confidences = confidences / 2 + 0.5
+    return confidences
+
+
+def get_line_confidence_transformer(line, labels):
+    probs = np.exp(line.get_full_logprobs())
+    confidences = probs[np.arange(len(labels)), labels]
     return confidences

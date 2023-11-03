@@ -10,7 +10,7 @@ import sys
 
 
 class TransformerEngineLineOCR(BaseEngineLineOCR):
-    def __init__(self, json_def, device, batch_size=32):
+    def __init__(self, json_def, device, batch_size=4):
         super(TransformerEngineLineOCR, self).__init__(json_def, device, batch_size=batch_size, model_type="transformer")
 
         self.characters = list(self.characters) + [u'\u200B', '']
@@ -58,18 +58,14 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         _, batch, dim_model = encoded_lines.shape  # this is weird
         label_embs: torch.Tensor = torch.empty((0, batch, dim_model)).to(self.device)
 
-        logits = None
+        logits = []
 
         while True:
             label_embs = torch.cat((label_embs, self.net.dec_embeder(partial_transcripts[-1, :]).unsqueeze(0)))
             transformed = self.net.trans_decoder.infer(self.net.pos_encoder(label_embs), encoded_lines,
                                                        is_cached=is_cached)
             last_logits = self.net.dec_out_proj(transformed)
-
-            if logits is None:
-                logits = last_logits.unsqueeze(-1)
-            else:
-                logits = torch.cat((logits, last_logits.unsqueeze(-1)), dim=-1)
+            logits.append(last_logits)
 
             samples = torch.argmax(last_logits, dim=-1)
 
@@ -87,6 +83,8 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
             partial_transcripts = torch.cat([partial_transcripts, samples.unsqueeze(0)], dim=0)
 
         outs = self.postprocess_decoded(partial_transcripts[1:].permute(1, 0), self.ignore_ind, self.sentence_boundary_ind)
+
+        logits = torch.stack(logits).permute(1, 0, 2)
 
         return outs, logits
 
