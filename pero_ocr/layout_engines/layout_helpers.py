@@ -1,6 +1,8 @@
 import math
 import random
 import warnings
+import logging
+from copy import deepcopy
 
 import numpy as np
 import cv2
@@ -10,8 +12,9 @@ import shapely
 import shapely.geometry as sg
 from shapely.ops import cascaded_union, polygonize
 
-from pero_ocr.core.layout import TextLine
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 
+logger = logging.getLogger(__name__)
 
 def check_line_position(baseline, page_size, margin=20, min_ratio=0.125):
     """Checks if line is short and very close to the page edge, which may indicate that the region actually belongs to
@@ -405,3 +408,81 @@ def adjust_baselines_to_intensity(baselines, img, tolerance=5):
         baseline_pts[:,1] += best_offset
         new_baselines.append(resample_baselines([baseline_pts], num_points=len(baseline))[0])
     return new_baselines
+
+
+def insert_line_to_page_layout(page_layout: PageLayout, region: RegionLayout, line: TextLine) -> PageLayout:
+    """Insert line to page layout given region of origin"""
+    if len(page_layout.regions) == 0 or page_layout.regions[-1].id != region.id:
+        page_layout.regions.append(region)
+        page_layout.regions[-1].lines = [line]
+    else:
+        page_layout.regions[-1].lines.append(line)
+    return page_layout
+
+
+def split_page_layout(page_layout: PageLayout) -> (PageLayout, PageLayout):
+    """Split page layout to text and non-text lines."""
+    return split_page_layout_by_categories(page_layout, ['text'])
+
+
+def split_page_layout_by_categories(page_layout: PageLayout, categories: list) -> (PageLayout, PageLayout):
+    """Split page_layout into two: one with textlines of given categories, the other with textlines of other categories.
+
+    Example:
+        split_page_layout_by_categories(page_layout, ['text'])
+        IN:  PageLayout(regions=[
+                RegionLayout(id='r001', lines=[TextLine(id='r001-l001', category='text'),
+                                               TextLine(id='r001-l002', category='logo')])])
+        OUT: PageLayout(regions=[
+                RegionLayout(id='r001', lines=[TextLine(id='r001-l001', category='text')])]),
+             PageLayout(regions=[
+                RegionLayout(id='r001', lines=[TextLine(id='r001-l002', category='logo')])])
+    """
+    if not categories:
+        page_layout_no_text = deepcopy(page_layout)
+        page_layout_no_text.regions = []
+        return page_layout, page_layout_no_text
+
+    regions = page_layout.regions
+    page_layout.regions = []
+
+    page_layout_text = page_layout
+    page_layout_no_text = deepcopy(page_layout)
+
+    for region in regions:
+        for line in region.lines:
+            if line.category in categories:
+                page_layout_text = insert_line_to_page_layout(page_layout_text, region, line)
+            else:
+                page_layout_no_text = insert_line_to_page_layout(page_layout_no_text, region, line)
+
+    return page_layout_text, page_layout_no_text
+
+
+def merge_page_layouts(page_layout_text: PageLayout, page_layout_no_text: PageLayout) -> PageLayout:
+    """Merge two page_layouts into one by line. If same region ID, create new ID.
+
+    Example:
+        IN:  PageLayout(regions=[
+                RegionLayout(id='r001', lines=[TextLine(id='r001-l001', category='text')])]),
+             PageLayout(regions=[
+                RegionLayout(id='r001', lines=[TextLine(id='r001-l002', category='logo')])])
+        OUT: PageLayout(regions=[
+                RegionLayout(id='r001', lines=[TextLine(id='r001-l001', category='text')]),
+                RegionLayout(id='r002', lines=[TextLine(id='r002-l002', category='logo')])])
+    """
+    used_region_ids = set(region.id for region in page_layout_text.regions)
+
+    id_offset = 0
+    for region in page_layout_no_text.regions:
+        if region.id not in used_region_ids:
+            used_region_ids.add(region.id)
+            page_layout_text.regions.append(region)
+        else:
+            while 'r{:03d}'.format(id_offset) in used_region_ids:
+                id_offset += 1
+            region.replace_id('r{:03d}'.format(id_offset))
+            used_region_ids.add(region.id)
+            page_layout_text.regions.append(region)
+
+    return page_layout_text

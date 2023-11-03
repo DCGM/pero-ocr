@@ -240,13 +240,14 @@ class LayoutExtractor(object):
         self.pool = Pool(1)
 
     def process_page(self, img, page_layout: PageLayout):
+        page_layout, page_layout_no_text = helpers.split_page_layout(page_layout)
+
         if self.detect_regions or self.detect_lines:
             if self.detect_regions:
-                page_layout.delete_text_regions()
+                page_layout.regions = []
             if self.detect_lines:
                 for region in page_layout.regions:
-                    if region.category == 'text':
-                        region.lines = []
+                    region.lines = []
 
             if self.multi_orientation:
                 orientations = [0, 1, 3]
@@ -310,6 +311,7 @@ class LayoutExtractor(object):
             for line in page_layout.lines_iterator(self.categories):
                 line.baseline = refine_baseline(line.baseline, line.heights, maps, ds, crop_engine)
                 line.polygon = helpers.baseline_to_textline(line.baseline, line.heights)
+        page_layout = helpers.merge_page_layouts(page_layout, page_layout_no_text)
         return page_layout
 
 
@@ -326,9 +328,11 @@ class LayoutExtractorYolo(object):
         )
 
     def process_page(self, img, page_layout: PageLayout):
-        page_layout.delete_yolo_regions()
+        page_layout_text, page_layout = helpers.split_page_layout(page_layout)
+        page_layout.regions = []
+
         result = self.engine.detect(img)
-        start_id = self.get_start_id(page_layout)
+        start_id = self.get_start_id([region.id for region in page_layout_text.regions])
 
         boxes = result.boxes.data.cpu()
         for box_id, box in enumerate(boxes):
@@ -356,16 +360,16 @@ class LayoutExtractorYolo(object):
             page_layout.regions.append(region)
 
         page_layout = self.sort_regions_in_reading_order(page_layout, self.categories_for_transcription)
-
+        page_layout = helpers.merge_page_layouts(page_layout_text, page_layout)
         return page_layout
 
     @staticmethod
-    def get_start_id(page_layout: PageLayout) -> int:
+    def get_start_id(used_ids: list) -> int:
         """Get int from which to start id naming for new regions.
 
         Expected region id is in format rXXX, where XXX is number.
         """
-        used_region_ids = sorted([region.id for region in page_layout.regions])
+        used_region_ids = sorted(used_ids)
         if not used_region_ids:
             return 0
 

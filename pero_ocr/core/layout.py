@@ -262,6 +262,10 @@ class PageLayout(object):
         if self.reading_order is not None and len(self.regions) > 0:
             self.sort_regions_by_reading_order()
 
+    def __str__(self):
+        return (f"PageLayout(id={self.id}, page_size={self.page_size}, regions={len(self.regions)}, "
+                f"lines={sum([len(region.lines) for region in self.regions])})")
+
     def from_pagexml_string(self, pagexml_string):
         self.from_pagexml(BytesIO(pagexml_string))
 
