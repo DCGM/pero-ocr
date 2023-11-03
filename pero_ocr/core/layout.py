@@ -262,10 +262,6 @@ class PageLayout(object):
         if self.reading_order is not None and len(self.regions) > 0:
             self.sort_regions_by_reading_order()
 
-    def __str__(self):
-        return (f"PageLayout(id={self.id}, page_size={self.page_size}, regions={len(self.regions)}, "
-                f"lines={sum([len(region.lines) for region in self.regions])})")
-
     def from_pagexml_string(self, pagexml_string):
         self.from_pagexml(BytesIO(pagexml_string))
 
@@ -876,14 +872,6 @@ class PageLayout(object):
             return (1 / len(bbox_confidences) * (np.power(bbox_confidences, power).sum())) ** (1 / power)
         else:
             return -1
-
-    def delete_text_regions(self):
-        self.regions = [region for region in self.regions
-                        if region.category not in ['text', None]]
-
-    def delete_yolo_regions(self):
-        self.regions = [region for region in self.regions
-                        if region.category in ['text', None]]
 
     def get_regions_of_category(self, categories: str | list, reading_order=False):
         if isinstance(categories, str):
