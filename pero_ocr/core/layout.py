@@ -5,7 +5,7 @@ import json
 from io import BytesIO
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import lxml.etree as ET
@@ -18,7 +18,7 @@ from pero_ocr.core.force_alignment import align_text
 from pero_ocr.core.confidence_estimation import get_line_confidence
 from pero_ocr.core.arabic_helper import ArabicHelper
 
-Num = int | float
+Num = Union[int, float]
 
 
 class PAGEVersion(Enum):
@@ -41,10 +41,10 @@ class TextLine(object):
                  polygon: Optional[np.ndarray] = None,
                  heights: Optional[np.ndarray] = None,
                  transcription: Optional[str] = None,
-                 logits: Optional[scipy.sparse.csc_matrix | np.ndarray] = None,
+                 logits: Optional[Union[scipy.sparse.csc_matrix, np.ndarray]] = None,
                  crop: Optional[np.ndarray] = None,
                  characters: Optional[list[str]] = None,
-                 logit_coords: Optional[list[int, int] | list[None, None]] = None,
+                 logit_coords: Optional[Union[list[int, int], list[None, None]]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None):
         self.id = id
@@ -244,7 +244,7 @@ class PageLayout(object):
     def from_pagexml_string(self, pagexml_string: str):
         self.from_pagexml(BytesIO(pagexml_string.encode('utf-8')))
 
-    def from_pagexml(self, file: str | BytesIO):
+    def from_pagexml(self, file: Union[str, BytesIO]):
         page_tree = ET.parse(file)
         schema = element_schema(page_tree.getroot())
 
@@ -595,7 +595,7 @@ class PageLayout(object):
     def from_altoxml_string(self, altoxml_string: str):
         self.from_altoxml(BytesIO(altoxml_string.encode('utf-8')))
 
-    def from_altoxml(self, file: str | BytesIO):
+    def from_altoxml(self, file: Union[str, BytesIO]):
         page_tree = ET.parse(file)
         schema = element_schema(page_tree.getroot())
         root = page_tree.getroot()
