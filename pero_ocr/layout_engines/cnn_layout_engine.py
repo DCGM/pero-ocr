@@ -270,7 +270,11 @@ class LayoutEngine(object):
 
         penalty_mask = np.zeros_like(map_crop)
         for b_ind in range(b_shifted.shape[0]-1):
-            cv2.line(penalty_mask, tuple(b_shifted[b_ind, :]), tuple(b_shifted[b_ind+1, :]), color=1, thickness=(2*t)+1)
+            try:
+                cv2.line(penalty_mask, tuple(b_shifted[b_ind, :]), tuple(b_shifted[b_ind+1, :]), color=1, thickness=(2*t)+1)
+            except:
+                print("WARNING: Paragraph penalty calculation failed.")
+                return 1
 
         penalty_area = penalty_mask * map_crop
 
