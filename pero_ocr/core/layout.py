@@ -1,4 +1,4 @@
-import sys
+import logging
 import re
 import pickle
 import json
@@ -19,6 +19,9 @@ from pero_ocr.core.confidence_estimation import get_line_confidence
 from pero_ocr.core.arabic_helper import ArabicHelper
 
 Num = Union[int, float]
+
+
+logger = logging.getLogger(__name__)
 
 
 class PAGEVersion(Enum):
@@ -311,7 +314,8 @@ class PageLayout(object):
                 if baseline is not None:
                     new_textline.baseline = get_coords_form_page_xml(baseline, schema)
                 else:
-                    print('Warning: Baseline is missing in TextLine. Skipping this line during import. Line ID:', new_textline.id, 'Page ID:', self.id, file=sys.stderr)
+                    logger.warning(f'Warning: Baseline is missing in TextLine. '
+                                   f'Skipping this line during import. Line ID: {new_textline.id} Page ID: {self.id}')
                     continue
 
                 textline = line.find(schema + 'Coords')
@@ -533,7 +537,7 @@ class PageLayout(object):
                     logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                     aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
                 except (ValueError, IndexError, TypeError) as e:
-                    print(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
+                    logger.warning(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
                     line.transcription_confidence = 0
                     average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
                     for w, word in enumerate(line.transcription.split()):
@@ -706,7 +710,7 @@ class PageLayout(object):
             indexed_region_element.set("regionRef", region_id)
             indexed_region_element.set("index", str(region_index))
 
-    def _gen_logits(self):
+    def _gen_logits(self, missing_line_logits_ok=False):
         """
         Generates logits as dictionary of sparse matrices
         :return: logit dictionary
@@ -716,12 +720,15 @@ class PageLayout(object):
         logit_coords = []
         for region in self.regions:
             for line in region.lines:
+                if missing_line_logits_ok and \
+                        (line.logits is None or line.characters is None or line.logit_coords is None):
+                    continue
                 if line.logits is None:
                     raise Exception(f'Missing logits for line {line.id}.')
                 if line.characters is None:
-                    raise Exception(f'Missing logit mapping to characters for line {line.id}.')
+                    raise Exception(f'Missing logits mapping to characters for line {line.id}.')
                 if line.logit_coords is None:
-                    raise Exception(f'Missing logit coords for line {line.id}.')
+                    raise Exception(f'Missing logits coords for line {line.id}.')
             logits += [(line.id, line.logits) for line in region.lines]
             characters += [(line.id, line.characters) for line in region.lines]
             logit_coords += [(line.id, line.logit_coords) for line in region.lines]
@@ -730,20 +737,20 @@ class PageLayout(object):
         logits_dict['logit_coords'] = dict(logit_coords)
         return logits_dict
 
-    def save_logits(self, file_name: str):
+    def save_logits(self, file_name: str, missing_line_logits_ok=False):
         """Save page logits as a pickled dictionary of sparse matrices.
         :param file_name: to pickle into.
         """
-        logits_dict = self._gen_logits()
+        logits_dict = self._gen_logits(missing_line_logits_ok=missing_line_logits_ok)
         with open(file_name, 'wb') as f:
             pickle.dump(logits_dict, f, protocol=4)
 
-    def save_logits_bytes(self):
+    def save_logits_bytes(self, missing_line_logits_ok=False):
         """
         Return page logits as pickled dictionary bytes.
         :return: pickled logits as bytes like object
         """
-        logist_dict = self._gen_logits()
+        logist_dict = self._gen_logits(missing_line_logits_ok=missing_line_logits_ok)
         return pickle.dumps(logist_dict, protocol=pickle.HIGHEST_PROTOCOL)
 
     def load_logits(self, file: str):
