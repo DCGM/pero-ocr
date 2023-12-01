@@ -100,7 +100,7 @@ def print_results(results, print_all):
     total_files = len(results)
     results = group_results(results)
     ok_count = results.get(Result.OK, 0)
-    results.pop(Result.OK)
+    results.pop(Result.OK, None)
 
     logging.debug(f'{total_files} files total:')
     logging.debug(f'\t{ok_count} {results_description[Result.OK]}')
@@ -117,7 +117,6 @@ def print_results(results, print_all):
 
 
 def setup_logging(print_all):
-    logging.root.addHandler(logging.StreamHandler(sys.stdout))  # print to stdout
     logging.getLogger().handlers[0].setFormatter(logging.Formatter('%(message)s'))  # print only message
 
     if print_all:
