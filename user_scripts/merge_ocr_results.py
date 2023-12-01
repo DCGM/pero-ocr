@@ -124,7 +124,7 @@ def main():
                 if arabic_helper.is_arabic_line(line.transcription):
                     line.transcription = arabic_helper.label_form_to_string(line.transcription)
 
-        merged_layout.to_pagexml(os.path.join(args.output_path, xml_file_name))
+        merged_layout.to_page_xml(os.path.join(args.output_path, xml_file_name))
         merged_layout.save_logits(os.path.join(args.output_path, os.path.splitext(xml_file_name)[0] + '.logits'))
 
 

@@ -44,7 +44,7 @@ class Merger:
 
 def parse_page_xml(xml_path):
     layout = PageLayout()
-    layout.from_pagexml(xml_path)
+    layout.from_page_xml(xml_path)
 
     h, w = layout.page_size
 

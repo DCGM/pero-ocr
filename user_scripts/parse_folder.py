@@ -173,7 +173,7 @@ class Computator:
             page_layout = self.page_parser.process_page(image, page_layout)
 
             if self.output_xml_path is not None:
-                page_layout.to_pagexml(
+                page_layout.to_page_xml(
                     os.path.join(self.output_xml_path, file_id + '.xml'))
 
             if self.output_render_path is not None:
