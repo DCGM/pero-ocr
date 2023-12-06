@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 from os.path import isabs, realpath, join, dirname
 from scipy import sparse
+import torch
 
 from .softmax import softmax
 
@@ -169,6 +170,9 @@ class BaseEngineLineOCR(object):
                         line_logits[line_probs < 0.0001] = 0
                         line_logits = sparse.csc_matrix(line_logits)
                     all_logits[ids] = line_logits
+
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
 
         return all_transcriptions, all_logits, all_logit_coords
 
