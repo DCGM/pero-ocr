@@ -410,16 +410,6 @@ def adjust_baselines_to_intensity(baselines, img, tolerance=5):
     return new_baselines
 
 
-def insert_line_to_page_layout(page_layout: PageLayout, region: RegionLayout, line: TextLine) -> PageLayout:
-    """Insert line to page layout given region of origin"""
-    if len(page_layout.regions) == 0 or page_layout.regions[-1].id != region.id:
-        page_layout.regions.append(region)
-        page_layout.regions[-1].lines = [line]
-    else:
-        page_layout.regions[-1].lines.append(line)
-    return page_layout
-
-
 def split_page_layout(page_layout: PageLayout) -> (PageLayout, PageLayout):
     """Split page layout to text and non-text lines."""
     return split_page_layout_by_categories(page_layout, ['text'])
@@ -486,3 +476,22 @@ def merge_page_layouts(page_layout_text: PageLayout, page_layout_no_text: PageLa
             page_layout_text.regions.append(region)
 
     return page_layout_text
+
+
+def insert_line_to_page_layout(page_layout: PageLayout, region: RegionLayout, line: TextLine) -> PageLayout:
+    """Insert line to page layout given region of origin. Find if region already exists by ID."""
+    existing_region = find_region_by_id(page_layout, region.id)
+
+    if existing_region is not None:
+        existing_region.lines.append(line)
+    else:
+        region.lines = [line]
+        page_layout.regions.append(region)
+    return page_layout
+
+def find_region_by_id(page_layout: PageLayout, region_id: str) -> RegionLayout | None:
+    for region in page_layout.regions:
+        if region.id == region_id:
+            return region
+    return None
+

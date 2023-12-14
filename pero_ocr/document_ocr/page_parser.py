@@ -28,8 +28,7 @@ from pero_ocr.layout_engines import layout_helpers as helpers
 logger = logging.getLogger(__name__)
 
 
-def layout_parser_factory(config, device, config_path='', order=1):
-    config = config['LAYOUT_PARSER_{}'.format(order)]
+def layout_parser_factory(config, device, config_path=''):
     if config['METHOD'] == 'REGION_WHOLE_PAGE':
         layout_parser = WholePageRegion(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SIMPLE_THRESHOLD':
@@ -55,19 +54,11 @@ def layout_parser_factory(config, device, config_path='', order=1):
     return layout_parser
 
 
-def line_cropper_factory(config, config_path='', order=0):
-    if order == 0:
-        config = config['LINE_CROPPER'.format(order)]
-    else:
-        config = config['LINE_CROPPER_{}'.format(order)]
+def line_cropper_factory(config, config_path='', device=None):
     return LineCropper(config, config_path=config_path)
 
 
-def ocr_factory(config, device, config_path='', order=0):
-    if order == 0:
-        config = config['OCR'.format(order)]
-    else:
-        config = config['OCR_{}'.format(order)]
+def ocr_factory(config, device, config_path=''):
     return PageOCR(config, device, config_path=config_path)
 
 
@@ -532,8 +523,7 @@ class PageOCR(object):
         lines_to_process = []
         for line in page_layout.lines_iterator(self.categories):
             if line.crop is None:
-                logger.error(f'Missing crop in line {line.id}.')
-                continue
+                raise Exception(f'Missing crop in line {line.id}.')
             lines_to_process.append(line)
 
         transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in lines_to_process])
@@ -580,28 +570,16 @@ class PageParser(object):
         self.ocr = None
         self.decoder = None
 
-        self.MAX_ENGINES = 10
         self.device = device if device is not None else get_default_device()
 
+        self.line_croppers = {}
+        self.ocrs = {}
         if self.run_layout_parser:
-            self.layout_parsers = []
-            for i in range(1, 10):
-                if config.has_section('LAYOUT_PARSER_{}'.format(i)):
-                    self.layout_parsers.append(layout_parser_factory(config, self.device, config_path=config_path, order=i))
+            self.layout_parsers = self.init_config_sections(config, config_path, 'LAYOUT_PARSER', layout_parser_factory)
         if self.run_line_cropper:
-            self.line_croppers = {}
-            if config.has_section('LINE_CROPPER'):
-                self.line_croppers[0] = (line_cropper_factory(config, config_path=config_path))
-            for i in range(1, self.MAX_ENGINES):
-                if config.has_section('LINE_CROPPER_{}'.format(i)):
-                    self.line_croppers[i] = (line_cropper_factory(config, config_path=config_path, order=i))
+            self.line_croppers = self.init_config_sections(config, config_path, 'LINE_CROPPER', line_cropper_factory)
         if self.run_ocr:
-            self.ocrs = {}
-            if config.has_section('OCR'):
-                self.ocrs[0] = (ocr_factory(config, self.device, config_path=config_path))
-            for i in range(1, self.MAX_ENGINES):
-                if config.has_section('OCR_{}'.format(i)):
-                    self.ocrs[i] = (ocr_factory(config, self.device, config_path=config_path, order=i))
+            self.ocrs = self.init_config_sections(config, config_path, 'OCR', ocr_factory)
         if self.run_decoder:
             self.decoder = page_decoder_factory(config, self.device, config_path=config_path)
 
@@ -630,13 +608,15 @@ class PageParser(object):
 
     def process_page(self, image, page_layout):
         if self.run_layout_parser:
-            for layout_parser in self.layout_parsers:
+            for _, layout_parser in sorted(self.layout_parsers.items()):
                 page_layout = layout_parser.process_page(image, page_layout)
-        for i in range(0, self.MAX_ENGINES):
-            if self.run_line_cropper and i in self.line_croppers:
-                page_layout = self.line_croppers[i].process_page(image, page_layout)
-            if self.run_ocr and i in self.ocrs:
-                page_layout = self.ocrs[i].process_page(image, page_layout)
+
+        merged_keys = set(self.line_croppers.keys()) | set(self.ocrs.keys())
+        for key in sorted(merged_keys):
+            if self.run_line_cropper and key in self.line_croppers:
+                page_layout = self.line_croppers[key].process_page(image, page_layout)
+            if self.run_ocr and key in self.ocrs:
+                page_layout = self.ocrs[key].process_page(image, page_layout)
         if self.run_decoder:
             page_layout = self.decoder.process_page(page_layout)
 
@@ -646,3 +626,37 @@ class PageParser(object):
             page_layout = self.filter_confident_lines(page_layout)
 
         return page_layout
+
+    def init_config_sections(self, config, config_path, section_name, section_factory) -> dict:
+        """Return dict of sections.
+
+        Naming convention: section_name_[0-9]+.
+            Also accepts other names, but logges warning.
+            e.g. for OCR section: OCR, OCR_0, OCR_42_asdf, OCR_99_last_one..."""
+        sections = {}
+        if section_name in config.sections():
+            sections['-1'] = section_name
+
+        section_names = [config_section for config_section in config.sections()
+                         if re.match(rf'{section_name}_(\d+)', config_section)]
+        section_names = sorted(section_names)
+
+        for config_section in section_names:
+            section_id = config_section.replace(section_name + '_', '')
+            try:
+                int(section_id)
+            except ValueError:
+                logger.warning(
+                    f'Warning: section name {config_section} does not follow naming convention. '
+                    f'Use only {section_name}_[0-9]+.')
+            sections[section_id] = config_section
+
+        if 0 in sections.keys() and -1 in sections.keys():
+            logger.warning(f'Warning: sections {sections[0]} and {sections[-1]} are both present. '
+                           f'Use only names following {section_name}_[0-9]+ convention.')
+
+        for section_id, section_full_name in sections.items():
+            sections[section_id] = section_factory(config[section_full_name],
+                                                   config_path=config_path, device=self.device)
+
+        return sections
