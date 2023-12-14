@@ -41,7 +41,7 @@ def parse_arguments():
     return args
 
 
-def read_page_xml(path):
+def read_pagexml(path):
     try:
         page_layout = PageLayout(file=path)
     except OSError:
@@ -51,8 +51,8 @@ def read_page_xml(path):
 
 
 def compare_page_layouts(hyp_fn, ref_fn, xml_file, results) -> dict:
-    hyp_page = read_page_xml(hyp_fn)
-    ref_page = read_page_xml(ref_fn)
+    hyp_page = read_pagexml(hyp_fn)
+    ref_page = read_pagexml(ref_fn)
     if hyp_page is None and ref_page is None:
         logging.debug(f'{xml_file}:\tboth missing')
         results[xml_file] = Result.BOTH_MISSING

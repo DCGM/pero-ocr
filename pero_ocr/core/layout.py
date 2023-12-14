@@ -73,7 +73,7 @@ class TextLine(object):
         dense_logits = self.get_dense_logits(zero_logit_value)
         return log_softmax(dense_logits)
 
-    def to_page_xml(self, region_element: ET.SubElement, fallback_id: int, validate_id: bool = False):
+    def to_pagexml(self, region_element: ET.SubElement, fallback_id: int, validate_id: bool = False):
         text_line = ET.SubElement(region_element, "TextLine")
         text_line.set("id", export_id(self.id, validate_id))
         if self.index is not None:
@@ -110,10 +110,10 @@ class TextLine(object):
             text_element.text = self.transcription
 
     @classmethod
-    def from_page_xml(cls, line_element: ET.SubElement, schema, fallback_index: int):
+    def from_pagexml(cls, line_element: ET.SubElement, schema, fallback_index: int):
         new_textline = cls(id=line_element.attrib['id'])
         if 'custom' in line_element.attrib:
-            new_textline.from_page_xml_parse_custom(line_element.attrib['custom'])
+            new_textline.from_pagexml_parse_custom(line_element.attrib['custom'])
 
         if 'index' in line_element.attrib:
             try:
@@ -126,7 +126,7 @@ class TextLine(object):
 
         baseline = line_element.find(schema + 'Baseline')
         if baseline is not None:
-            new_textline.baseline = get_coords_form_page_xml(baseline, schema)
+            new_textline.baseline = get_coords_form_pagexml(baseline, schema)
         else:
             logger.warning(f'Warning: Baseline is missing in TextLine. '
                            f'Skipping this line during import. Line ID: {new_textline.id}')
@@ -134,7 +134,7 @@ class TextLine(object):
 
         textline = line_element.find(schema + 'Coords')
         if textline is not None:
-            new_textline.polygon = get_coords_form_page_xml(textline, schema)
+            new_textline.polygon = get_coords_form_pagexml(textline, schema)
 
         if not new_textline.heights:
             guess_line_heights_from_polygon(new_textline, use_center=False, n=len(new_textline.baseline))
@@ -149,7 +149,7 @@ class TextLine(object):
             new_textline.transcription_confidence = float(conf) if conf is not None else None
         return new_textline
 
-    def from_page_xml_parse_custom(self, custom_str):
+    def from_pagexml_parse_custom(self, custom_str):
         try:
             custom = json.loads(custom_str)
             self.category = custom.get('category', None)
@@ -175,7 +175,7 @@ class TextLine(object):
                         heights = heights_array
                     self.heights = heights.tolist()
 
-    def to_alto_xml(self, text_block, arabic_helper, min_line_confidence):
+    def to_altoxml(self, text_block, arabic_helper, min_line_confidence):
         arabic_line = False
         if arabic_helper.is_arabic_line(self.transcription):
             arabic_line = True
@@ -292,7 +292,7 @@ class TextLine(object):
                 text_block.remove(text_line)
 
     @classmethod
-    def from_alto_xml(cls, line: ET.SubElement, schema):
+    def from_altoxml(cls, line: ET.SubElement, schema):
         new_textline = cls(baseline=np.asarray(
             [[int(line.attrib['HPOS']), int(line.attrib['BASELINE'])],
              [int(line.attrib['HPOS']) + int(line.attrib['WIDTH']), int(line.attrib['BASELINE'])]]))
@@ -355,7 +355,7 @@ class RegionLayout(object):
 
         return x_min, y_min, x_max, y_max
 
-    def to_page_xml(self, page_element: ET.SubElement, validate_id: bool = False):
+    def to_pagexml(self, page_element: ET.SubElement, validate_id: bool = False):
         region_element = ET.SubElement(page_element, "TextRegion")
         coords = ET.SubElement(region_element, "Coords")
         region_element.set("id", export_id(self.id, validate_id))
@@ -376,14 +376,14 @@ class RegionLayout(object):
             text_element.text = self.transcription
 
         for i, line in enumerate(self.lines):
-            line.to_page_xml(region_element, fallback_id=i, validate_id=validate_id)
+            line.to_pagexml(region_element, fallback_id=i, validate_id=validate_id)
 
         return region_element
 
     @classmethod
-    def from_page_xml(cls, region_element: ET.SubElement, schema):
+    def from_pagexml(cls, region_element: ET.SubElement, schema):
         coords_element = region_element.find(schema + 'Coords')
-        region_coords = get_coords_form_page_xml(coords_element, schema)
+        region_coords = get_coords_form_pagexml(coords_element, schema)
 
         region_type = None
         if "type" in region_element.attrib:
@@ -403,13 +403,13 @@ class RegionLayout(object):
                 layout_region.transcription = ''
 
         for i, line in enumerate(region_element.iter(schema + 'TextLine')):
-            new_textline = TextLine.from_page_xml(line, schema, fallback_index=i)
+            new_textline = TextLine.from_pagexml(line, schema, fallback_index=i)
             if new_textline is not None:
                 layout_region.lines.append(new_textline)
 
         return layout_region
 
-    def to_alto_xml(self, print_space, arabic_helper, min_line_confidence, print_space_coords: (int, int, int, int)
+    def to_altoxml(self, print_space, arabic_helper, min_line_confidence, print_space_coords: (int, int, int, int)
                     ) -> (int, int, int, int):
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
@@ -432,11 +432,11 @@ class RegionLayout(object):
         for line in self.lines:
             if not line.transcription or line.transcription.strip() == "":
                 continue
-            line.to_alto_xml(text_block, arabic_helper, min_line_confidence)
+            line.to_altoxml(text_block, arabic_helper, min_line_confidence)
         return print_space_height, print_space_width, print_space_vpos, print_space_hpos
 
     @classmethod
-    def from_alto_xml(cls, text_block: ET.SubElement, schema):
+    def from_altoxml(cls, text_block: ET.SubElement, schema):
         region_coords = list()
         region_coords.append([int(text_block.get('HPOS')), int(text_block.get('VPOS'))])
         region_coords.append([int(text_block.get('HPOS')) + int(text_block.get('WIDTH')), int(text_block.get('VPOS'))])
@@ -447,13 +447,13 @@ class RegionLayout(object):
         region_layout = cls(text_block.attrib['ID'], np.asarray(region_coords).tolist())
 
         for line in text_block.iter(schema + 'TextLine'):
-            new_textline = TextLine.from_alto_xml(line, schema)
+            new_textline = TextLine.from_altoxml(line, schema)
             region_layout.lines.append(new_textline)
 
         return region_layout
 
 
-def get_coords_form_page_xml(coords_element, schema):
+def get_coords_form_pagexml(coords_element, schema):
     if 'points' in coords_element.attrib:
         coords = points_string_to_array(coords_element.attrib['points'])
     else:
@@ -574,15 +574,15 @@ class PageLayout(object):
         self.reading_order = None
 
         if file is not None:
-            self.from_page_xml(file)
+            self.from_pagexml(file)
 
         if self.reading_order is not None and len(self.regions) > 0:
             self.sort_regions_by_reading_order()
 
-    def from_page_xml_string(self, page_xml_string: str):
-        self.from_page_xml(BytesIO(page_xml_string.encode('utf-8')))
+    def from_pagexml_string(self, pagexml_string: str):
+        self.from_pagexml(BytesIO(pagexml_string.encode('utf-8')))
 
-    def from_page_xml(self, file: Union[str, BytesIO]):
+    def from_pagexml(self, file: Union[str, BytesIO]):
         page_tree = ET.parse(file)
         schema = element_schema(page_tree.getroot())
 
@@ -593,10 +593,10 @@ class PageLayout(object):
         self.reading_order = get_reading_order(page, schema)
 
         for region in page_tree.iter(schema + 'TextRegion'):
-            region_layout = RegionLayout.from_page_xml(region, schema)
+            region_layout = RegionLayout.from_pagexml(region, schema)
             self.regions.append(region_layout)
 
-    def to_page_xml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
+    def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
                           version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
         if version == PAGEVersion.PAGE_2019_07_15:
             attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
@@ -628,20 +628,20 @@ class PageLayout(object):
 
         if self.reading_order is not None:
             self.sort_regions_by_reading_order()
-            self.reading_order_to_page_xml(page)
+            self.reading_order_to_pagexml(page)
 
         for region_layout in self.regions:
-            region_layout.to_page_xml(page, validate_id=validate_id)
+            region_layout.to_pagexml(page, validate_id=validate_id)
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
-    def to_page_xml(self, file_name: str, creator: str = 'Pero OCR',
+    def to_pagexml(self, file_name: str, creator: str = 'Pero OCR',
                    validate_id: bool = False, version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
-        xml_string = self.to_page_xml_string(version=version, creator=creator, validate_id=validate_id)
+        xml_string = self.to_pagexml_string(version=version, creator=creator, validate_id=validate_id)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_alto_xml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None, min_line_confidence: float = 0):
+    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None, min_line_confidence: float = 0):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -682,7 +682,7 @@ class PageLayout(object):
         print_space_coords = (print_space_height, print_space_width, print_space_vpos, print_space_hpos)
 
         for block in self.regions:
-            print_space_coords = block.to_alto_xml(print_space, arabic_helper, min_line_confidence, print_space_coords)
+            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords)
 
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
@@ -713,15 +713,15 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
-    def to_alto_xml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None):
-        alto_string = self.to_alto_xml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid)
+    def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None):
+        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
-    def from_alto_xml_string(self, alto_xml_string: str):
-        self.from_alto_xml(BytesIO(alto_xml_string.encode('utf-8')))
+    def from_altoxml_string(self, altoxml_string: str):
+        self.from_altoxml(BytesIO(altoxml_string.encode('utf-8')))
 
-    def from_alto_xml(self, file: Union[str, BytesIO]):
+    def from_altoxml(self, file: Union[str, BytesIO]):
         page_tree = ET.parse(file)
         schema = element_schema(page_tree.getroot())
         root = page_tree.getroot()
@@ -734,13 +734,13 @@ class PageLayout(object):
 
         print_space = page.findall(schema + 'PrintSpace')[0]
         for region in print_space.iter(schema + 'TextBlock'):
-            region_layout = RegionLayout.from_alto_xml(region, schema)
+            region_layout = RegionLayout.from_altoxml(region, schema)
             self.regions.append(region_layout)
 
     def sort_regions_by_reading_order(self):
         self.regions = sorted(self.regions, key=lambda k: self.reading_order[k] if k in self.reading_order else float("inf"))
 
-    def reading_order_to_page_xml(self, page_element: ET.SubElement):
+    def reading_order_to_pagexml(self, page_element: ET.SubElement):
         reading_order_element = ET.SubElement(page_element, "ReadingOrder")
         ordered_group_element = ET.SubElement(reading_order_element, "OrderedGroup")
         ordered_group_element.set("id", "reading_order")

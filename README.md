@@ -88,8 +88,8 @@ page_layout = PageLayout(id=input_image_path,
 # Process the image by the OCR pipeline
 page_layout = page_parser.process_page(image, page_layout)
 
-page_layout.to_page_xml('output_page.xml') # Save results as Page XML.
-page_layout.to_alto_xml('output_ALTO.xml') # Save results as ALTO XML.
+page_layout.to_pagexml('output_page.xml') # Save results as Page XML.
+page_layout.to_altoxml('output_ALTO.xml') # Save results as ALTO XML.
 
 # Render detected text regions and text lines into the image and
 # save it into a file.

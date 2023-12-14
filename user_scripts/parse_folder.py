@@ -173,7 +173,7 @@ class Computator:
             page_layout = self.page_parser.process_page(image, page_layout)
 
             if self.output_xml_path is not None:
-                page_layout.to_page_xml(
+                page_layout.to_pagexml(
                     os.path.join(self.output_xml_path, file_id + '.xml'))
 
             if self.output_render_path is not None:
@@ -184,7 +184,7 @@ class Computator:
                 page_layout.save_logits(os.path.join(self.output_logit_path, file_id + '.logits'))
 
             if self.output_alto_path is not None:
-                page_layout.to_alto_xml(os.path.join(self.output_alto_path, file_id + '.xml'))
+                page_layout.to_altoxml(os.path.join(self.output_alto_path, file_id + '.xml'))
 
             if self.output_line_path is not None and page_layout is not None:
                 if 'lmdb' in self.output_line_path:
