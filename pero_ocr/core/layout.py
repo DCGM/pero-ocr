@@ -936,7 +936,7 @@ class PageLayout(object):
 
     def get_regions_of_category(self, categories: str | list, reading_order=False):
         if isinstance(categories, str):
-            category = [categories]
+            categories = [categories]
 
         if not reading_order:
             return [region for region in self.regions if region.category in categories]
