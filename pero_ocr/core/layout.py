@@ -858,15 +858,10 @@ class PageLayout(object):
         return image
 
     def lines_iterator(self, categories: list = None):
-        if not categories:
-            for region in self.regions:
-                for line in region.lines:
+        for region in self.regions:
+            for line in region.lines:
+                if not categories or line.category in categories:
                     yield line
-        else:
-            for region in self.regions:
-                for line in region.lines:
-                    if line.category in categories:
-                        yield line
 
     def get_quality(self, x: int = None, y: int = None, width: int = None, height: int = None, power: int = 6):
         bbox_confidences = []
@@ -946,10 +941,10 @@ class PageLayout(object):
         if not reading_order:
             return [region for region in self.regions if region.category in categories]
 
-        music_regions = [region for region in self.regions if region.category in categories]
+        category_regions = [region for region in self.regions if region.category in categories]
 
         regions_with_bounding_boxes = {}
-        for region in music_regions:
+        for region in category_regions:
             regions_with_bounding_boxes[region] = {
                 'id': region.id,
                 'bounding_box': region.get_polygon_bounding_box(),
