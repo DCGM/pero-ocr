@@ -181,6 +181,7 @@ class TextLine(object):
             arabic_line = True
         text_line = ET.SubElement(text_block, "TextLine")
         text_line_baseline = int(np.average(np.array(self.baseline)[:, 1]))
+        text_line.set("ID", f'line_{self.id}')
         text_line.set("BASELINE", str(text_line_baseline))
 
         text_line_height, text_line_width, text_line_vpos, text_line_hpos = get_hwvh(self.polygon)
@@ -293,21 +294,22 @@ class TextLine(object):
 
     @classmethod
     def from_altoxml(cls, line: ET.SubElement, schema):
-        new_textline = cls(baseline=np.asarray(
-            [[int(line.attrib['HPOS']), int(line.attrib['BASELINE'])],
-             [int(line.attrib['HPOS']) + int(line.attrib['WIDTH']), int(line.attrib['BASELINE'])]]))
-        polygon = []
-        new_textline.heights = np.asarray([
-            int(line.attrib['HEIGHT']) + int(line.attrib['VPOS']) - int(line.attrib['BASELINE']),
-            int(line.attrib['BASELINE']) - int(line.attrib['VPOS'])])
-        polygon.append([int(line.attrib['HPOS']), int(line.attrib['VPOS'])])
-        polygon.append(
-            [int(line.attrib['HPOS']) + int(line.attrib['WIDTH']), int(line.attrib['VPOS'])])
-        polygon.append([int(line.attrib['HPOS']) + int(line.attrib['WIDTH']),
-                        int(line.attrib['VPOS']) + int(line.attrib['HEIGHT'])])
-        polygon.append(
-            [int(line.attrib['HPOS']), int(line.attrib['VPOS']) + int(line.attrib['HEIGHT'])])
+        hpos = int(line.attrib['HPOS'])
+        vpos = int(line.attrib['VPOS'])
+        width = int(line.attrib['WIDTH'])
+        height = int(line.attrib['HEIGHT'])
+        baseline = int(line.attrib['BASELINE'])
+
+        new_textline = cls(id=line.attrib['ID'],
+                           baseline=np.asarray([[hpos, baseline], [hpos + width, baseline]]),
+                           heights=np.asarray([height + vpos - baseline, baseline - vpos]))
+
+        polygon = [[hpos, vpos],
+                   [hpos + width, vpos],
+                   [hpos + width, vpos + height],
+                   [hpos, vpos + height]]
         new_textline.polygon = np.asarray(polygon)
+
         word = ''
         start = True
         for text in line.iter(schema + 'String'):
