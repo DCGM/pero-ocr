@@ -1,6 +1,7 @@
 import numpy as np
 from copy import deepcopy
 import time
+from typing import Union
 
 import cv2
 from scipy import ndimage
@@ -375,15 +376,28 @@ class LayoutEngine(object):
 
 
 class LayoutEngineYolo(object):
-    def __init__(self, model_path, device, detection_threshold=0.2):
+    def __init__(self, model_path, device,
+                 image_size: Union[int, tuple[int, int], None] = None,
+                 detection_threshold=0.2):
         self.yolo_net = YOLO(model_path).to(device)
         self.detection_threshold = detection_threshold
+        self.image_size = image_size  # height or (height, width)
 
     def detect(self, image):
         """Uses yolo_net to find bounding boxes.
         :param image: input image
         """
-        return self.yolo_net(image, conf=self.detection_threshold)[0]
+        if self.image_size is not None:
+            results = self.yolo_net(image,
+                                    conf=self.detection_threshold,
+                                    imgsz=self.image_size)
+        else:
+            results = self.yolo_net(image, conf=self.detection_threshold)
+
+        if results is None:
+            raise Exception('LayoutEngineYolo returned None.')
+        return results[0]
+
 
 def nonmaxima_suppression(input, element_size=(7, 1)):
     """Vertical non-maxima suppression.

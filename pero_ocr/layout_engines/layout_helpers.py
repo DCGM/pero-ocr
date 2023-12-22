@@ -489,9 +489,9 @@ def insert_line_to_page_layout(page_layout: PageLayout, region: RegionLayout, li
         page_layout.regions.append(region)
     return page_layout
 
+
 def find_region_by_id(page_layout: PageLayout, region_id: str) -> RegionLayout | None:
     for region in page_layout.regions:
         if region.id == region_id:
             return region
     return None
-

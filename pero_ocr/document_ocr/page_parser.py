@@ -6,6 +6,7 @@ import math
 import time
 import re
 import json
+from typing import Union, Tuple
 
 import torch.cuda
 
@@ -211,7 +212,7 @@ class LayoutExtractor(object):
         self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
-        self.categories = config.get('CATEGORIES', ['text'])
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=['text'])
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -310,12 +311,14 @@ class LayoutExtractorYolo(object):
     def __init__(self, config, device, config_path=''):
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
-        self.categories_for_transcription = config.get('CATEGORIES_FOR_TRANSCRIPTION', [])
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
+        self.image_size = self.get_image_size(config)
 
         self.engine = LayoutEngineYolo(
             model_path=compose_path(config['MODEL_PATH'], config_path),
             device=self.device,
             detection_threshold=config.getfloat('DETECTION_THRESHOLD'),
+            image_size=self.image_size
         )
 
     def process_page(self, img, page_layout: PageLayout):
@@ -338,7 +341,7 @@ class LayoutExtractorYolo(object):
             category = result.names[class_id]
             region = RegionLayout(id_str, polygon, category=category)
 
-            if category in self.categories_for_transcription:
+            if category in self.categories:
                 line = TextLine(
                     id=f'{id_str}-l000',
                     index=0,
@@ -350,9 +353,24 @@ class LayoutExtractorYolo(object):
                 region.lines.append(line)
             page_layout.regions.append(region)
 
-        page_layout = self.sort_regions_in_reading_order(page_layout, self.categories_for_transcription)
+        page_layout = self.sort_regions_in_reading_order(page_layout, self.categories)
         page_layout = helpers.merge_page_layouts(page_layout_text, page_layout)
         return page_layout
+
+    @staticmethod
+    def get_image_size(config) -> Union[int, Tuple[int, int], None]:
+        if 'IMAGE_SIZE' not in config:
+            return None
+
+        try:
+            image_size = config.getint('IMAGE_SIZE')
+        except ValueError:
+            image_size = config_get_list(config, key='IMAGE_SIZE')
+            if len(image_size) != 2:
+                raise ValueError(f'Invalid image size. Expected int or list of two ints, but got: '
+                                 f'{image_size} of type {type(image_size)}')
+            image_size = image_size[0], image_size[1]
+        return image_size
 
     @staticmethod
     def get_start_id(used_ids: list) -> int:
@@ -406,7 +424,7 @@ class LineFilter(object):
         self.filter_incomplete_pages = config.getboolean('FILTER_INCOMPLETE_PAGES')
         self.filter_pages_with_short_lines = config.getboolean('FILTER_PAGES_WITH_SHORT_LINES')
         self.length_threshold = config.getint('LENGTH_THRESHOLD')
-        self.categories = config.get('CATEGORIES', ['text'])
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=['text'])
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -480,7 +498,7 @@ class LineCropper(object):
         poly = config.getint('INTERP')
         line_scale = config.getfloat('LINE_SCALE')
         line_height = config.getint('LINE_HEIGHT')
-        self.categories = config.get('CATEGORIES', [])
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
         self.crop_engine = cropper.EngineLineCropper(
             line_height=line_height, poly=poly, scale=line_scale)
 
@@ -512,7 +530,7 @@ class PageOCR(object):
         use_cpu = config.getboolean('USE_CPU')
 
         self.device = device if not use_cpu else torch.device("cpu")
-        self.categories = config.get('CATEGORIES', ['text'])
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=['text'])
 
         if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
             self.ocr_engine = TransformerEngineLineOCR(json_file, self.device)
@@ -554,6 +572,22 @@ def get_prob(best_ids, best_probs):
 
 def get_default_device():
     return torch.device('cuda') if torch.cuda.is_available() else torch.device ('cpu')
+
+
+def config_get_list(config, key, fallback=None):
+    """Get list from config."""
+    fallback = fallback if fallback is not None else []
+
+    if key not in config:
+        return fallback
+
+    try:
+        value = json.loads(config[key])
+    except json.decoder.JSONDecodeError as e:
+        logger.warning(f'Failed to parse list from config key "{key}": {e}')
+        return fallback
+    else:
+        return value
 
 
 class PageParser(object):

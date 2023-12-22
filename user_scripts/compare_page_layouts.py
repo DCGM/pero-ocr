@@ -75,7 +75,7 @@ def compare_page_layouts(hyp_fn, ref_fn, xml_file, results) -> dict:
     hyp_lines = len([1 for _ in hyp_page.lines_iterator()])
     ref_lines = len([1 for _ in ref_page.lines_iterator()])
     if hyp_lines != ref_lines:
-        results[xml_file] = results.LINE_COUNT_MISMATCH
+        results[xml_file] = Result.LINE_COUNT_MISMATCH
         logging.debug(f'{xml_file}:\tlines count mismatch '
                       f'(hyp:{hyp_lines} vs ref:{ref_lines})')
         return results
