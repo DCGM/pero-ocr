@@ -26,6 +26,7 @@ import music21 as music
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.music.music_structures import Measure
+from pero_ocr.music.music_translator import MusicTranslator as Translator
 
 
 def parseargs():
@@ -318,40 +319,6 @@ class TextLineWrapper:
         parsed_xml = music.converter.parse(xml)
         parsed_xml.write('mid', filename)
 
-
-class Translator:
-    """Translator class for translating shorter SSemantic encoding to Semantic encoding using translator dictionary."""
-    def __init__(self, file_name: str):
-        self.translator = Translator.read_json(file_name)
-        self.translator_reversed = {v: k for k, v in self.translator.items()}
-        self.n_existing_labels = set()
-
-    def convert_line(self, line, to_shorter: bool = True):
-        line = line.strip('"').strip()
-        symbols = re.split(r'\s+', line)
-        converted_symbols = [self.convert_symbol(symbol, to_shorter) for symbol in symbols]
-
-        return ' '.join(converted_symbols)
-
-    def convert_symbol(self, symbol: str, to_shorter: bool = True):
-        dictionary = self.translator if to_shorter else self.translator_reversed
-
-        try:
-            return dictionary[symbol]
-        except KeyError:
-            if symbol not in self.n_existing_labels:
-                self.n_existing_labels.add(symbol)
-                print(f'Not existing label: ({symbol})')
-            return ''
-
-    @staticmethod
-    def read_json(filename) -> dict:
-        if not os.path.isfile(filename):
-            raise FileNotFoundError(f'Translator file ({filename}) not found. Cannot export music.')
-
-        with open(filename) as f:
-            data = json.load(f)
-        return data
 
 def parse_semantic_to_measures(labels: str) -> list[Measure]:
     """Convert line of semantic labels to list of measures.

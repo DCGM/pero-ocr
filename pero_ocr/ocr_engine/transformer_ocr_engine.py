@@ -107,5 +107,9 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         outputs = []
         for line_labels in labels:
             outputs.append(''.join([self.characters[c] for c in line_labels]))
+
+        if self.music_translator is not None:
+            outputs = self.music_translator(outputs, to_longer=True)
+
         return outputs
 

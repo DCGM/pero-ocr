@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 
-import argparse
 import json
-import cv2
 import numpy as np
 from os.path import isabs, realpath, join, dirname
 from scipy import sparse
@@ -12,6 +10,7 @@ import torch
 from .softmax import softmax
 
 from pero_ocr.sequence_alignment import levenshtein_distance
+from pero_ocr.music.music_translator import MusicTranslator
 
 
 class BaseEngineLineOCR(object):
@@ -28,6 +27,11 @@ class BaseEngineLineOCR(object):
             self.checkpoint = realpath(join(dirname(json_def), self.config['checkpoint']))
 
         self.characters = tuple(self.config['characters'])
+
+        self.music_translator = None
+        if 'music_dictionary' in self.config:
+            self.music_translator = MusicTranslator(dictionary=self.config['music_dictionary'])
+
         self.net_name = self.config['net_name']
         if "embed_num" in self.config:
             self.embed_num = int(self.config["embed_num"])
