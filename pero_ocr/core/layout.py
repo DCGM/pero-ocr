@@ -323,14 +323,16 @@ class TextLine(object):
 class RegionLayout(object):
     def __init__(self, id: str,
                  polygon: np.ndarray,
-                 region_type=None,
-                 category: str = None):
+                 region_type: Optional[str] = None,
+                 category: Optional[str] = None,
+                 detection_confidence: Optional[float] = None):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
         self.category = category
         self.lines: list[TextLine] = []
         self.transcription = None
+        self.detection_confidence = detection_confidence
 
     def get_lines_of_category(self, categories: str | list):
         if isinstance(categories, str):
@@ -363,8 +365,13 @@ class RegionLayout(object):
         if self.region_type is not None:
             region_element.set("type", self.region_type)
 
-        if self.category:
-            custom = json.dumps({"category": self.category})
+        custom = {}
+        if self.category is not None:
+            custom['category'] = self.category
+        if self.detection_confidence is not None:
+            custom['detection_confidence'] = round(self.detection_confidence, 3)
+        if len(custom) > 0:
+            custom = json.dumps(custom)
             region_element.set("custom", custom)
 
         points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in self.polygon]
@@ -390,11 +397,15 @@ class RegionLayout(object):
             region_type = region_element.attrib["type"]
 
         category = None
+        detection_confidence = None
         if "custom" in region_element.attrib:
             custom = json.loads(region_element.attrib["custom"])
             category = custom.get('category', None)
+            detection_confidence = custom.get('detection_confidence', None)
 
-        layout_region = cls(region_element.attrib['id'], region_coords, region_type, category=category)
+        layout_region = cls(region_element.attrib['id'], region_coords, region_type,
+                            category=category,
+                            detection_confidence=detection_confidence)
 
         transcription = region_element.find(schema + 'TextEquiv')
         if transcription is not None:

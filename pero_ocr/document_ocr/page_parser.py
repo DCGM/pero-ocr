@@ -332,14 +332,14 @@ class LayoutExtractorYolo(object):
         for box_id, box in enumerate(boxes):
             id_str = 'r{:03d}'.format(start_id + box_id)
 
-            x_min, y_min, x_max, y_max, _, class_id = box.tolist()
+            x_min, y_min, x_max, y_max, conf, class_id = box.tolist()
             polygon = np.array([[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min], [x_min, y_min]])
             baseline_y = y_min + (y_max - y_min) / 2
             baseline = np.array([[x_min, baseline_y], [x_max, baseline_y]])
             height = np.floor(np.array([baseline_y - y_min, y_max - baseline_y]))
 
             category = result.names[class_id]
-            region = RegionLayout(id_str, polygon, category=category)
+            region = RegionLayout(id_str, polygon, category=category, detection_confidence=conf)
 
             if category in self.categories:
                 line = TextLine(
