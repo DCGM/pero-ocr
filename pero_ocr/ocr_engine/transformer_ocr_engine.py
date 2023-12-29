@@ -25,7 +25,7 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
 
         print(self.net)
 
-        self.net.load_state_dict(torch.load(self.checkpoint))
+        self.net.load_state_dict(torch.load(self.checkpoint, map_location=device))
         self.net.eval()
         self.net = self.net.to(device)
 
