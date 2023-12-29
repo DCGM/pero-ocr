@@ -10,7 +10,7 @@ from typing import Union, Tuple
 
 import torch.cuda
 
-from pero_ocr.utils import compose_path
+from pero_ocr.utils import compose_path, config_get_list
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 import pero_ocr.core.crop_engine as cropper
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
@@ -353,7 +353,6 @@ class LayoutExtractorYolo(object):
                 region.lines.append(line)
             page_layout.regions.append(region)
 
-        page_layout = self.sort_regions_in_reading_order(page_layout, self.categories)
         page_layout = helpers.merge_page_layouts(page_layout_text, page_layout)
         return page_layout
 
@@ -392,30 +391,6 @@ class LayoutExtractorYolo(object):
 
         last_used_id = sorted(ids)[-1]
         return last_used_id + 1
-
-    @staticmethod
-    def sort_regions_in_reading_order(page_layout: PageLayout, categories_to_sort: list = None) -> PageLayout:
-        if not categories_to_sort:
-            music_regions = page_layout.regions
-        else:
-            music_regions = [region for region in page_layout.regions if region.category in categories_to_sort]
-
-        music_region_ids = [region.id for region in music_regions]
-
-        regions_with_bounding_boxes = {}
-        for region in music_regions:
-            regions_with_bounding_boxes[region] = {'id': region.id, 'bounding_box': region.get_polygon_bounding_box()}
-
-        regions_sorted = sorted(regions_with_bounding_boxes.items(), key=lambda x: x[1]['bounding_box'][0])
-
-        # Rename all music regions as rXXX_tmp to prevent two regions having the same id while renaming them
-        for region in music_regions:
-            region.replace_id(region.id + '_tmp')
-
-        for sorted_region, region_id in zip(regions_sorted, music_region_ids):
-            page_layout.rename_region_id(sorted_region[1]['id'] + '_tmp', region_id)
-
-        return page_layout
 
 
 class LineFilter(object):
@@ -572,22 +547,6 @@ def get_prob(best_ids, best_probs):
 
 def get_default_device():
     return torch.device('cuda') if torch.cuda.is_available() else torch.device ('cpu')
-
-
-def config_get_list(config, key, fallback=None):
-    """Get list from config."""
-    fallback = fallback if fallback is not None else []
-
-    if key not in config:
-        return fallback
-
-    try:
-        value = json.loads(config[key])
-    except json.decoder.JSONDecodeError as e:
-        logger.warning(f'Failed to parse list from config key "{key}": {e}')
-        return fallback
-    else:
-        return value
 
 
 class PageParser(object):

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 
 import numpy as np
+import logging
 
 from configparser import SectionProxy
 from sklearn.cluster import DBSCAN
 from typing import List
 
+from pero_ocr.utils import config_get_list
 from pero_ocr.core.layout import PageLayout, RegionLayout
+from pero_ocr.layout_engines import layout_helpers as helpers
+
+logger = logging.getLogger(__name__)
 
 
 class Region:
@@ -42,10 +47,11 @@ class NaiveRegionSorter:
     def __init__(self, config: SectionProxy, config_path=""):
         # minimal distance between clusters = page_width / width_denom
         self.width_denom = config.getint('ImageWidthDenominator', fallback=10)
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
 
     def process_page(self, image, page_layout: PageLayout):
+        page_layout, page_layout_ignore = helpers.split_page_layout_by_categories(page_layout, self.categories)
         regions = []
-
         for region in page_layout.regions:
             regions.append(Region(region))
 
@@ -54,6 +60,7 @@ class NaiveRegionSorter:
 
         page_layout.regions = [page_layout.regions[idx] for idx in order]
 
+        page_layout = helpers.merge_page_layouts(page_layout_ignore, page_layout)
         return page_layout
 
     @staticmethod

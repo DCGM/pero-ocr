@@ -429,9 +429,10 @@ def split_page_layout_by_categories(page_layout: PageLayout, categories: list) -
                 RegionLayout(id='r001', lines=[TextLine(id='r001-l002', category='logo')])])
     """
     if not categories:
-        page_layout_no_text = deepcopy(page_layout)
-        page_layout_no_text.regions = []
-        return page_layout, page_layout_no_text
+        # if no categories, return original page_layout and empty page_layout
+        page_layout_no_regions = deepcopy(page_layout)
+        page_layout_no_regions.regions = []
+        return page_layout, page_layout_no_regions
 
     regions = page_layout.regions
     page_layout.regions = []
