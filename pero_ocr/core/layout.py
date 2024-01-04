@@ -176,9 +176,9 @@ class TextLine(object):
                     self.heights = heights.tolist()
 
     def to_altoxml(self, text_block, arabic_helper, min_line_confidence):
-        arabic_line = False
-        if arabic_helper.is_arabic_line(self.transcription):
-            arabic_line = True
+        if self.transcription_confidence is not None and self.transcription_confidence < min_line_confidence:
+            return
+
         text_line = ET.SubElement(text_block, "TextLine")
         text_line_baseline = int(np.average(np.array(self.baseline)[:, 1]))
         text_line.set("ID", f'line_{self.id}')
@@ -190,6 +190,27 @@ class TextLine(object):
         text_line.set("HPOS", str(int(text_line_hpos)))
         text_line.set("HEIGHT", str(int(text_line_height)))
         text_line.set("WIDTH", str(int(text_line_width)))
+
+        if self.category == 'text':
+            self.to_altoxml_text(text_line, arabic_helper,
+                                 text_line_height, text_line_width, text_line_vpos, text_line_hpos)
+        else:
+            string = ET.SubElement(text_line, "String")
+            string.set("CONTENT", self.transcription)
+
+            string.set("HEIGHT", str(int(text_line_height)))
+            string.set("WIDTH", str(int(text_line_width)))
+            string.set("VPOS", str(int(text_line_vpos)))
+            string.set("HPOS", str(int(text_line_hpos)))
+
+            if self.transcription_confidence is not None:
+                string.set("WC", str(round(self.transcription_confidence, 2)))
+
+    def to_altoxml_text(self, text_line, arabic_helper,
+                        text_line_height, text_line_width, text_line_vpos, text_line_hpos):
+        arabic_line = False
+        if arabic_helper.is_arabic_line(self.transcription):
+            arabic_line = True
 
         try:
             chars = [i for i in range(len(self.characters))]
@@ -288,9 +309,6 @@ class TextLine(object):
                     space.set("VPOS", str(int(np.min(all_y))))
                     space.set("HPOS", str(int(np.max(all_x))))
                 letter_counter += len(splitted_transcription[w]) + 1
-        if self.transcription_confidence is not None:
-            if self.transcription_confidence < min_line_confidence:
-                text_block.remove(text_line)
 
     @classmethod
     def from_altoxml(cls, line: ET.SubElement, schema):
