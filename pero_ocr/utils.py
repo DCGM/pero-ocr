@@ -37,7 +37,7 @@ def config_get_list(config, key, fallback=None):
     try:
         value = json.loads(config[key])
     except json.decoder.JSONDecodeError as e:
-        logger.warning(f'Failed to parse list from config key "{key}": {e}')
+        logger.warning(f'Failed to parse list from config key "{key}", returning fallback {fallback}:\n{e}')
         return fallback
     else:
         return value
