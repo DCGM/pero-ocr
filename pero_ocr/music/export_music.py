@@ -20,11 +20,11 @@ import os
 import re
 import time
 import logging
-import json
 
 import music21 as music
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
+from pero_ocr.layout_engines.layout_helpers import split_page_layout_by_categories
 from pero_ocr.music.music_structures import Measure
 from pero_ocr.music.music_translator import MusicTranslator as Translator
 
@@ -41,8 +41,11 @@ def parseargs():
         '-f', '--input-transcription-files', nargs='*', default=None,
         help='Input files with sequences as lines with IDs at the beginning.')
     parser.add_argument(
-        "-t", "--translator-path", type=str, required=True,
-        help="JSON File containing translation dictionary from shorter encoding (exported by model) to longest.")
+        "-t", "--translator-path", type=str, default=None,
+        help="JSON File containing translation dictionary from shorter encoding (exported by model) to longest "
+             "Check if needed by seeing start of any line in the transcription."
+             "(e.g. SSemantic (model output): >2 + kGM + B3z + C4z + |..."
+             "      Semantic (stored in XML): clef-G2 + keySignature-GM + note-B3_eighth + note-C4_eighth + barline...")
     parser.add_argument(
         "-o", "--output-folder", default='output_page',
         help="Set output file with extension. Output format is JSON")
@@ -82,9 +85,9 @@ def main():
 class ExportMusicPage:
     """Take pageLayout XML exported from pero-ocr with transcriptions and re-construct page of musical notation."""
 
-    def __init__(self, input_xml_path: str = '', input_transcription_files: list[str] = None, translator_path: str = '',
-                 output_folder: str = 'output_page', export_midi: bool = False, export_musicxml: bool = False,
-                 categories: list = None, verbose: bool = False):
+    def __init__(self, input_xml_path: str = '', input_transcription_files: list[str] = None,
+                 translator_path: str = None, output_folder: str = 'output_page', export_midi: bool = False,
+                 export_musicxml: bool = False, categories: list = None, verbose: bool = False):
         self.translator_path = translator_path
         if verbose:
             logging.basicConfig(level=logging.DEBUG, format='[%(levelname)-s]  \t- %(message)s')
@@ -104,10 +107,10 @@ class ExportMusicPage:
         self.export_midi = export_midi
         self.export_musicxml = export_musicxml
 
-        self.translator = Translator(file_name=self.translator_path)
+        self.translator = Translator(filename=self.translator_path) if translator_path else None
         self.categories = categories if categories else ['Notový zápis']
 
-    def __call__(self, page_layout = None) -> None:
+    def __call__(self, page_layout=None) -> None:
         if self.input_transcription_files:
             ExportMusicLines(input_files=self.input_transcription_files, output_folder=self.output_folder,
                              translator=self.translator, verbose=self.verbose)()
@@ -123,9 +126,9 @@ class ExportMusicPage:
 
     def export_page_layout(self, page_layout: PageLayout, file_id: str = None) -> None:
         if self.export_musicxml or self.export_midi:
+            page_layout, _ = split_page_layout_by_categories(page_layout, self.categories)
             parts = self.regions_to_parts(
-                page_layout.get_regions_of_category(self.categories, reading_order=True),
-                self.translator)
+                page_layout.regions)
             if not parts:
                 return
 
@@ -167,7 +170,7 @@ class ExportMusicPage:
             base = self.get_output_file_base(file_id)
             part.export_to_midi(base)
 
-    def regions_to_parts(self, regions: list[RegionLayout], translator) -> list[Part]:
+    def regions_to_parts(self, regions: list[RegionLayout]) -> list[Part]:
         """Takes a list of regions and splits them to parts."""
         max_parts = max(
             [len(region.get_lines_of_category(self.categories)) for region in regions],
@@ -177,7 +180,7 @@ class ExportMusicPage:
             print('Warning: No music lines found in page.')
             return []
 
-        parts = [Part(translator) for _ in range(max_parts)]
+        parts = [Part(self.translator) for _ in range(max_parts)]
         for region in regions:
             for part, line in zip(parts, region.get_lines_of_category(self.categories)):
                 part.add_textline(line)
@@ -187,8 +190,9 @@ class ExportMusicPage:
 
 class ExportMusicLines:
     """Takes text files with transcriptions as individual lines and exports musicxml file for each one"""
-    def __init__(self, translator: Translator, input_files: list[str] = None,
+    def __init__(self, translator: Translator = None, input_files: list[str] = None,
                  output_folder: str = 'output_musicxml', verbose: bool = False):
+        self.translate_to_longer = translator is not None
         self.translator = translator
         self.output_folder = output_folder
 
@@ -222,7 +226,8 @@ class ExportMusicLines:
 
                 stave_id = match.group(1)
                 labels = match.group(3)
-                labels = self.translator.convert_line(labels, to_shorter=False)
+                if self.translate_to_longer:
+                    labels = self.translator.translate_line(labels, to_longer=True)
                 output_file_name = os.path.join(self.output_folder, f'{stave_id}.musicxml')
 
                 parsed_labels = semantic_line_to_music21_score(labels)
@@ -269,7 +274,8 @@ class ExportMusicLines:
 class Part:
     """Represent musical part (part of notation for one instrument/section)"""
 
-    def __init__(self, translator):
+    def __init__(self, translator: Translator = None):
+        self.translate_to_longer = translator is not None
         self.translator = translator
 
         self.repr_music21 = music.stream.Part([music.instrument.Piano()])
@@ -278,7 +284,9 @@ class Part:
         self.measures: list[Measure] = []  # List of measures in internal representation, NOT music21
 
     def add_textline(self, line: TextLine) -> None:
-        labels = self.translator.convert_line(line.transcription, False)
+        labels = line.transcription
+        if self.translate_to_longer:
+            labels = self.translator.translate_line(labels, to_longer=True)
         self.labels.append(labels)
 
         new_measures = parse_semantic_to_measures(labels)

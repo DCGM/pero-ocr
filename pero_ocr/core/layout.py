@@ -965,26 +965,6 @@ class PageLayout(object):
         else:
             return -1
 
-    def get_regions_of_category(self, categories: str | list, reading_order=False):
-        if isinstance(categories, str):
-            categories = [categories]
-
-        if not reading_order:
-            return [region for region in self.regions if region.category in categories]
-
-        category_regions = [region for region in self.regions if region.category in categories]
-
-        regions_with_bounding_boxes = {}
-        for region in category_regions:
-            regions_with_bounding_boxes[region] = {
-                'id': region.id,
-                'bounding_box': region.get_polygon_bounding_box(),
-                'region': region}
-
-        regions_sorted = sorted(regions_with_bounding_boxes.items(), key=lambda x: x[1]['bounding_box'][1])
-
-        return [region[1]['region'] for region in regions_sorted]
-
     def rename_region_id(self, old_id, new_id):
         for region in self.regions:
             if region.id == old_id:
