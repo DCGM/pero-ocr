@@ -23,6 +23,9 @@ from pero_ocr.core.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
 
+logger = logging.getLogger(__name__)
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', required=True, help='Path to input config file.')
@@ -30,6 +33,7 @@ def parse_arguments():
                         help='If set, already processed files are skipped.')
     parser.add_argument('-i', '--input-image-path', help='')
     parser.add_argument('-x', '--input-xml-path', help='')
+    parser.add_argument('-a', '--input-alto-path', help='')
     parser.add_argument('--input-logit-path', help='')
     parser.add_argument('--output-xml-path', help='')
     parser.add_argument('--output-render-path', help='')
@@ -126,7 +130,7 @@ class LMDB_writer(object):
         all_lines = sorted(all_lines, key=lambda x: x.id)
         records_to_write = {}
         for line in all_lines:
-            if line.transcription:
+            if line.transcription and line.crop:
                 key = f'{file_id}-{line.id}.jpg'
                 img = cv2.imencode('.jpg', line.crop.astype(np.uint8), [int(cv2.IMWRITE_JPEG_QUALITY), 95])[1].tobytes()
                 records_to_write[key] = img
@@ -138,11 +142,12 @@ class LMDB_writer(object):
 
 
 class Computator:
-    def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                 output_logit_path, output_alto_path, output_xml_path, output_line_path):
+    def __init__(self, page_parser, input_image_path, input_xml_path, input_alto_path, input_logit_path,
+                 output_render_path, output_logit_path, output_alto_path, output_xml_path, output_line_path):
         self.page_parser = page_parser
         self.input_image_path = input_image_path
         self.input_xml_path = input_xml_path
+        self.input_alto_path = input_alto_path
         self.input_logit_path = input_logit_path
         self.output_render_path = output_render_path
         self.output_logit_path = output_logit_path
@@ -163,7 +168,9 @@ class Computator:
                 image = None
 
             if self.input_xml_path:
-                page_layout = PageLayout(file=os.path.join(self.input_xml_path, file_id + '.xml'))
+                page_layout = PageLayout(pagexml_file=os.path.join(self.input_xml_path, file_id + '.xml'))
+            elif self.input_alto_path:
+                page_layout = PageLayout(altoxml_file=os.path.join(self.input_alto_path, file_id + '.xml'))
             else:
                 page_layout = PageLayout(id=file_id, page_size=(image.shape[0], image.shape[1]))
 
@@ -193,6 +200,10 @@ class Computator:
                 else:
                     for region in page_layout.regions:
                         for line in region.lines:
+                            if line.crop is None:
+                                logger.warning(f'Line {line.id} has no crop to export to {self.output_line_path}.'
+                                               f'Is RUN_LINE_CROPPER set to "yes" in config?')
+                                continue
                             cv2.imwrite(
                                 os.path.join(self.output_line_path, f'{file_id}-{line.id}.jpg'),
                                 line.crop.astype(np.uint8),
@@ -245,6 +256,8 @@ def main():
         config['PARSE_FOLDER']['INPUT_LOGIT_PATH'] = args.input_logit_path
     if args.output_xml_path is not None:
         config['PARSE_FOLDER']['OUTPUT_XML_PATH'] = args.output_xml_path
+    if args.input_alto_path is not None:
+        config['PARSE_FOLDER']['INPUT_ALTO_PATH'] = args.input_alto_path
     if args.output_render_path is not None:
         config['PARSE_FOLDER']['OUTPUT_RENDER_PATH'] = args.output_render_path
     if args.output_line_path is not None:
@@ -263,6 +276,7 @@ def main():
 
     input_image_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_IMAGE_PATH')
     input_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_XML_PATH')
+    input_alto_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_ALTO_PATH')
     input_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_LOGIT_PATH')
 
     output_render_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_RENDER_PATH')
@@ -282,7 +296,7 @@ def main():
     if output_alto_path is not None:
         create_dir_if_not_exists(output_alto_path)
 
-    if input_logit_path is not None and input_xml_path is None:
+    if input_logit_path is not None and input_xml_path is None and input_alto_path is None:
         input_logit_path = None
         logger.warning('Logit path specified and Page XML path not specified. Logits will be ignored.')
 
@@ -293,15 +307,17 @@ def main():
                              os.path.splitext(f)[1].lower() not in ignored_extensions]
         images_to_process = sorted(images_to_process)
         ids_to_process = [os.path.splitext(os.path.basename(file))[0] for file in images_to_process]
-    elif input_xml_path is not None:
-        logger.info(f'Reading page xml from {input_xml_path}')
-        xml_to_process = [f for f in os.listdir(input_xml_path) if
+    elif input_xml_path is not None or input_alto_path is not None:
+        input_path = input_xml_path if input_xml_path is not None else input_alto_path
+        logger.info(f'Reading page xml from {input_path}')
+        xml_to_process = [f for f in os.listdir(input_path) if
                           os.path.splitext(f)[1] == '.xml']
         images_to_process = [None] * len(xml_to_process)
         ids_to_process = [os.path.splitext(os.path.basename(file))[0] for file in xml_to_process]
     else:
         raise Exception(
-            f'Either INPUT_IMAGE_PATH or INPUT_XML_PATH has to be specified. Both are missing in {config_path}.')
+            f'Either INPUT_IMAGE_PATH, INPUT_XML_PATH or INPUT_ALTO_PATH has to be specified. '
+            f'All are missing in {config_path}.')
 
     if skip_already_processed_files:
         # Files already processed are skipped. File is considered as already processed when file with appropriate
@@ -314,19 +330,20 @@ def main():
             images_to_process = [image for id, image in zip(ids_to_process, images_to_process) if id not in already_processed_files]
             ids_to_process = [id for id in ids_to_process if id not in already_processed_files]
 
-    if input_xml_path and args.skipp_missing_xml:
+    if (input_xml_path or input_alto_path) and args.skipp_missing_xml:
+        input_path = input_xml_path if input_xml_path is not None else input_alto_path
         filtered_ids_to_process = []
         filtered_images_to_process = []
         for file_id, image_file_name in zip(ids_to_process, images_to_process):
-            file_path = os.path.join(input_xml_path, file_id + '.xml')
+            file_path = os.path.join(input_path, file_id + '.xml')
             if os.path.exists(file_path):
                 filtered_ids_to_process.append(file_id)
                 filtered_images_to_process.append(image_file_name)
         ids_to_process = filtered_ids_to_process
         images_to_process = filtered_images_to_process
 
-    computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                            output_logit_path, output_alto_path, output_xml_path, output_line_path)
+    computator = Computator(page_parser, input_image_path, input_xml_path, input_alto_path, input_logit_path,
+                            output_render_path, output_logit_path, output_alto_path, output_xml_path, output_line_path)
 
     t_start = time.time()
     results = []

@@ -80,11 +80,13 @@ class TextLine(object):
             text_line.set("index", f'{self.index:d}')
         else:
             text_line.set("index", f'{fallback_id:d}')
+
+        custom = {}
         if self.heights is not None:
-            custom = {
-                "heights": list(np.round(self.heights, decimals=1)),
-                "category": self.category
-            }
+            custom['heights'] = list(np.round(self.heights, decimals=1).astype(np.float64))
+        if self.category is not None:
+            custom['category'] = self.category
+        if len(custom) > 0:
             text_line.set("custom", json.dumps(custom))
 
         coords = ET.SubElement(text_line, "Coords")
@@ -598,14 +600,17 @@ def get_reading_order(page_element, schema):
 
 
 class PageLayout(object):
-    def __init__(self, id: str = None, page_size: list[int, int] = (0, 0), file: str = None):
+    def __init__(self, id: str = None, page_size: list[int, int] = (0, 0),
+                 pagexml_file: str = None, altoxml_file: str = None):
         self.id = id
         self.page_size = page_size  # (height, width)
         self.regions: list[RegionLayout] = []
         self.reading_order = None
 
-        if file is not None:
-            self.from_pagexml(file)
+        if pagexml_file is not None:
+            self.from_pagexml(pagexml_file)
+        elif altoxml_file is not None:
+            self.from_altoxml(altoxml_file)
 
         if self.reading_order is not None and len(self.regions) > 0:
             self.sort_regions_by_reading_order()
