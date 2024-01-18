@@ -6,8 +6,6 @@ import numpy as np
 from .line_ocr_engine import BaseEngineLineOCR
 from pero_ocr.ocr_engine import transformer
 
-import sys
-
 
 class TransformerEngineLineOCR(BaseEngineLineOCR):
     def __init__(self, json_def, device, batch_size=4):
@@ -108,8 +106,8 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         for line_labels in labels:
             outputs.append(''.join([self.characters[c] for c in line_labels]))
 
-        if self.music_translator is not None:
-            outputs = self.music_translator(outputs, to_longer=True)
+        if self.output_substitution is not None:
+            outputs = self.output_substitution(outputs)
 
         return outputs
 

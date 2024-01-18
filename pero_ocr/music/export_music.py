@@ -26,7 +26,7 @@ import music21 as music
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.layout_engines.layout_helpers import split_page_layout_by_categories
 from pero_ocr.music.music_structures import Measure
-from pero_ocr.music.music_translator import MusicTranslator as Translator
+from pero_ocr.music.output_translator import OutputTranslator as Translator
 
 
 def parseargs():
@@ -149,11 +149,11 @@ class ExportMusicPage:
             if self.export_midi:
                 self.export_to_midi(score, parts, file_id)
 
-    def get_output_file(self, file_id: str=None, extension: str = 'musicxml') -> str:
+    def get_output_file(self, file_id: str = None, extension: str = 'musicxml') -> str:
         base = self.get_output_file_base(file_id)
         return f'{base}.{extension}'
 
-    def get_output_file_base(self, file_id: str=None) -> str:
+    def get_output_file_base(self, file_id: str = None) -> str:
         if not file_id:
             file_id = os.path.basename(self.input_xml_path)
             if not file_id:
@@ -161,7 +161,7 @@ class ExportMusicPage:
         name, *_ = re.split(r'\.', file_id)
         return os.path.join(self.output_folder, f'{name}')
 
-    def export_to_midi(self, score, parts, file_id: str=None):
+    def export_to_midi(self, score, parts, file_id: str = None):
         # Export whole score to midi
         output_file = self.get_output_file(file_id, extension='mid')
         score.write("midi", output_file)
@@ -192,7 +192,6 @@ class ExportMusicLines:
     """Takes text files with transcriptions as individual lines and exports musicxml file for each one"""
     def __init__(self, translator: Translator = None, input_files: list[str] = None,
                  output_folder: str = 'output_musicxml', verbose: bool = False):
-        self.translate_to_longer = translator is not None
         self.translator = translator
         self.output_folder = output_folder
 
@@ -226,8 +225,8 @@ class ExportMusicLines:
 
                 stave_id = match.group(1)
                 labels = match.group(3)
-                if self.translate_to_longer:
-                    labels = self.translator.translate_line(labels, to_longer=True)
+                if self.translator is not None:
+                    labels = self.translator.translate_line(labels)
                 output_file_name = os.path.join(self.output_folder, f'{stave_id}.musicxml')
 
                 parsed_labels = semantic_line_to_music21_score(labels)
@@ -275,7 +274,6 @@ class Part:
     """Represent musical part (part of notation for one instrument/section)"""
 
     def __init__(self, translator: Translator = None):
-        self.translate_to_longer = translator is not None
         self.translator = translator
 
         self.repr_music21 = music.stream.Part([music.instrument.Piano()])
@@ -285,8 +283,8 @@ class Part:
 
     def add_textline(self, line: TextLine) -> None:
         labels = line.transcription
-        if self.translate_to_longer:
-            labels = self.translator.translate_line(labels, to_longer=True)
+        if self.translator is not None:
+            labels = self.translator.translate_line(labels)
         self.labels.append(labels)
 
         new_measures = parse_semantic_to_measures(labels)
