@@ -390,9 +390,12 @@ class LayoutEngineYolo(object):
         if self.image_size is not None:
             results = self.yolo_net(image,
                                     conf=self.detection_threshold,
-                                    imgsz=self.image_size)
+                                    imgsz=self.image_size,
+                                    verbose=False)
         else:
-            results = self.yolo_net(image, conf=self.detection_threshold)
+            results = self.yolo_net(image,
+                                    conf=self.detection_threshold,
+                                    verbose=False)
 
         if results is None:
             raise Exception('LayoutEngineYolo returned None.')

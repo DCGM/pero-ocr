@@ -72,7 +72,9 @@ def page_decoder_factory(config, device, config_path=''):
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, device, allow_no_decoder=False, config_path=config_path)
     confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
     carry_h_over = config['DECODER'].getboolean('CARRY_H_OVER')
-    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over)
+    categories = config_get_list(config['DECODER'], key='CATEGORIES', fallback=['text'])
+    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over,
+                       categories=categories)
 
 
 class MissingLogits(Exception):
@@ -95,14 +97,14 @@ def prepare_dense_logits(line):
 
 
 class PageDecoder:
-    def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False):
+    def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False, categories=None):
         self.decoder = decoder
         self.line_confidence_threshold = line_confidence_threshold
         self.lines_examined = 0
         self.lines_decoded = 0
         self.seconds_decoding = 0.0
         self.continue_lines = carry_h_over
-        self.categories = ['text']
+        self.categories = categories if categories else ['text']
 
         self.last_h = None
         self.last_line = None
@@ -113,7 +115,8 @@ class PageDecoder:
             try:
                 line.transcription = self.decode_line(line)
             except Exception:
-                logger.error(f'Failed to process line {line.id} of page {page_layout.id}. The page has been processed no further.', exc_info=True)
+                logger.error(f'Failed to process line {line.id} of page {page_layout.id}. '
+                             f'The page has been processed no further.', exc_info=True)
 
         return page_layout
 
@@ -311,6 +314,7 @@ class LayoutExtractorYolo(object):
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
         self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
+        self.line_categories = config_get_list(config, key='LINE_CATEGORIES', fallback=[])
         self.image_size = self.get_image_size(config)
 
         self.engine = LayoutEngineYolo(
@@ -338,9 +342,12 @@ class LayoutExtractorYolo(object):
             height = np.floor(np.array([baseline_y - y_min, y_max - baseline_y]))
 
             category = result.names[class_id]
+            if self.categories and category not in self.categories:
+                continue
+
             region = RegionLayout(id_str, polygon, category=category, detection_confidence=conf)
 
-            if category in self.categories:
+            if category in self.line_categories:
                 line = TextLine(
                     id=f'{id_str}-l000',
                     index=0,
