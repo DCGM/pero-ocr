@@ -852,9 +852,12 @@ class PageLayout(object):
                 line.characters = characters[line.id]
                 line.logit_coords = logit_coords[line.id]
 
-    def render_to_image(self, image, thickness: int = 2, circles: bool = True, render_order: bool = False):
+    def render_to_image(self, image, thickness: int = 2, circles: bool = True,
+                        render_order: bool = False, render_category: bool = False):
         """Render layout into image.
         :param image: image to render layout into
+        :param render_order: render region order number given by enumerate(regions) to the middle of given region
+        :param render_region_id: render region id to the upper left corner of given region
         """
         for region_layout in self.regions:
             image = draw_lines(
@@ -870,21 +873,30 @@ class PageLayout(object):
                 [region_layout.polygon], color=(255, 0, 0), circles=(circles, circles, circles), close=True,
                 thickness=thickness)
 
-        if render_order:
+        if render_order or render_category:
             font = cv2.FONT_HERSHEY_DUPLEX
-            font_scale = 4
-            font_thickness = 5
+            font_scale = 1
+            font_thickness = 1
 
             for idx, region in enumerate(self.regions):
-                min = region.polygon.min(axis=0)
-                max = region.polygon.max(axis=0)
+                min_p = region.polygon.min(axis=0)
+                max_p = region.polygon.max(axis=0)
 
-                text_w, text_h = cv2.getTextSize(f"{idx}", font, font_scale, font_thickness)[0]
-
-                mid_coords = (int((min[0] + max[0]) // 2 - text_w // 2), int((min[1] + max[1]) // 2 + text_h // 2))
-
-                cv2.putText(image, f"{idx}", mid_coords, font, font_scale,
-                            (0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                if render_order:
+                    text = f"{idx}"
+                    text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                    mid_x = int((min_p[0] + max_p[0]) // 2 - text_w // 2)
+                    mid_y = int((min_p[1] + max_p[1]) // 2 + text_h // 2)
+                    cv2.putText(image, text, (mid_x, mid_y), font, font_scale,
+                                color=(0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                if render_category and region.category not in [None, 'text']:
+                    text = f"{region.category}"
+                    text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                    start_point = (int(min_p[0]), int(min_p[1]))
+                    end_point = (int(min_p[0]) + text_w, int(min_p[1]) - text_h)
+                    cv2.rectangle(image, start_point, end_point, color=(255, 0, 0), thickness=-1)
+                    cv2.putText(image, text, start_point, font, font_scale,
+                                color=(255, 255, 255), thickness=font_thickness, lineType=cv2.LINE_AA)
 
         return image
 
