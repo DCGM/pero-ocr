@@ -2,11 +2,18 @@
 """Script to take output of pero-ocr with musical transcriptions and export it to musicxml and MIDI formats.
 
 INPUTS:
-- XML PageLayout (exported directly from pero-ocr engine) using `--input-xml-path` argument
+- PageLayout
+    - INPUT options:
+        - PageLayout object using `ExportMusicPage.__call__()` method
+        - XML PageLayout (exported directly from pero-ocr engine) using `--input-xml-path` argument
     - Represents one whole page of musical notation transcribed by pero-ocr engine
-    - OUTPUTS one musicxml file for the page
-    - + MIDI file for page and for individual lines (named according to IDs in PageLayout)
+    - OUTPUT options:
+        - One musicxml file for the page
+        - MIDI file for page and for individual lines (named according to IDs in PageLayout)
 - Text files with individual transcriptions and their IDs on each line using `--input-transcription-files` argument.
+    - e.g.: 2370961.png ">2 + kGM + E2W E3q. + |"
+            1300435.png "=4 + kDM + G3z + F3z + |"
+            ...
     - OUTPUTS one musicxml file for each line with names corresponding to IDs in each line
 
 Author: Vojtěch Vlach
@@ -59,7 +66,7 @@ def parseargs():
               "Exports whole file as one MusicXML."))
     parser.add_argument(
         '-v', "--verbose", action='store_true', default=False,
-        help="Activate verbose logging.")
+        help="Enable verbose logging.")
 
     return parser.parse_args()
 
@@ -190,8 +197,8 @@ class ExportMusicPage:
 
 class ExportMusicLines:
     """Takes text files with transcriptions as individual lines and exports musicxml file for each one"""
-    def __init__(self, translator: Translator = None, input_files: list[str] = None,
-                 output_folder: str = 'output_musicxml', verbose: bool = False):
+    def __init__(self, input_files: list[str] = None, output_folder: str = 'output_musicxml',
+                 translator: Translator = None, verbose: bool = False):
         self.translator = translator
         self.output_folder = output_folder
 
