@@ -1,31 +1,7 @@
-#!/usr/bin/env python3.8
-"""Script to take output of pero-ocr with musical transcriptions and export it to musicxml and MIDI formats.
-
-INPUTS:
-- PageLayout
-    - INPUT options:
-        - PageLayout object using `ExportMusicPage.__call__()` method
-        - XML PageLayout (exported directly from pero-ocr engine) using `--input-xml-path` argument
-    - Represents one whole page of musical notation transcribed by pero-ocr engine
-    - OUTPUT options:
-        - One musicxml file for the page
-        - MIDI file for page and for individual lines (named according to IDs in PageLayout)
-- Text files with individual transcriptions and their IDs on each line using `--input-transcription-files` argument.
-    - e.g.: 2370961.png ">2 + kGM + E2W E3q. + |"
-            1300435.png "=4 + kDM + G3z + F3z + |"
-            ...
-    - OUTPUTS one musicxml file for each line with names corresponding to IDs in each line
-
-Author: Vojtěch Vlach
-Contact: xvlach22@vutbr.cz
-"""
-
 from __future__ import annotations
 import sys
-import argparse
 import os
 import re
-import time
 import logging
 
 import music21 as music
@@ -36,61 +12,11 @@ from pero_ocr.music.music_structures import Measure
 from pero_ocr.music.output_translator import OutputTranslator as Translator
 
 
-def parseargs():
-    print(' '.join(sys.argv))
-    print('----------------------------------------------------------------------')
-    parser = argparse.ArgumentParser()
+class MusicPageExporter:
+    """Take pageLayout XML exported from pero-ocr with transcriptions and re-construct page of musical notation.
 
-    parser.add_argument(
-        "-i", "--input-xml-path", type=str, default='',
-        help="Path to input XML file with exported PageLayout.")
-    parser.add_argument(
-        '-f', '--input-transcription-files', nargs='*', default=None,
-        help='Input files with sequences as lines with IDs at the beginning.')
-    parser.add_argument(
-        "-t", "--translator-path", type=str, default=None,
-        help="JSON File containing translation dictionary from shorter encoding (exported by model) to longest "
-             "Check if needed by seeing start of any line in the transcription."
-             "(e.g. SSemantic (model output): >2 + kGM + B3z + C4z + |..."
-             "      Semantic (stored in XML): clef-G2 + keySignature-GM + note-B3_eighth + note-C4_eighth + barline...")
-    parser.add_argument(
-        "-o", "--output-folder", default='output_page',
-        help="Set output file with extension. Output format is JSON")
-    parser.add_argument(
-        "-m", "--export-midi", action='store_true',
-        help=("Enable exporting midi file to output_folder."
-              "Exports whole file and individual lines with names corresponding to them TextLine IDs."))
-    parser.add_argument(
-        "-M", "--export-musicxml", action='store_true',
-        help=("Enable exporting musicxml file to output_folder."
-              "Exports whole file as one MusicXML."))
-    parser.add_argument(
-        '-v', "--verbose", action='store_true', default=False,
-        help="Enable verbose logging.")
-
-    return parser.parse_args()
-
-
-def main():
-    """Main function for simple testing"""
-    args = parseargs()
-
-    start = time.time()
-    ExportMusicPage(
-        input_xml_path=args.input_xml_path,
-        input_transcription_files=args.input_transcription_files,
-        translator_path=args.translator_path,
-        output_folder=args.output_folder,
-        export_midi=args.export_midi,
-        export_musicxml=args.export_musicxml,
-        verbose=args.verbose)()
-
-    end = time.time()
-    print(f'Total time: {end - start:.2f} s')
-
-
-class ExportMusicPage:
-    """Take pageLayout XML exported from pero-ocr with transcriptions and re-construct page of musical notation."""
+    For CLI usage see user_scripts/music_exporter.py
+    """
 
     def __init__(self, input_xml_path: str = '', input_transcription_files: list[str] = None,
                  translator_path: str = None, output_folder: str = 'output_page', export_midi: bool = False,
@@ -119,8 +45,8 @@ class ExportMusicPage:
 
     def __call__(self, page_layout=None) -> None:
         if self.input_transcription_files:
-            ExportMusicLines(input_files=self.input_transcription_files, output_folder=self.output_folder,
-                             translator=self.translator, verbose=self.verbose)()
+            MusicLinesExporter(input_files=self.input_transcription_files, output_folder=self.output_folder,
+                               translator=self.translator, verbose=self.verbose)()
         if page_layout:
             self.process_page(page_layout)
 
@@ -195,7 +121,7 @@ class ExportMusicPage:
         return parts
 
 
-class ExportMusicLines:
+class MusicLinesExporter:
     """Takes text files with transcriptions as individual lines and exports musicxml file for each one"""
     def __init__(self, input_files: list[str] = None, output_folder: str = 'output_musicxml',
                  translator: Translator = None, verbose: bool = False):
@@ -209,8 +135,8 @@ class ExportMusicLines:
 
         logging.debug('Hello World! (from ReverseConverter)')
 
-        self.input_files = ExportMusicLines.get_input_files(input_files)
-        ExportMusicLines.prepare_output_folder(output_folder)
+        self.input_files = MusicLinesExporter.get_input_files(input_files)
+        MusicLinesExporter.prepare_output_folder(output_folder)
 
     def __call__(self):
         if not self.input_files:
@@ -220,7 +146,7 @@ class ExportMusicLines:
         # For every file, convert it to MusicXML
         for input_file_name in self.input_files:
             logging.info(f'Reading file {input_file_name}')
-            lines = ExportMusicLines.read_file_lines(input_file_name)
+            lines = MusicLinesExporter.read_file_lines(input_file_name)
 
             for i, line in enumerate(lines):
                 match = re.fullmatch(r'([a-zA-Z0-9_\-]+)[a-zA-Z0-9_\.]+\s+([0-9]+\s+)?\"([\S\s]+)\"', line)
@@ -402,7 +328,3 @@ def write_to_file(output_file_name, xml):
         f.write(xml)
 
     logging.info(f'File {output_file_name} successfully written.')
-
-
-if __name__ == "__main__":
-    main()
