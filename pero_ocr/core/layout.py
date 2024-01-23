@@ -207,6 +207,23 @@ class TextLine(object):
             if self.transcription_confidence is not None:
                 string.set("WC", str(round(self.transcription_confidence, 2)))
 
+    def get_labels(self):
+        chars = [i for i in range(len(self.characters))]
+        char_to_num = dict(zip(self.characters, chars))
+
+        blank_idx = self.logits.shape[1] - 1
+
+        labels = []
+        for item in self.transcription:
+            if item in char_to_num.keys():
+                if char_to_num[item] >= blank_idx:
+                    labels.append(0)
+                else:
+                    labels.append(char_to_num[item])
+            else:
+                labels.append(0)
+        return np.array(labels)
+
     def to_altoxml_text(self, text_line, arabic_helper,
                         text_line_height, text_line_width, text_line_vpos, text_line_hpos):
         arabic_line = False
@@ -214,27 +231,15 @@ class TextLine(object):
             arabic_line = True
 
         try:
-            chars = [i for i in range(len(self.characters))]
-            char_to_num = dict(zip(self.characters, chars))
-
+            label = self.get_labels()
             blank_idx = self.logits.shape[1] - 1
-
-            label = []
-            for item in self.transcription:
-                if item in char_to_num.keys():
-                    if char_to_num[item] >= blank_idx:
-                        label.append(0)
-                    else:
-                        label.append(char_to_num[item])
-                else:
-                    label.append(0)
 
             logits = self.get_dense_logits()[self.logit_coords[0]:self.logit_coords[1]]
             logprobs = self.get_full_logprobs()[self.logit_coords[0]:self.logit_coords[1]]
             aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
         except (ValueError, IndexError, TypeError) as e:
             logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}.')
-            self.transcription_confidence = 0
+            self.transcription_confidence = 0.0
             average_word_width = (text_line_hpos + text_line_width) / len(self.transcription.split())
             for w, word in enumerate(self.transcription.split()):
                 string = ET.SubElement(text_line, "String")

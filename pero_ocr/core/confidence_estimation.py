@@ -69,10 +69,16 @@ def squeeze(sequence):
 
     return result
 
+def get_line_confidence_median(line, labels=None, aligned_letters=None, log_probs=None):
+    confidences = get_line_confidence(line, labels, aligned_letters, log_probs)
+    return np.quantile(confidences, .50)
 
-def get_line_confidence(line, labels, aligned_letters=None, log_probs=None):
+def get_line_confidence(line, labels=None, aligned_letters=None, log_probs=None):
     # There is the same number of outputs as labels (probably transformer model was used) --> each letter has only one
     # possible frame in logits and thus it is not needed to align them
+    if labels is None:
+        labels = line.get_labels()
+
     if line.logits.shape[0] == len(labels):
         return get_line_confidence_transformer(line, labels)
 

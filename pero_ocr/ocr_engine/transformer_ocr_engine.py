@@ -105,9 +105,5 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         outputs = []
         for line_labels in labels:
             outputs.append(''.join([self.characters[c] for c in line_labels]))
-
-        if self.output_substitution is not None:
-            outputs = self.output_substitution(outputs)
-
         return outputs
 

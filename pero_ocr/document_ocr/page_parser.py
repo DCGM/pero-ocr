@@ -12,6 +12,7 @@ import torch.cuda
 from pero_ocr.utils import compose_path, config_get_list
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 import pero_ocr.core.crop_engine as cropper
+from pero_ocr.core.confidence_estimation import get_line_confidence_median
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
@@ -528,12 +529,31 @@ class PageOCR(object):
         transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in lines_to_process])
 
         for line, line_transcription, line_logits, line_logit_coords in zip(lines_to_process, transcriptions, logits, logit_coords):
-            line.transcription = line_transcription
-            line.logits = line_logits
-            line.characters = self.ocr_engine.characters
-            line.logit_coords = line_logit_coords
+            new_line = TextLine(transcription=line_transcription,
+                                logits=line_logits,
+                                characters=self.ocr_engine.characters,
+                                logit_coords=line_logit_coords)
+
+            try:
+                new_line.transcription_confidence = get_line_confidence_median(new_line) if line_transcription else 0.0
+            except ValueError as e:
+                logger.warning(f'Error: PageOCR is unable to get confidence of line {self.id} due to exception: {e}.')
+                new_line.transcription_confidence = 0.0
+
+            if (line.transcription_confidence is None or
+                    line.transcription_confidence < new_line.transcription_confidence):
+                line.transcription = self.substitute_transcription(line_transcription)
+                line.logits = line_logits
+                line.characters = self.ocr_engine.characters
+                line.logit_coords = line_logit_coords
+                line.transcription_confidence = new_line.transcription_confidence
         return page_layout
 
+    def substitute_transcription(self, transcription):
+        if self.ocr_engine.output_substitution is not None:
+            return self.ocr_engine.output_substitution(transcription)
+        else:
+            return transcription
 
 def get_prob(best_ids, best_probs):
     last_id = -1
