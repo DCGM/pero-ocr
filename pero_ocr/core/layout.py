@@ -6,6 +6,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Union
+import unicodedata
 
 import numpy as np
 import lxml.etree as ET
@@ -890,7 +891,7 @@ class PageLayout(object):
                     cv2.putText(image, text, (mid_x, mid_y), font, font_scale,
                                 color=(0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
                 if render_category and region.category not in [None, 'text']:
-                    text = f"{region.category}"
+                    text = f"{normalize_text(region.category)}"
                     text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
                     start_point = (int(min_p[0]), int(min_p[1]))
                     end_point = (int(min_p[0]) + text_w, int(min_p[1]) - text_h)
@@ -1074,3 +1075,7 @@ def create_ocr_processing_element(id: str = "IdOcr",
 
     return ocr_processing
 
+
+def normalize_text(text: str) -> str:
+    """Normalize text to ASCII characters. (e.g. Obrázek -> Obrazek)"""
+    return unicodedata.normalize('NFD', text).encode('ascii', 'ignore').decode('ascii')
