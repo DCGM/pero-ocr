@@ -447,7 +447,7 @@ class RegionLayout(object):
         return layout_region
 
     def to_altoxml(self, print_space, arabic_helper, min_line_confidence, print_space_coords: (int, int, int, int)
-                    ) -> (int, int, int, int):
+                   ) -> (int, int, int, int):
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
         text_block = ET.SubElement(print_space, "TextBlock")

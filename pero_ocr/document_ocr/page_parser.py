@@ -12,7 +12,7 @@ import torch.cuda
 from pero_ocr.utils import compose_path, config_get_list
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 import pero_ocr.core.crop_engine as cropper
-from pero_ocr.core.confidence_estimation import get_line_confidence_median
+from pero_ocr.core.confidence_estimation import get_line_confidence
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
@@ -528,17 +528,14 @@ class PageOCR(object):
 
         transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in lines_to_process])
 
-        for line, line_transcription, line_logits, line_logit_coords in zip(lines_to_process, transcriptions, logits, logit_coords):
-            new_line = TextLine(transcription=line_transcription,
+        for line, line_transcription, line_logits, line_logit_coords in zip(lines_to_process, transcriptions,
+                                                                            logits, logit_coords):
+            new_line = TextLine(id=line.id,
+                                transcription=line_transcription,
                                 logits=line_logits,
                                 characters=self.ocr_engine.characters,
                                 logit_coords=line_logit_coords)
-
-            try:
-                new_line.transcription_confidence = get_line_confidence_median(new_line) if line_transcription else 0.0
-            except ValueError as e:
-                logger.warning(f'Error: PageOCR is unable to get confidence of line {self.id} due to exception: {e}.')
-                new_line.transcription_confidence = 0.0
+            new_line.transcription_confidence = self.get_line_confidence(new_line)
 
             if (line.transcription_confidence is None or
                     line.transcription_confidence < new_line.transcription_confidence):
@@ -554,6 +551,21 @@ class PageOCR(object):
             return self.ocr_engine.output_substitution(transcription)
         else:
             return transcription
+
+    @staticmethod
+    def get_line_confidence(line):
+        default_confidence = 0.0
+
+        if line.transcription:
+            try:
+                log_probs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
+                confidences = get_line_confidence(line, log_probs=log_probs)
+                return np.quantile(confidences, .50)
+            except ValueError as e:
+                logger.warning(f'Error: PageOCR is unable to get confidence of line {line.id} due to exception: {e}.')
+                return default_confidence
+        return default_confidence
+
 
 def get_prob(best_ids, best_probs):
     last_id = -1
