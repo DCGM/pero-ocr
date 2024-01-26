@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import numpy as np
-import logging
 
 from configparser import SectionProxy
 from sklearn.cluster import DBSCAN
@@ -10,8 +9,6 @@ from typing import List
 from pero_ocr.utils import config_get_list
 from pero_ocr.core.layout import PageLayout, RegionLayout
 from pero_ocr.layout_engines import layout_helpers as helpers
-
-logger = logging.getLogger(__name__)
 
 
 class Region:

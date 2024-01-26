@@ -450,7 +450,7 @@ class LinePostprocessor(object):
 
     def process_page(self, img, page_layout: PageLayout):
         if not page_layout.regions:
-            logger.warning(f"Skipping line post processing for page {page_layout.id}. No text region present.")
+            print(f"Warning: Skipping line post processing for page {page_layout.id}. No text region present.")
             return page_layout
 
         for region in page_layout.regions:
@@ -465,7 +465,7 @@ class LayoutPostprocessor(object):
 
     def process_page(self, img, page_layout: PageLayout):
         if not page_layout.regions:
-            logger.warning(f"Skipping layout post processing for page {page_layout.id}. No text region present.")
+            print(f"Warning: Skipping layout post processing for page {page_layout.id}. No text region present.")
             return page_layout
 
         if self.retrace_regions:
@@ -492,7 +492,8 @@ class LineCropper(object):
             except ValueError:
                 line.crop = np.zeros(
                     (self.crop_engine.line_height, self.crop_engine.line_height, 3))
-                logger.warning(f"Failed to crop line {line.id} in page {page_layout.id}. Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
+                print(f"WARNING: Failed to crop line {line.id} in page {page_layout.id}. "
+                      f"Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
         return page_layout
 
     def crop_lines(self, img, lines: list):
@@ -503,7 +504,8 @@ class LineCropper(object):
             except ValueError:
                 line.crop = np.zeros(
                     (self.crop_engine.line_height, self.crop_engine.line_height, 3))
-                logger.warning(f"Failed to crop line {line.id}. Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
+                print(f"WARNING: Failed to crop line {line.id}. Probably contain vertical line. "
+                      f"Contanct Olda Kodym to fix this bug!")
 
 
 class PageOCR(object):

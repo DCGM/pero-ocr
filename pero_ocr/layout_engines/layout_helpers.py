@@ -14,7 +14,6 @@ from shapely.ops import cascaded_union, polygonize
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 
-logger = logging.getLogger(__name__)
 
 def check_line_position(baseline, page_size, margin=20, min_ratio=0.125):
     """Checks if line is short and very close to the page edge, which may indicate that the region actually belongs to
