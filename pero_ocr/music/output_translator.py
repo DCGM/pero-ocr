@@ -41,13 +41,15 @@ class OutputTranslator:
     def translate_symbol(self, symbol: str, reverse: bool = False):
         dictionary = self.dictionary_reversed if reverse else self.dictionary
 
-        try:
-            return dictionary[symbol]
-        except KeyError:
-            if symbol not in self.n_existing_labels:
-                self.n_existing_labels.add(symbol)
-                logger.info(f'Not existing label: ({symbol})')
-            return ''
+        translation = dictionary.get(symbol, None)
+        if translation is not None:
+            return translation
+
+        if symbol not in self.n_existing_labels:
+            logger.debug(f'Not existing label: ({symbol})')
+        self.n_existing_labels.add(symbol)
+
+        return symbol
 
     @staticmethod
     def load_dictionary(dictionary: dict = None, filename: str = None) -> dict:
