@@ -2,6 +2,9 @@ from os.path import isabs, join
 import sys
 import logging
 import subprocess
+import json
+
+logger = logging.getLogger(__name__)
 
 try:
     subprocess.check_output(
@@ -22,3 +25,19 @@ def compose_path(file_path, reference_path):
     if reference_path and not isabs(file_path):
         file_path = join(reference_path, file_path)
     return file_path
+
+
+def config_get_list(config, key, fallback=None):
+    """Get list from config."""
+    fallback = fallback if fallback is not None else []
+
+    if key not in config:
+        return fallback
+
+    try:
+        value = json.loads(config[key])
+    except json.decoder.JSONDecodeError as e:
+        logger.info(f'Failed to parse list from config key "{key}", returning fallback {fallback}:\n{e}')
+        return fallback
+    else:
+        return value
