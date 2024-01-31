@@ -515,11 +515,15 @@ class PageOCR(object):
 
         self.device = device if not use_cpu else torch.device("cpu")
         self.categories = config_get_list(config, key='CATEGORIES', fallback=['text'])
+        self.substitute_output = config.getboolean('SUBSTITUTE_OUTPUT', fallback=True)
+        self.substitute_output_atomic = config.getboolean('SUBSTITUTE_OUTPUT_ATOMIC', fallback=True)
 
         if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
-            self.ocr_engine = TransformerEngineLineOCR(json_file, self.device)
+            self.ocr_engine = TransformerEngineLineOCR(json_file, self.device,
+                                                       substitute_output_atomic=self.substitute_output_atomic)
         else:
-            self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
+            self.ocr_engine = PytorchEngineLineOCR(json_file, self.device,
+                                                   substitute_output_atomic=self.substitute_output_atomic)
 
     def process_page(self, img, page_layout: PageLayout):
         lines_to_process = []
@@ -549,7 +553,7 @@ class PageOCR(object):
         return page_layout
 
     def substitute_transcription(self, transcription):
-        if self.ocr_engine.output_substitution is not None:
+        if self.substitute_output and self.ocr_engine.output_substitution is not None:
             return self.ocr_engine.output_substitution(transcription)
         else:
             return transcription
@@ -564,7 +568,7 @@ class PageOCR(object):
                 confidences = get_line_confidence(line, log_probs=log_probs)
                 return np.quantile(confidences, .50)
             except ValueError as e:
-                logger.warning(f'Error: PageOCR is unable to get confidence of line {line.id} due to exception: {e}.')
+                logger.warning(f'PageOCR is unable to get confidence of line {line.id} due to exception: {e}.')
                 return default_confidence
         return default_confidence
 

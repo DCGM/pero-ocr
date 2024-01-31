@@ -14,7 +14,7 @@ from pero_ocr.music.output_translator import OutputTranslator
 
 
 class BaseEngineLineOCR(object):
-    def __init__(self, json_def, device, batch_size=8, model_type="ctc"):
+    def __init__(self, json_def, device, batch_size=8, model_type="ctc", substitute_output_atomic: bool = True):
         with open(json_def, 'r', encoding='utf8') as f:
             self.config = json.load(f)
 
@@ -30,7 +30,8 @@ class BaseEngineLineOCR(object):
 
         self.output_substitution = None
         if 'output_substitution_table' in self.config:
-            self.output_substitution = OutputTranslator(dictionary=self.config['output_substitution_table'])
+            self.output_substitution = OutputTranslator(dictionary=self.config['output_substitution_table'],
+                                                        atomic=substitute_output_atomic)
 
         self.net_name = self.config['net_name']
         if "embed_num" in self.config:

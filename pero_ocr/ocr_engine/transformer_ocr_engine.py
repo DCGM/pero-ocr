@@ -8,8 +8,10 @@ from pero_ocr.ocr_engine import transformer
 
 
 class TransformerEngineLineOCR(BaseEngineLineOCR):
-    def __init__(self, json_def, device, batch_size=4):
-        super(TransformerEngineLineOCR, self).__init__(json_def, device, batch_size=batch_size, model_type="transformer")
+    def __init__(self, json_def, device, batch_size=4, substitute_output_atomic: bool = True):
+        super(TransformerEngineLineOCR, self).__init__(json_def, device, batch_size=batch_size,
+                                                       model_type="transformer",
+                                                       substitute_output_atomic=substitute_output_atomic)
 
         self.characters = list(self.characters) + [u'\u200B', '']
 

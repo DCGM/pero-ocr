@@ -12,10 +12,11 @@ class OutputTranslator:
     """Class for translating output from shorter form to longer form using simple dictionary.
 
     Used for example in Optical Music Recognition to translate shorter SSemantic encoding to Semantic encoding."""
-    def __init__(self, dictionary: dict = None, filename: str = None):
+    def __init__(self, dictionary: dict = None, filename: str = None, atomic: bool = False):
         self.dictionary = self.load_dictionary(dictionary, filename)
         self.dictionary_reversed = {v: k for k, v in self.dictionary.items()}
         self.n_existing_labels = set()
+        self.atomic = atomic
 
     def __call__(self, inputs: Union[str, list], reverse: bool = False) -> Union[str, list]:
         if isinstance(inputs, list):
@@ -32,13 +33,22 @@ class OutputTranslator:
         return [self.translate_line(line, reverse) for line in lines]
 
     def translate_line(self, line, reverse: bool = False):
-        line = line.strip('"').strip()
-        symbols = re.split(r'\s+', line)
-        converted_symbols = [self.translate_symbol(symbol, reverse) for symbol in symbols]
+        line_stripped = line.strip('"').strip()
+        symbols = re.split(r'\s+', line_stripped)
+
+        converted_symbols = []
+        for symbol in symbols:
+            translation = self.translate_symbol(symbol, reverse)
+            if translation is None:
+                if self.atomic:
+                    return line
+                converted_symbols.append(symbol)
+            else:
+                converted_symbols.append(translation)
 
         return ' '.join(converted_symbols)
 
-    def translate_symbol(self, symbol: str, reverse: bool = False):
+    def translate_symbol(self, symbol: str, reverse: bool = False) -> str | None:
         dictionary = self.dictionary_reversed if reverse else self.dictionary
 
         translation = dictionary.get(symbol, None)
@@ -49,7 +59,7 @@ class OutputTranslator:
             logger.debug(f'Not existing label: ({symbol})')
         self.n_existing_labels.add(symbol)
 
-        return symbol
+        return None
 
     @staticmethod
     def load_dictionary(dictionary: dict = None, filename: str = None) -> dict:
