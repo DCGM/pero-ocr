@@ -167,7 +167,7 @@ def alpha_shape(points, alpha):
         return sg.MultiPoint(list(points)).convex_hull
 
     tri = Delaunay(points)
-    triangles = points[tri.vertices]
+    triangles = points[tri.simplices]
     a = ((triangles[:, 0, 0] - triangles[:, 1, 0]) ** 2 + (triangles[:, 0, 1] - triangles[:, 1, 1]) ** 2) ** 0.5
     b = ((triangles[:, 1, 0] - triangles[:, 2, 0]) ** 2 + (triangles[:, 1, 1] - triangles[:, 2, 1]) ** 2) ** 0.5
     c = ((triangles[:, 2, 0] - triangles[:, 0, 0]) ** 2 + (triangles[:, 2, 1] - triangles[:, 0, 1]) ** 2) ** 0.5
