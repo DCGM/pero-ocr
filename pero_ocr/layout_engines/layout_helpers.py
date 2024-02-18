@@ -8,7 +8,7 @@ from scipy import ndimage
 from scipy.spatial import Delaunay
 import shapely
 import shapely.geometry as sg
-from shapely.ops import cascaded_union, polygonize
+from shapely.ops import unary_union, polygonize
 
 from pero_ocr.core.layout import TextLine
 
@@ -178,7 +178,7 @@ def alpha_shape(points, alpha):
         np.concatenate((edge1, edge2, edge3)), axis=0).tolist()
     m = sg.MultiLineString(edge_points)
     triangles = list(polygonize(m))
-    return cascaded_union(triangles)
+    return unary_union(triangles)
 
 
 def check_polygon(polygon):
@@ -330,11 +330,11 @@ def mask_textline_by_region(baseline, textline, region):
     textline_is = region_shpl.intersection(textline_shpl)
 
     if isinstance(textline_is, sg.MultiPolygon):  # this can happen generally with some combinations of layout and line detection
-        areas = np.array([poly.area for poly in textline_is])
-        textline_is = textline_is[np.argmax(areas)]
+        areas = np.array([poly.area for poly in textline_is.geoms])
+        textline_is = textline_is.geoms[np.argmax(areas)]
     if isinstance(baseline_is, sg.MultiLineString):  # this can happen generally with some combinations of layout and line detection
-        lengths = np.array([line.length for line in baseline_is])
-        baseline_is = baseline_is[np.argmax(lengths)]
+        lengths = np.array([line.length for line in baseline_is.geoms])
+        baseline_is = baseline_is.geoms[np.argmax(lengths)]
 
     if isinstance(baseline_is, sg.LineString) and isinstance(textline_is, sg.Polygon) and baseline_is.length > 2:
         return np.asarray(baseline_is.coords), np.asarray(textline_is.exterior.coords)
