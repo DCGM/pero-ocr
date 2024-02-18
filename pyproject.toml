@@ -36,7 +36,7 @@ dependencies = [
     "brnolm>=0.3.0",
     "scikit-learn",
     "scikit-image",
-    "shapely==1.8",
+    "shapely",
     "safe-gpu>=1.5.1",
     "pyamg",
     "imgaug",
