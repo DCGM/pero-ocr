@@ -30,7 +30,7 @@ dependencies = [
     "lmdb",
     "levenshtein",
     "scipy",
-    "numba==0.57",
+    "numba",
     "torch>=2.0.1",
     "torchvision>=0.15.2",
     "brnolm>=0.3.0",
