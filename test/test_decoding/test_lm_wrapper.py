@@ -9,13 +9,16 @@ from pero_ocr.decoding.lm_wrapper import LMWrapper, HiddenState
 class DummyModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
+
         self._model_i = torch.nn.Embedding(4, 1)
+        self._model_i.requires_grad_(False)
         self._model_i.weight[0, 0] = 0
         self._model_i.weight[1, 0] = 1
         self._model_i.weight[2, 0] = 2
         self._model_i.weight[3, 0] = 3
 
         self._model_r = torch.nn.Linear(1, 1)
+        self._model_r.requires_grad_(False)
         self._model_r.weight[0, 0] = 2
         self._model_r.bias[0] = -1
 
@@ -42,6 +45,7 @@ class DummyDecoder(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self._model_o = torch.nn.Linear(1, 4)
+        self._model_o.requires_grad_(False)
         self._model_o.weight[0, 0] = -100
         self._model_o.weight[1, 0] = 2
         self._model_o.weight[2, 0] = 0
@@ -167,12 +171,12 @@ class LMWrapperTemplate:
 
 class TorchCPULmWrapperTests(LMWrapperTemplate, unittest.TestCase):
     def setUp(self):
-        self._wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'])
         self._device = torch.device('cpu')
+        self._wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'], device=self._device)
 
 
 @unittest.skipIf(os.environ.get('TEST_CUDA') != 'yes', "For GPU tests, set TEST_CUDA='yes'")
 class GPULMWrapperTests(LMWrapperTemplate, unittest.TestCase):
     def setUp(self):
-        self._wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'], lm_on_gpu=True)
         self._device = torch.device('cuda')
+        self._wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'], device=self._device)

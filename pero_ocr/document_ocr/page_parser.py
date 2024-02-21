@@ -6,10 +6,12 @@ import math
 import time
 
 import torch.cuda
+
 from pero_ocr.utils import compose_path
-from .layout import PageLayout, RegionLayout, TextLine
-from pero_ocr.document_ocr import crop_engine as cropper
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
+import pero_ocr.core.crop_engine as cropper
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
+from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
 from pero_ocr.layout_engines.simple_baseline_engine import EngineLineDetectorSimple
 from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEngine
@@ -401,13 +403,17 @@ class LineCropper(object):
                 print(f"WARNING: Failed to crop line {line.id}. Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
 
 
-class PageOCR(object):
+class PageOCR:
     def __init__(self, config, device, config_path=''):
         json_file = compose_path(config['OCR_JSON'], config_path)
         use_cpu = config.getboolean('USE_CPU')
 
         self.device = device if not use_cpu else torch.device("cpu")
-        self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
+
+        if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
+            self.ocr_engine = TransformerEngineLineOCR(json_file, self.device)
+        else:
+            self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
 
     def process_page(self, img, page_layout: PageLayout):
         for line in page_layout.lines_iterator():
@@ -422,6 +428,10 @@ class PageOCR(object):
             line.characters = self.ocr_engine.characters
             line.logit_coords = line_logit_coords
         return page_layout
+
+    @property
+    def provides_ctc_logits(self):
+        return isinstance(self.ocr_engine, PytorchEngineLineOCR)
 
 
 def get_prob(best_ids, best_probs):
@@ -441,7 +451,7 @@ def get_prob(best_ids, best_probs):
 
 
 def get_default_device():
-    return torch.device('cuda') if torch.cuda.is_available() else torch.device ('cpu')
+    return torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 
 class PageParser(object):
@@ -484,6 +494,13 @@ class PageParser(object):
         #     print(best_probs[i-1:i+2], best_ids[i-1:i+2])
 
         return worst_best_prob
+
+    @property
+    def provides_ctc_logits(self):
+        if not self.ocr:
+            return False
+
+        return self.ocr.provides_ctc_logits
 
     def update_confidences(self, page_layout):
         for line in page_layout.lines_iterator():

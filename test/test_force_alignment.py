@@ -1,10 +1,10 @@
 import unittest
 import numpy as np
 
-from pero_ocr.force_alignment import hmm_trans_from_string, complete_state_seq
-from pero_ocr.force_alignment import initial_cost, final_cost
-from pero_ocr.force_alignment import backtrack, expand_logits
-from pero_ocr.force_alignment import viterbi_align, force_align
+from pero_ocr.core.force_alignment import hmm_trans_from_string, complete_state_seq
+from pero_ocr.core.force_alignment import initial_cost, final_cost
+from pero_ocr.core.force_alignment import backtrack, expand_logits
+from pero_ocr.core.force_alignment import viterbi_align, force_align
 
 
 class TestHmmTransitionCreation(unittest.TestCase):
@@ -102,7 +102,7 @@ class TestBacktracking(unittest.TestCase):
         backpointers = np.asarray([
             [-1, -1],
             [0, 1]
-        ], dtype=np.int)
+        ], dtype=int)
 
         self.assertEqual(backtrack(backpointers, 0), [0, 0])
 
@@ -110,7 +110,7 @@ class TestBacktracking(unittest.TestCase):
         backpointers = np.asarray([
             [-1, -1],
             [0, 1]
-        ], dtype=np.int)
+        ], dtype=int)
 
         self.assertEqual(backtrack(backpointers, 1), [1, 1])
 
@@ -121,7 +121,7 @@ class TestBacktracking(unittest.TestCase):
             [1, 0],
             [1, 1],
             [1, 0],
-        ], dtype=np.int)
+        ], dtype=int)
 
         self.assertEqual(backtrack(backpointers, 1), [0, 0, 1, 0, 1])
 
@@ -132,7 +132,7 @@ class TestBacktracking(unittest.TestCase):
             [1, 1, 0],
             [2, 1, 2],
             [1, 0, 2],
-        ], dtype=np.int)
+        ], dtype=int)
 
         self.assertEqual(backtrack(backpointers, 1), [0, 0, 2, 0, 1])
 
@@ -143,7 +143,7 @@ class TestLogitsExpansion(unittest.TestCase):
             [0, 0, 0],
             [1, 1, 1],
             [2, 2, 2],
-        ], dtype=np.int)
+        ], dtype=int)
         logits = logits_T.T
 
         np.testing.assert_array_equal(expand_logits(logits, [0, 1, 2]), logits)
@@ -153,7 +153,7 @@ class TestLogitsExpansion(unittest.TestCase):
             [0, 0, 0],
             [1, 1, 1],
             [2, 2, 2],
-        ], dtype=np.int)
+        ], dtype=int)
         logits = logits_T.T
 
         expanded_logits_T = np.asarray([
@@ -162,7 +162,7 @@ class TestLogitsExpansion(unittest.TestCase):
             [0, 0, 0],
             [2, 2, 2],
             [0, 0, 0],
-        ], dtype=np.int)
+        ], dtype=int)
         expanded_logits = expanded_logits_T.T
 
         np.testing.assert_array_equal(expand_logits(logits, [0, 1, 0, 2, 0]), expanded_logits)

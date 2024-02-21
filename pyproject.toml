@@ -3,10 +3,10 @@ requires = [ "setuptools>=61" ]
 
 [project]
 name = "pero-ocr"
-version = "0.6.1"
+version = "0.7.0"
 description = "Toolkit for advanced OCR of poor quality documents"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.9"
 license = {file = "LICENSE"}
 keywords = ["OCR", "Layout analysis", "handwriting recognition"]
 
@@ -31,12 +31,13 @@ dependencies = [
     "levenshtein",
     "scipy",
     "numba",
-    "torch>=1.12",
-    "brnolm>=0.1.1",
+    "torch>=2.0.1",
+    "torchvision>=0.15.2",
+    "brnolm>=0.3.0",
     "scikit-learn",
     "scikit-image",
-    "shapely==1.8",
-    "safe-gpu>=1.5",
+    "shapely",
+    "safe-gpu>=1.5.1",
     "pyamg",
     "imgaug",
     "arabic_reshaper",

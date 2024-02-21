@@ -96,7 +96,7 @@ class TorchParseNet(Net):
         '''
         Compute median line height from CNN output
         '''
-        heights = (out_map[:, :, 2] > self.detection_threshold).astype(np.float) * out_map[:, :, 0]
+        heights = (out_map[:, :, 2] > self.detection_threshold).astype(float) * out_map[:, :, 0]
         med_height = np.median(heights[heights > 0])
 
         return med_height

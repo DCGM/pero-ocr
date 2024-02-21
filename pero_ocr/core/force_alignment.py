@@ -114,7 +114,7 @@ def expand_logits(array: np.ndarray, seq: typing.List[int]) -> np.ndarray:
     return array[:, seq]
 
 
-@jit
+@jit(nopython=True)
 def compute_update(positions, column_frame, act_cost):
     backpointers = np.zeros(act_cost.shape, np.int32)
     new_cost = np.zeros_like(act_cost)
@@ -130,7 +130,7 @@ def compute_update(positions, column_frame, act_cost):
 
 def viterbi_align(neg_logits: np.ndarray, A: np.ndarray) -> typing.List[int]:
     nb_states = A.shape[0]
-    backpointers = np.full((neg_logits.shape[0], nb_states), -1, dtype=np.int)
+    backpointers = np.full((neg_logits.shape[0], nb_states), -1, dtype=int)
     first_frame_cost = initial_cost(nb_states) + neg_logits[0]
 
     A_positions = np.where(A != np.inf)

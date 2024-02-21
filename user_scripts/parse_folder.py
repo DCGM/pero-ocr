@@ -19,7 +19,7 @@ import torch
 from safe_gpu import safe_gpu
 
 from pero_ocr import utils  # noqa: F401 -- there is code executed upon import here.
-from pero_ocr.document_ocr.layout import PageLayout
+from pero_ocr.core.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
 
@@ -270,6 +270,14 @@ def main():
     output_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_XML_PATH')
     output_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LOGIT_PATH')
     output_alto_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_ALTO_PATH')
+
+    if not page_parser.provides_ctc_logits and not input_logit_path and output_alto_path:
+        logging.error(f'Cannot create ALTO with current PageParser (transformer outputs are incompatible)')
+        sys.exit(2)
+
+    if not page_parser.provides_ctc_logits and output_logit_path:
+        logging.error(f'Cannot store logits with current PageParser (transformer outputs are incompatible)')
+        sys.exit(2)
 
     if output_render_path is not None:
         create_dir_if_not_exists(output_render_path)
