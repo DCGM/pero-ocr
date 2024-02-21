@@ -8,7 +8,7 @@ from scipy import ndimage
 from scipy.spatial import Delaunay
 import shapely
 import shapely.geometry as sg
-from shapely.ops import cascaded_union, polygonize
+from shapely.ops import unary_union, polygonize
 
 from pero_ocr.core.layout import TextLine
 
@@ -48,12 +48,12 @@ def assign_lines_to_regions(baseline_list, heights_list, textline_list, regions)
         max_[:] = region.polygon.max(axis=0)
 
     candidates = np.logical_and(
-            np.logical_or(
-                max_line[:, np.newaxis, 1] <= min_region[np.newaxis, :, 1],
-                min_line[:, np.newaxis, 1] >= max_region[np.newaxis, :, 1]),
-            np.logical_or(
-                max_line[:, np.newaxis, 0] <= min_region[np.newaxis, :, 0],
-                min_line[:, np.newaxis, 0] >= max_region[np.newaxis, :, 0]),
+        np.logical_or(
+            max_line[:, np.newaxis, 1] <= min_region[np.newaxis, :, 1],
+            min_line[:, np.newaxis, 1] >= max_region[np.newaxis, :, 1]),
+        np.logical_or(
+            max_line[:, np.newaxis, 0] <= min_region[np.newaxis, :, 0],
+            min_line[:, np.newaxis, 0] >= max_region[np.newaxis, :, 0]),
     )
     candidates = np.logical_not(candidates)
     for line_id, region_id in zip(*candidates.nonzero()):
@@ -69,7 +69,7 @@ def assign_lines_to_regions(baseline_list, heights_list, textline_list, regions)
                 baseline=baseline_intersection,
                 polygon=textline_intersection,
                 heights=heights
-                )
+            )
             region.lines.append(new_textline)
 
     return regions
@@ -90,8 +90,6 @@ def retrace_region(region):
         print('WARNING: polygon coordinates discarded during retrace.')
 
     region.polygon = np.array(new_polygon.exterior.coords)
-
-    return
 
 
 def baseline_to_textline(baseline, heights):
@@ -167,7 +165,7 @@ def alpha_shape(points, alpha):
         return sg.MultiPoint(list(points)).convex_hull
 
     tri = Delaunay(points)
-    triangles = points[tri.vertices]
+    triangles = points[tri.simplices]
     a = ((triangles[:, 0, 0] - triangles[:, 1, 0]) ** 2 + (triangles[:, 0, 1] - triangles[:, 1, 1]) ** 2) ** 0.5
     b = ((triangles[:, 1, 0] - triangles[:, 2, 0]) ** 2 + (triangles[:, 1, 1] - triangles[:, 2, 1]) ** 2) ** 0.5
     c = ((triangles[:, 2, 0] - triangles[:, 0, 0]) ** 2 + (triangles[:, 2, 1] - triangles[:, 0, 1]) ** 2) ** 0.5
@@ -180,7 +178,7 @@ def alpha_shape(points, alpha):
         np.concatenate((edge1, edge2, edge3)), axis=0).tolist()
     m = sg.MultiLineString(edge_points)
     triangles = list(polygonize(m))
-    return cascaded_union(triangles)
+    return unary_union(triangles)
 
 
 def check_polygon(polygon):
@@ -219,10 +217,10 @@ def merge_lines(baselines, heights):
                 v_overlay = (min_i > min_j and max_i < max_j) or (min_j > min_i and max_j < max_i)
                 v_gap = np.maximum(min_i - max_j, min_j - max_i)
                 h_overlay = np.minimum(avg_hpos_1 + heights[i][1], avg_hpos_2 + heights[j][1]) - np.maximum(avg_hpos_1 - heights[i][0], avg_hpos_2 - heights[j][0])
-                if (h_overlay > (0.7 * np.minimum(heights[i][0] + heights[i][1], heights[j][0] + heights[j][1]))
-                        and not v_overlay
-                        and v_gap < 2 * np.minimum(heights[i][0] + heights[i][1], heights[j][0] + heights[j][1])):
-                    # print(v_gap)
+
+                h_overlay_sufficient = h_overlay > (0.7 * np.minimum(heights[i][0] + heights[i][1], heights[j][0] + heights[j][1]))
+                v_gap_not_too_big = v_gap < 2 * np.minimum(heights[i][0] + heights[i][1], heights[j][0] + heights[j][1])
+                if h_overlay_sufficient and not v_overlay and v_gap_not_too_big:
                     if i not in merged_lines:
                         lines_to_merge_i.append(i)
                         merged_lines.append(i)
@@ -278,18 +276,18 @@ def resample_baselines(baselines, num_points=10):
     baselines_resampled = []
 
     for baseline in baselines:
-        vertical = np.abs(baseline[0,0]-baseline[-1,0]) < np.abs(baseline[0,1]-baseline[-1,1])
+        vertical = np.abs(baseline[0, 0]-baseline[-1, 0]) < np.abs(baseline[0, 1]-baseline[-1, 1])
         if vertical:
-            baseline = np.stack((baseline[:,-1], baseline[:,0]), axis=1)
+            baseline = np.stack((baseline[:, -1], baseline[:, 0]), axis=1)
         if baseline.shape[0] == 2:
-            line_interpf = np.poly1d(np.polyfit(baseline[:,0], baseline[:,1], 1))
+            line_interpf = np.poly1d(np.polyfit(baseline[:, 0], baseline[:, 1], 1))
         else:
-            line_interpf = np.poly1d(np.polyfit(baseline[:,0], baseline[:,1], 2))
-        new_xs = np.linspace(baseline[0,0], baseline[-1,0], num_points)
+            line_interpf = np.poly1d(np.polyfit(baseline[:, 0], baseline[:, 1], 2))
+        new_xs = np.linspace(baseline[0, 0], baseline[-1, 0], num_points)
         new_ys = line_interpf(new_xs)
         baseline_resampled = np.stack((new_xs, new_ys), axis=-1)
         if vertical:
-            baseline_resampled = np.stack((baseline_resampled[:,-1], baseline_resampled[:,0]), axis=1)
+            baseline_resampled = np.stack((baseline_resampled[:, -1], baseline_resampled[:, 0]), axis=1)
         baselines_resampled.append(baseline_resampled)
     return baselines_resampled
 
@@ -299,11 +297,16 @@ def filter_list(items_list, indices_to_remove):
     :param items_list: target list
     :param indices_to_remove: indices of items to be removed from target list
     """
-    items_to_remove = list()
-    [items_to_remove.append(items_list[index_to_remove]) for index_to_remove in indices_to_remove]
-    [items_list.remove(item_to_remove) for item_to_remove in items_to_remove]
 
-    return items_list
+    def normalize(idx, len_data):
+        if idx < -len_data or idx > len_data - 1:
+            raise ValueError(f'Cannot remove index {idx} from {len_data}-long data')
+
+        return idx if idx >= 0 else len_data + idx
+
+    normalized_to_remove = [normalize(x, len(items_list)) for x in indices_to_remove]
+
+    return [x for i, x in enumerate(items_list) if i not in normalized_to_remove]
 
 
 def mask_textline_by_region(baseline, textline, region):
@@ -317,7 +320,7 @@ def mask_textline_by_region(baseline, textline, region):
         return None, None
 
     textline_shpl = sg.Polygon(textline)
-    if not textline_shpl.is_valid: # this can happen after merging two lines
+    if not textline_shpl.is_valid:  # this can happen after merging two lines
         print('Invalid textline encountered, replacing it with convex hull...')
         textline_shpl = textline_shpl.convex_hull
     if not region_shpl.is_valid:
@@ -326,14 +329,14 @@ def mask_textline_by_region(baseline, textline, region):
     baseline_is = region_shpl.intersection(baseline_shpl)
     textline_is = region_shpl.intersection(textline_shpl)
 
-    if isinstance(textline_is, sg.MultiPolygon): # this can happen generally with some combinations of layout and line detection
-        areas = np.array([poly.area for poly in textline_is])
-        textline_is = textline_is[np.argmax(areas)]
+    if isinstance(textline_is, sg.MultiPolygon):  # this can happen generally with some combinations of layout and line detection
+        areas = np.array([poly.area for poly in textline_is.geoms])
+        textline_is = textline_is.geoms[np.argmax(areas)]
     if isinstance(baseline_is, sg.MultiLineString):  # this can happen generally with some combinations of layout and line detection
-        lengths = np.array([line.length for line in baseline_is])
-        baseline_is = baseline_is[np.argmax(lengths)]
+        lengths = np.array([line.length for line in baseline_is.geoms])
+        baseline_is = baseline_is.geoms[np.argmax(lengths)]
 
-    if isinstance(baseline_is, sg.LineString) and isinstance(textline_is, sg.Polygon) and baseline_is.length>2:
+    if isinstance(baseline_is, sg.LineString) and isinstance(textline_is, sg.Polygon) and baseline_is.length > 2:
         return np.asarray(baseline_is.coords), np.asarray(textline_is.exterior.coords)
     else:
         return None, None
@@ -354,10 +357,11 @@ def get_rotation(lines):
                 np.arctan2((last_line_point[1] - first_line_point[1]), (last_line_point[0] - first_line_point[0])))
             length = math.sqrt(
                 math.pow(last_line_point[0] - first_line_point[0], 2)
-                + math.pow(last_line_point[1] - first_line_point[1], 2))
+                + math.pow(last_line_point[1] - first_line_point[1], 2)
+            )
             lines_info.append((length, rotation))
         else:
-            lines_info.append((0,0))
+            lines_info.append((0, 0))
 
     lines_info = sorted(lines_info, key=lambda x: x[0], reverse=True)
     lines_info = lines_info[0:int(len(lines_info)/2)]
@@ -396,11 +400,11 @@ def adjust_baselines_to_intensity(baselines, img, tolerance=5):
         best_score = -np.inf
         for offset in range(-tolerance, tolerance):
             score = np.sum(grad_img[
-                np.clip(baseline_pts[:,1]+offset, 0, grad_img.shape[0]-1),
-                np.clip(baseline_pts[:,0], 0, grad_img.shape[1]-1)])
+                np.clip(baseline_pts[:, 1] + offset, 0, grad_img.shape[0] - 1),
+                np.clip(baseline_pts[:, 0], 0, grad_img.shape[1] - 1)])
             if score > best_score:
                 best_score = score
                 best_offset = offset
-        baseline_pts[:,1] += best_offset
+        baseline_pts[:, 1] += best_offset
         new_baselines.append(resample_baselines([baseline_pts], num_points=len(baseline))[0])
     return new_baselines

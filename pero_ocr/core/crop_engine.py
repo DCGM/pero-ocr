@@ -98,7 +98,7 @@ class EngineLineCropper(object):
         coords = np.dot(coords, R).astype(np.float32)
         return coords
 
-    @jit
+    @jit(nopython=False, forceobj=True)
     def reverse_line_mapping(self, forward_mapping, sample_positions, sampled_values):
         backward_mapping = np.zeros_like(sample_positions)
         forward_position = 0
