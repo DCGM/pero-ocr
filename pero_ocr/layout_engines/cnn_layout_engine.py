@@ -320,7 +320,7 @@ class LayoutEngine(object):
             if region_poly.is_empty:
                 continue
             if region_poly.geom_type == 'MultiPolygon':
-                for poly in region_poly:
+                for poly in region_poly.geoms:
                     if not poly.is_empty:
                         p_list.append(poly.simplify(5))
             if region_poly.geom_type == 'Polygon':
