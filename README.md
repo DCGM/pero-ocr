@@ -63,7 +63,7 @@ import os
 import configparser
 import cv2
 import numpy as np
-from pero_ocr.document_ocr.layout import PageLayout
+from pero_ocr.document_ocr.page_parser import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
 # Read config file.
