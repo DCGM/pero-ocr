@@ -5,7 +5,7 @@ import json
 from io import BytesIO
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Tuple
 
 import numpy as np
 import lxml.etree as ET
@@ -47,7 +47,7 @@ class TextLine(object):
                  logits: Optional[Union[scipy.sparse.csc_matrix, np.ndarray]] = None,
                  crop: Optional[np.ndarray] = None,
                  characters: Optional[List[str]] = None,
-                 logit_coords: Optional[Union[List[int, int], List[None, None]]] = None,
+                 logit_coords: Optional[Union[List[Tuple[int]], List[Tuple[None]]]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None):
         self.id = id
@@ -232,7 +232,7 @@ def get_reading_order(page_element, schema):
 
 
 class PageLayout(object):
-    def __init__(self, id: str = None, page_size: List[int, int] = (0, 0), file: str = None):
+    def __init__(self, id: str = None, page_size: List[Tuple[int]] = (0, 0), file: str = None):
         self.id = id
         self.page_size = page_size  # (height, width)
         self.regions: List[RegionLayout] = []
