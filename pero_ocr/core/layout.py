@@ -5,7 +5,7 @@ import json
 from io import BytesIO
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Union
+from typing import Optional, Union, List
 
 import numpy as np
 import lxml.etree as ET
@@ -46,8 +46,8 @@ class TextLine(object):
                  transcription: Optional[str] = None,
                  logits: Optional[Union[scipy.sparse.csc_matrix, np.ndarray]] = None,
                  crop: Optional[np.ndarray] = None,
-                 characters: Optional[list[str]] = None,
-                 logit_coords: Optional[Union[list[int, int], list[None, None]]] = None,
+                 characters: Optional[List[str]] = None,
+                 logit_coords: Optional[Union[List[int, int], List[None, None]]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None):
         self.id = id
@@ -79,7 +79,7 @@ class RegionLayout(object):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
-        self.lines: list[TextLine] = []
+        self.lines: List[TextLine] = []
         self.transcription = None
 
     def to_page_xml(self, page_element: ET.SubElement, validate_id: bool = False):
@@ -232,10 +232,10 @@ def get_reading_order(page_element, schema):
 
 
 class PageLayout(object):
-    def __init__(self, id: str = None, page_size: list[int, int] = (0, 0), file: str = None):
+    def __init__(self, id: str = None, page_size: List[int, int] = (0, 0), file: str = None):
         self.id = id
         self.page_size = page_size  # (height, width)
-        self.regions: list[RegionLayout] = []
+        self.regions: List[RegionLayout] = []
         self.reading_order = None
 
         if file is not None:
