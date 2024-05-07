@@ -431,7 +431,7 @@ class PageOCR:
 
     @property
     def provides_ctc_logits(self):
-        return isinstance(self.ocr_engine, PytorchEngineLineOCR)
+        return isinstance(self.ocr_engine, PytorchEngineLineOCR) or isinstance(self.ocr_engine, TransformerEngineLineOCR)
 
 
 def get_prob(best_ids, best_probs):
