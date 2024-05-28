@@ -328,6 +328,7 @@ class SmartRegionSorter:
 
     @staticmethod
     def rotate_coords(coords, rot_matrix):
+        # TODO looks like a special case of layout_helpers.rotate_coords()
         """Rotate coords around given center point
         :param coords: points to rotate
         :param rot_matrix: rotation matrix
@@ -349,10 +350,11 @@ class SmartRegionSorter:
     def rotate_line(baseline, angle):
         baseline_obj = geometry.LineString(baseline)
         baseline_obj = affinity.rotate(baseline_obj, angle, origin=(0, 0))
-        return np.array(baseline_obj)
+        return np.array(baseline_obj.coords)
 
     @staticmethod
     def get_rotation(lines):
+        # TODO large duplication from layout_helpers.get_rotation()
         """Get mean baseline tilt as angle.
         :param baselines: list of baselines
         """

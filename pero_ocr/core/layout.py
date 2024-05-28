@@ -5,7 +5,7 @@ import json
 from io import BytesIO
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Union
+from typing import Optional, Union, List, Tuple
 import unicodedata
 
 import numpy as np
@@ -47,8 +47,8 @@ class TextLine(object):
                  transcription: Optional[str] = None,
                  logits: Optional[Union[scipy.sparse.csc_matrix, np.ndarray]] = None,
                  crop: Optional[np.ndarray] = None,
-                 characters: Optional[list[str]] = None,
-                 logit_coords: Optional[Union[list[int, int], list[None, None]]] = None,
+                 characters: Optional[List[str]] = None,
+                 logit_coords: Optional[Union[List[Tuple[int]], List[Tuple[None]]]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None,
                  category: Optional[str] = None):
@@ -356,7 +356,7 @@ class RegionLayout(object):
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
         self.category = category
-        self.lines: list[TextLine] = []
+        self.lines: List[TextLine] = []
         self.transcription = None
         self.detection_confidence = detection_confidence
 
@@ -446,8 +446,8 @@ class RegionLayout(object):
 
         return layout_region
 
-    def to_altoxml(self, print_space, arabic_helper, min_line_confidence, print_space_coords: (int, int, int, int)
-                   ) -> (int, int, int, int):
+    def to_altoxml(self, print_space, arabic_helper, min_line_confidence, 
+                   print_space_coords: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
         text_block = ET.SubElement(print_space, "TextBlock")
@@ -604,10 +604,10 @@ def get_reading_order(page_element, schema):
 
 
 class PageLayout(object):
-    def __init__(self, id: str = None, page_size: list[int, int] = (0, 0), file: str = None):
+    def __init__(self, id: str = None, page_size: List[Tuple[int]] = (0, 0), file: str = None):
         self.id = id
         self.page_size = page_size  # (height, width)
-        self.regions: list[RegionLayout] = []
+        self.regions: List[RegionLayout] = []
         self.reading_order = None
 
         if file is not None:

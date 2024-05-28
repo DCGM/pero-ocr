@@ -8,7 +8,7 @@ from pero_ocr.ocr_engine import transformer
 
 
 class TransformerEngineLineOCR(BaseEngineLineOCR):
-    def __init__(self, json_def, device, batch_size=4, substitute_output_atomic: bool = True):
+    def __init__(self, json_def, device, batch_size=16, substitute_output_atomic: bool = True):
         super(TransformerEngineLineOCR, self).__init__(json_def, device, batch_size=batch_size,
                                                        model_type="transformer",
                                                        substitute_output_atomic=substitute_output_atomic)
@@ -28,6 +28,7 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         self.net.load_state_dict(torch.load(self.checkpoint, map_location=device))
         self.net.eval()
         self.net = self.net.to(device)
+        self.max_decoded_seq_length = 210
 
     def run_ocr(self, batch_data):
         with torch.no_grad():
@@ -60,7 +61,7 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
 
         logits = []
 
-        while True:
+        for counter in range(self.max_decoded_seq_length):
             label_embs = torch.cat((label_embs, self.net.dec_embeder(partial_transcripts[-1, :]).unsqueeze(0)))
             transformed = self.net.trans_decoder.infer(self.net.pos_encoder(label_embs), encoded_lines,
                                                        is_cached=is_cached)

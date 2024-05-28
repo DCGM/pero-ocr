@@ -14,7 +14,7 @@ from pero_ocr.music.output_translator import OutputTranslator
 
 
 class BaseEngineLineOCR(object):
-    def __init__(self, json_def, device, batch_size=8, model_type="ctc", substitute_output_atomic: bool = True):
+    def __init__(self, json_def, device, batch_size=32, model_type="ctc", substitute_output_atomic: bool = True):
         with open(json_def, 'r', encoding='utf8') as f:
             self.config = json.load(f)
 
@@ -90,6 +90,7 @@ class BaseEngineLineOCR(object):
                 max_width = min(max_width, self.max_line_width + 2 * self.line_padding_px)
 
             batch_size = max(1, self.max_input_horizontal_pixels // max_width)
+            batch_size = min(32, batch_size)
 
             batch_line_ids = line_ids[:batch_size]
             line_ids = line_ids[batch_size:]

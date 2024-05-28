@@ -27,7 +27,7 @@ def build_net(net, input_height, input_channels, nb_output_symbols, max_seq_len=
     )
     encoder = LineSelfAttentionEncoder(
         dropout=dropout_rate,
-        max_seq_len=max_seq_len,
+        max_seq_len=512,
         dim_model=dim_model,
         dim_ff=dim_ff,
         nb_layers=encoder_layers,
@@ -41,7 +41,7 @@ def build_net(net, input_height, input_channels, nb_output_symbols, max_seq_len=
         nb_layers=decoder_layers,
         dim_model=dim_model,
         dim_ff=dim_ff,
-        max_seq_len=max_seq_len,
+        max_seq_len=512,
         nb_heads=heads,
     )
 
@@ -388,19 +388,19 @@ class LineSelfAttentionEncoder(torch.nn.Module):
 class DecoderLayer(TransformerDecoderLayer):
     def __init__(self, dim_model, nb_heads, dim_ff=2048, dropout=0.0, activation='relu', max_seq_len=500, norm=None):
         super(DecoderLayer, self).__init__(dim_model, nb_heads, dim_ff, dropout, activation)
-
+        max_seq_len = 220
         self.self_attn = CustomMultiheadAttention(
             dim_model,
             nb_heads,
             dropout=dropout,
             is_self_attention=True,
-            max_seq_len=max_seq_len,
+            max_seq_len=512,
         )
         self.multihead_attn = CustomMultiheadAttention(
             dim_model,
             nb_heads,
             dropout=dropout,
-            max_seq_len=max_seq_len,
+            max_seq_len=512,
         )
 
         self.memory_tgt: Optional[Tensor] = None
