@@ -510,6 +510,8 @@ class LineCropper(object):
 
 
 class PageOCR:
+    default_confidence = 0.0
+
     def __init__(self, config, device, config_path=''):
         json_file = compose_path(config['OCR_JSON'], config_path)
         use_cpu = config.getboolean('USE_CPU')
@@ -518,6 +520,8 @@ class PageOCR:
         self.categories = config_get_list(config, key='CATEGORIES', fallback=['text'])
         self.substitute_output = config.getboolean('SUBSTITUTE_OUTPUT', fallback=True)
         self.substitute_output_atomic = config.getboolean('SUBSTITUTE_OUTPUT_ATOMIC', fallback=True)
+        self.update_transcription_by_confidence = config.getboolean(
+            'UPDATE_TRANSCRIPTION_BY_CONFIDENCE', fallback=False)
 
         if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
             self.ocr_engine = TransformerEngineLineOCR(json_file, self.device,
@@ -544,13 +548,12 @@ class PageOCR:
                                 logit_coords=line_logit_coords)
             new_line.transcription_confidence = self.get_line_confidence(new_line)
 
-            if (line.transcription_confidence is None or
-                    line.transcription_confidence < new_line.transcription_confidence):
-                line.transcription = line_transcription
-                line.logits = line_logits
-                line.characters = self.ocr_engine.characters
-                line.logit_coords = line_logit_coords
-                line.transcription_confidence = new_line.transcription_confidence
+            if not self.update_transcription_by_confidence:
+                self.update_line(line, new_line)
+            else:
+                if (line.transcription_confidence in [None, self.default_confidence] or
+                        line.transcription_confidence < new_line.transcription_confidence):
+                    self.update_line(line, new_line)
 
         if self.substitute_output and self.ocr_engine.output_substitution is not None:
             self.substitute_transcriptions(lines_to_process)
@@ -572,10 +575,7 @@ class PageOCR:
         for line, transcription_substituted in zip(lines_to_process, transcriptions_substituted):
             line.transcription = transcription_substituted
 
-    @staticmethod
-    def get_line_confidence(line):
-        default_confidence = 0.0
-
+    def get_line_confidence(self, line):
         if line.transcription:
             try:
                 log_probs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
@@ -583,12 +583,20 @@ class PageOCR:
                 return np.quantile(confidences, .50)
             except ValueError as e:
                 logger.warning(f'PageOCR is unable to get confidence of line {line.id} due to exception: {e}.')
-                return default_confidence
-        return default_confidence
+                return self.default_confidence
+        return self.default_confidence
 
     @property
     def provides_ctc_logits(self):
         return isinstance(self.ocr_engine, PytorchEngineLineOCR) or isinstance(self.ocr_engine, TransformerEngineLineOCR)
+
+    @staticmethod
+    def update_line(line, new_line):
+        line.transcription = new_line.transcription
+        line.logits = new_line.logits
+        line.characters = new_line.characters
+        line.logit_coords = new_line.logit_coords
+        line.transcription_confidence = new_line.transcription_confidence
 
 
 def get_prob(best_ids, best_probs):
