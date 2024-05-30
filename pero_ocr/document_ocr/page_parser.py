@@ -606,15 +606,13 @@ class PageParser(object):
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
                                                                                fallback=-1)
 
-        self.layout_parser = None
-        self.line_cropper = None
-        self.ocr = None
-        self.decoder = None
-
         self.device = device if device is not None else get_default_device()
 
+        self.layout_parsers = {}
         self.line_croppers = {}
         self.ocrs = {}
+        self.decoder = None
+
         if self.run_layout_parser:
             self.layout_parsers = self.init_config_sections(config, config_path, 'LAYOUT_PARSER', layout_parser_factory)
         if self.run_line_cropper:
@@ -639,10 +637,10 @@ class PageParser(object):
 
     @property
     def provides_ctc_logits(self):
-        if not self.ocr:
+        if not self.ocrs:
             return False
 
-        return self.ocr.provides_ctc_logits
+        return all(ocr.provides_ctc_logits for ocr in self.ocrs.values())
 
     def update_confidences(self, page_layout):
         for line in page_layout.lines_iterator():
