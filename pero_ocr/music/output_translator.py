@@ -16,9 +16,11 @@ class OutputTranslator:
         self.dictionary = self.load_dictionary(dictionary, filename)
         self.dictionary_reversed = {v: k for k, v in self.dictionary.items()}
         self.n_existing_labels = set()
+
+        # ensures atomicity on line level (if one symbol is not found, return None and let caller handle it)
         self.atomic = atomic
 
-    def __call__(self, inputs: Union[str, list], reverse: bool = False) -> Union[str, list]:
+    def __call__(self, inputs: Union[str, list], reverse: bool = False) -> Union[str, list, None]:
         if isinstance(inputs, list):
             if len(inputs[0]) > 1:  # list of strings (lines)
                 return self.translate_lines(inputs, reverse)
@@ -33,7 +35,7 @@ class OutputTranslator:
         return [self.translate_line(line, reverse) for line in lines]
 
     def translate_line(self, line, reverse: bool = False):
-        line_stripped = line.strip('"').strip()
+        line_stripped = line.replace('"', ' ').strip()
         symbols = re.split(r'\s+', line_stripped)
 
         converted_symbols = []
@@ -41,7 +43,7 @@ class OutputTranslator:
             translation = self.translate_symbol(symbol, reverse)
             if translation is None:
                 if self.atomic:
-                    return line
+                    return None  # return None and let caller handle it (e.g. by storing the original line or breaking)
                 converted_symbols.append(symbol)
             else:
                 converted_symbols.append(translation)

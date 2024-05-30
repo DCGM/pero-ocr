@@ -6,6 +6,7 @@ import math
 import time
 import re
 from typing import Union, Tuple
+from copy import deepcopy
 
 import torch.cuda
 
@@ -545,18 +546,31 @@ class PageOCR:
 
             if (line.transcription_confidence is None or
                     line.transcription_confidence < new_line.transcription_confidence):
-                line.transcription = self.substitute_transcription(line_transcription)
+                line.transcription = line_transcription
                 line.logits = line_logits
                 line.characters = self.ocr_engine.characters
                 line.logit_coords = line_logit_coords
                 line.transcription_confidence = new_line.transcription_confidence
+
+        if self.substitute_output and self.ocr_engine.output_substitution is not None:
+            self.substitute_transcriptions(lines_to_process)
+
         return page_layout
 
-    def substitute_transcription(self, transcription):
-        if self.substitute_output and self.ocr_engine.output_substitution is not None:
-            return self.ocr_engine.output_substitution(transcription)
-        else:
-            return transcription
+    def substitute_transcriptions(self, lines_to_process: list[TextLine]):
+        transcriptions_substituted = []
+
+        for line in lines_to_process:
+            transcriptions_substituted.append(self.ocr_engine.output_substitution(line.transcription))
+
+            if transcriptions_substituted[-1] is None:
+                if self.substitute_output_atomic:
+                    return  # scratch everything if the last line couldn't be substituted atomically
+                else:
+                    transcriptions_substituted[-1] = line.transcription  # keep the original transcription
+
+        for line, transcription_substituted in zip(lines_to_process, transcriptions_substituted):
+            line.transcription = transcription_substituted
 
     @staticmethod
     def get_line_confidence(line):
