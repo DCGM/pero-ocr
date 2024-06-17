@@ -127,7 +127,7 @@ class TextLine(object):
 
         baseline = line_element.find(schema + 'Baseline')
         if baseline is not None:
-            new_textline.baseline = get_coords_form_pagexml(baseline, schema)
+            new_textline.baseline = get_coords_from_pagexml(baseline, schema)
         else:
             logger.warning(f'Warning: Baseline is missing in TextLine. '
                            f'Skipping this line during import. Line ID: {new_textline.id}')
@@ -135,7 +135,7 @@ class TextLine(object):
 
         textline = line_element.find(schema + 'Coords')
         if textline is not None:
-            new_textline.polygon = get_coords_form_pagexml(textline, schema)
+            new_textline.polygon = get_coords_from_pagexml(textline, schema)
 
         if not new_textline.heights:
             guess_line_heights_from_polygon(new_textline, use_center=False, n=len(new_textline.baseline))
@@ -181,9 +181,8 @@ class TextLine(object):
             return
 
         text_line = ET.SubElement(text_block, "TextLine")
-        text_line_baseline = int(np.average(np.array(self.baseline)[:, 1]))
         text_line.set("ID", f'line_{self.id}')
-        text_line.set("BASELINE", str(text_line_baseline))
+        text_line.set("BASELINE", self.to_altoxml_baseline())
 
         text_line_height, text_line_width, text_line_vpos, text_line_hpos = get_hwvh(self.polygon)
 
@@ -316,13 +315,25 @@ class TextLine(object):
                     space.set("HPOS", str(int(np.max(all_x))))
                 letter_counter += len(splitted_transcription[w]) + 1
 
+    def to_altoxml_baseline(self, alto_version=2.0) -> str:
+        if alto_version < 4.2:
+            # ALTO 4.1 and older accept baseline only as a single point
+            text_line_baseline = int(np.round(np.average(np.array(self.baseline)[:, 1])))
+            return str(text_line_baseline)
+
+        # ALTO 4.2 and newer accept baseline as a string with list of points. Recommended "x1,y1 x2,y2 ..." format.
+        baseline_points = [f"{int(np.round(coord[0]))},{int(np.round(coord[1]))}"
+                           for coord in self.baseline]
+        baseline_points = " ".join(baseline_points)
+        return baseline_points
+
     @classmethod
     def from_altoxml(cls, line: ET.SubElement, schema):
         hpos = int(line.attrib['HPOS'])
         vpos = int(line.attrib['VPOS'])
         width = int(line.attrib['WIDTH'])
         height = int(line.attrib['HEIGHT'])
-        baseline = int(line.attrib['BASELINE'])
+        baseline = cls.from_altoxml_baseline(line.attrib['BASELINE'])
 
         new_textline = cls(id=line.attrib['ID'],
                            baseline=np.asarray([[hpos, baseline], [hpos + width, baseline]]),
@@ -344,6 +355,19 @@ class TextLine(object):
                 word = word + " " + text.get('CONTENT')
         new_textline.transcription = word
         return new_textline
+
+    @staticmethod
+    def from_altoxml_baseline(baseline_str):
+        baseline = baseline_str.strip().split(' ')
+
+        if len(baseline) == 1:  # baseline is only one number (probably ALTO version older than 4.2)
+            try:
+                return float(baseline[0])
+            except ValueError:
+                pass
+
+        coords = [t.split(",") for t in baseline]
+        return np.asarray([[int(round(float(x))), int(round(float(y)))] for x, y in coords])
 
 
 class RegionLayout(object):
@@ -416,7 +440,7 @@ class RegionLayout(object):
     @classmethod
     def from_pagexml(cls, region_element: ET.SubElement, schema):
         coords_element = region_element.find(schema + 'Coords')
-        region_coords = get_coords_form_pagexml(coords_element, schema)
+        region_coords = get_coords_from_pagexml(coords_element, schema)
 
         region_type = None
         if "type" in region_element.attrib:
@@ -490,7 +514,7 @@ class RegionLayout(object):
         return region_layout
 
 
-def get_coords_form_pagexml(coords_element, schema):
+def get_coords_from_pagexml(coords_element, schema):
     if 'points' in coords_element.attrib:
         coords = points_string_to_array(coords_element.attrib['points'])
     else:
