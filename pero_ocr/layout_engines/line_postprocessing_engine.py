@@ -1,4 +1,5 @@
 import numpy as np
+import shapely.geometry as sg
 
 from pero_ocr.layout_engines import layout_helpers as helpers
 
@@ -29,6 +30,12 @@ class PostprocessingEngine(object):
 
         return region
 
+    def filter_points(self, baseline):
+        baseline_int = np.round(baseline).astype(int)
+        _, unique_indices = np.unique(baseline_int, axis=0, return_index=True)
+        baseline = baseline[unique_indices]
+        return baseline
+
     def stretch_baselines(self, region):
         baselines = [line.baseline for line in region.lines]
         rotation = helpers.get_rotation(baselines)
@@ -40,22 +47,24 @@ class PostprocessingEngine(object):
             region_poly = np.concatenate((region_poly, region_poly[:1, :]), axis=0)
             for baseline in baselines:
                 line_interpf = np.poly1d(np.polyfit(baseline[:, 0], baseline[:, 1], 1))
-                y_1 = line_interpf(np.amin(region[:, 0]))
-                y_2 = line_interpf(np.amax(region[:, 0]))
-                baseline_ls = sg.LineString(
-                    [(np.amin(region[:, 0]), y_1), (np.amax(region[:, 0]), y_2)])
-                region_ls = sg.LineString(region)
+                y_1 = line_interpf(np.amin(region.polygon[:, 0]))
+                y_2 = line_interpf(np.amax(region.polygon[:, 0]))
+                baseline_ls = sg.LineString([(np.amin(region.polygon[:, 0]), y_1), (np.amax(region.polygon[:, 0]), y_2)])
+                region_ls = sg.Polygon(region.polygon)
 
                 intersections_ls = region_ls.intersection(baseline_ls)
                 #intersection can be empty due to borderline baselines and integer coordinate rotations
-                if isinstance(intersections_ls, sg.MultiPoint):
-                    intersections = np.squeeze(np.asarray(
-                        [intersection.coords.xy for intersection in intersections_ls]))
-                    intersection_left = intersections[np.argmin(intersections[:, 0]), :]
-                    intersection_right = intersections[np.argmax(intersections[:, 0]), :]
 
-                    baselines_stretched.append(np.concatenate(
-                        (intersection_left[np.newaxis, :], baseline, intersection_right[np.newaxis, :]), axis=0))
+                if isinstance(intersections_ls, sg.LineString):
+                    intersections = np.asarray(list(zip(*intersections_ls.coords.xy)))
+                    if len(intersections) > 0:
+                        intersection_left = intersections[np.argmin(intersections[:, 0]), :]
+                        intersection_right = intersections[np.argmax(intersections[:, 0]), :]
+
+                        new_baseline = np.concatenate((intersection_left[np.newaxis, :], baseline, intersection_right[np.newaxis, :]), axis=0)
+                        new_baseline = self.filter_points(new_baseline)
+
+                        baselines_stretched.append(new_baseline)
 
         elif self.stretch_lines > 0:
             baselines_stretched = []

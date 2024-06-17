@@ -114,7 +114,7 @@ def expand_logits(array: np.ndarray, seq: typing.List[int]) -> np.ndarray:
     return array[:, seq]
 
 
-@jit
+@jit(nopython=True)
 def compute_update(positions, column_frame, act_cost):
     backpointers = np.zeros(act_cost.shape, np.int32)
     new_cost = np.zeros_like(act_cost)

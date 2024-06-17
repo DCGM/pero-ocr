@@ -1,24 +1,7 @@
-#!/usr/bin/env python3.8
-"""Script to take output of pero-ocr with musical transcriptions and export it to musicxml and MIDI formats.
-
-INPUTS:
-- XML PageLayout (exported directly from pero-ocr engine) using `--input-xml-path` argument
-    - Represents one whole page of musical notation transcribed by pero-ocr engine
-    - OUTPUTS one musicxml file for the page
-    - + MIDI file for page and for individual lines (named according to IDs in PageLayout)
-- Text files with individual transcriptions and their IDs on each line using `--input-transcription-files` argument.
-    - OUTPUTS one musicxml file for each line with names corresponding to IDs in each line
-
-Author: Vojtěch Vlach
-Contact: xvlach22@vutbr.cz
-"""
-
 from __future__ import annotations
 import sys
-import argparse
 import os
 import re
-import time
 import logging
 
 import music21 as music
@@ -26,64 +9,14 @@ import music21 as music
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.layout_engines.layout_helpers import split_page_layout_by_categories
 from pero_ocr.music.music_structures import Measure
-from pero_ocr.music.music_translator import MusicTranslator as Translator
+from pero_ocr.music.output_translator import OutputTranslator as Translator
 
 
-def parseargs():
-    print(' '.join(sys.argv))
-    print('----------------------------------------------------------------------')
-    parser = argparse.ArgumentParser()
+class MusicPageExporter:
+    """Take pageLayout XML exported from pero-ocr with transcriptions and re-construct page of musical notation.
 
-    parser.add_argument(
-        "-i", "--input-xml-path", type=str, default='',
-        help="Path to input XML file with exported PageLayout.")
-    parser.add_argument(
-        '-f', '--input-transcription-files', nargs='*', default=None,
-        help='Input files with sequences as lines with IDs at the beginning.')
-    parser.add_argument(
-        "-t", "--translator-path", type=str, default=None,
-        help="JSON File containing translation dictionary from shorter encoding (exported by model) to longest "
-             "Check if needed by seeing start of any line in the transcription."
-             "(e.g. SSemantic (model output): >2 + kGM + B3z + C4z + |..."
-             "      Semantic (stored in XML): clef-G2 + keySignature-GM + note-B3_eighth + note-C4_eighth + barline...")
-    parser.add_argument(
-        "-o", "--output-folder", default='output_page',
-        help="Set output file with extension. Output format is JSON")
-    parser.add_argument(
-        "-m", "--export-midi", action='store_true',
-        help=("Enable exporting midi file to output_folder."
-              "Exports whole file and individual lines with names corresponding to them TextLine IDs."))
-    parser.add_argument(
-        "-M", "--export-musicxml", action='store_true',
-        help=("Enable exporting musicxml file to output_folder."
-              "Exports whole file as one MusicXML."))
-    parser.add_argument(
-        '-v', "--verbose", action='store_true', default=False,
-        help="Activate verbose logging.")
-
-    return parser.parse_args()
-
-
-def main():
-    """Main function for simple testing"""
-    args = parseargs()
-
-    start = time.time()
-    ExportMusicPage(
-        input_xml_path=args.input_xml_path,
-        input_transcription_files=args.input_transcription_files,
-        translator_path=args.translator_path,
-        output_folder=args.output_folder,
-        export_midi=args.export_midi,
-        export_musicxml=args.export_musicxml,
-        verbose=args.verbose)()
-
-    end = time.time()
-    print(f'Total time: {end - start:.2f} s')
-
-
-class ExportMusicPage:
-    """Take pageLayout XML exported from pero-ocr with transcriptions and re-construct page of musical notation."""
+    For CLI usage see user_scripts/music_exporter.py
+    """
 
     def __init__(self, input_xml_path: str = '', input_transcription_files: list[str] = None,
                  translator_path: str = None, output_folder: str = 'output_page', export_midi: bool = False,
@@ -112,8 +45,8 @@ class ExportMusicPage:
 
     def __call__(self, page_layout=None) -> None:
         if self.input_transcription_files:
-            ExportMusicLines(input_files=self.input_transcription_files, output_folder=self.output_folder,
-                             translator=self.translator, verbose=self.verbose)()
+            MusicLinesExporter(input_files=self.input_transcription_files, output_folder=self.output_folder,
+                               translator=self.translator, verbose=self.verbose)()
         if page_layout:
             self.process_page(page_layout)
 
@@ -149,11 +82,11 @@ class ExportMusicPage:
             if self.export_midi:
                 self.export_to_midi(score, parts, file_id)
 
-    def get_output_file(self, file_id: str=None, extension: str = 'musicxml') -> str:
+    def get_output_file(self, file_id: str = None, extension: str = 'musicxml') -> str:
         base = self.get_output_file_base(file_id)
         return f'{base}.{extension}'
 
-    def get_output_file_base(self, file_id: str=None) -> str:
+    def get_output_file_base(self, file_id: str = None) -> str:
         if not file_id:
             file_id = os.path.basename(self.input_xml_path)
             if not file_id:
@@ -161,7 +94,7 @@ class ExportMusicPage:
         name, *_ = re.split(r'\.', file_id)
         return os.path.join(self.output_folder, f'{name}')
 
-    def export_to_midi(self, score, parts, file_id: str=None):
+    def export_to_midi(self, score, parts, file_id: str = None):
         # Export whole score to midi
         output_file = self.get_output_file(file_id, extension='mid')
         score.write("midi", output_file)
@@ -188,11 +121,10 @@ class ExportMusicPage:
         return parts
 
 
-class ExportMusicLines:
+class MusicLinesExporter:
     """Takes text files with transcriptions as individual lines and exports musicxml file for each one"""
-    def __init__(self, translator: Translator = None, input_files: list[str] = None,
-                 output_folder: str = 'output_musicxml', verbose: bool = False):
-        self.translate_to_longer = translator is not None
+    def __init__(self, input_files: list[str] = None, output_folder: str = 'output_musicxml',
+                 translator: Translator = None, verbose: bool = False):
         self.translator = translator
         self.output_folder = output_folder
 
@@ -203,8 +135,8 @@ class ExportMusicLines:
 
         logging.debug('Hello World! (from ReverseConverter)')
 
-        self.input_files = ExportMusicLines.get_input_files(input_files)
-        ExportMusicLines.prepare_output_folder(output_folder)
+        self.input_files = MusicLinesExporter.get_input_files(input_files)
+        MusicLinesExporter.prepare_output_folder(output_folder)
 
     def __call__(self):
         if not self.input_files:
@@ -214,7 +146,7 @@ class ExportMusicLines:
         # For every file, convert it to MusicXML
         for input_file_name in self.input_files:
             logging.info(f'Reading file {input_file_name}')
-            lines = ExportMusicLines.read_file_lines(input_file_name)
+            lines = MusicLinesExporter.read_file_lines(input_file_name)
 
             for i, line in enumerate(lines):
                 match = re.fullmatch(r'([a-zA-Z0-9_\-]+)[a-zA-Z0-9_\.]+\s+([0-9]+\s+)?\"([\S\s]+)\"', line)
@@ -226,8 +158,8 @@ class ExportMusicLines:
 
                 stave_id = match.group(1)
                 labels = match.group(3)
-                if self.translate_to_longer:
-                    labels = self.translator.translate_line(labels, to_longer=True)
+                if self.translator is not None:
+                    labels = self.translator.translate_line(labels)
                 output_file_name = os.path.join(self.output_folder, f'{stave_id}.musicxml')
 
                 parsed_labels = semantic_line_to_music21_score(labels)
@@ -275,7 +207,6 @@ class Part:
     """Represent musical part (part of notation for one instrument/section)"""
 
     def __init__(self, translator: Translator = None):
-        self.translate_to_longer = translator is not None
         self.translator = translator
 
         self.repr_music21 = music.stream.Part([music.instrument.Piano()])
@@ -285,8 +216,8 @@ class Part:
 
     def add_textline(self, line: TextLine) -> None:
         labels = line.transcription
-        if self.translate_to_longer:
-            labels = self.translator.translate_line(labels, to_longer=True)
+        if self.translator is not None:
+            labels = self.translator.translate_line(labels)
         self.labels.append(labels)
 
         new_measures = parse_semantic_to_measures(labels)
@@ -397,7 +328,3 @@ def write_to_file(output_file_name, xml):
         f.write(xml)
 
     logging.info(f'File {output_file_name} successfully written.')
-
-
-if __name__ == "__main__":
-    main()

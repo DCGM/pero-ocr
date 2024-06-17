@@ -5,14 +5,15 @@ from multiprocessing import Pool
 import math
 import time
 import re
-import json
 from typing import Union, Tuple
+from copy import deepcopy
 
 import torch.cuda
 
 from pero_ocr.utils import compose_path, config_get_list
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 import pero_ocr.core.crop_engine as cropper
+from pero_ocr.core.confidence_estimation import get_line_confidence
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
@@ -73,7 +74,9 @@ def page_decoder_factory(config, device, config_path=''):
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, device, allow_no_decoder=False, config_path=config_path)
     confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
     carry_h_over = config['DECODER'].getboolean('CARRY_H_OVER')
-    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over)
+    categories = config_get_list(config['DECODER'], key='CATEGORIES', fallback=['text'])
+    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over,
+                       categories=categories)
 
 
 class MissingLogits(Exception):
@@ -96,14 +99,14 @@ def prepare_dense_logits(line):
 
 
 class PageDecoder:
-    def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False):
+    def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False, categories=None):
         self.decoder = decoder
         self.line_confidence_threshold = line_confidence_threshold
         self.lines_examined = 0
         self.lines_decoded = 0
         self.seconds_decoding = 0.0
         self.continue_lines = carry_h_over
-        self.categories = ['text']
+        self.categories = categories if categories else ['text']
 
         self.last_h = None
         self.last_line = None
@@ -114,7 +117,8 @@ class PageDecoder:
             try:
                 line.transcription = self.decode_line(line)
             except Exception:
-                logger.error(f'Failed to process line {line.id} of page {page_layout.id}. The page has been processed no further.', exc_info=True)
+                logger.error(f'Failed to process line {line.id} of page {page_layout.id}. '
+                             f'The page has been processed no further.', exc_info=True)
 
         return page_layout
 
@@ -312,6 +316,7 @@ class LayoutExtractorYolo(object):
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
         self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
+        self.line_categories = config_get_list(config, key='LINE_CATEGORIES', fallback=[])
         self.image_size = self.get_image_size(config)
 
         self.engine = LayoutEngineYolo(
@@ -339,9 +344,12 @@ class LayoutExtractorYolo(object):
             height = np.floor(np.array([baseline_y - y_min, y_max - baseline_y]))
 
             category = result.names[class_id]
+            if self.categories and category not in self.categories:
+                continue
+
             region = RegionLayout(id_str, polygon, category=category, detection_confidence=conf)
 
-            if category in self.categories:
+            if category in self.line_categories:
                 line = TextLine(
                     id=f'{id_str}-l000',
                     index=0,
@@ -485,7 +493,8 @@ class LineCropper(object):
             except ValueError:
                 line.crop = np.zeros(
                     (self.crop_engine.line_height, self.crop_engine.line_height, 3))
-                print(f"WARNING: Failed to crop line {line.id} in page {page_layout.id}. Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
+                print(f"WARNING: Failed to crop line {line.id} in page {page_layout.id}. "
+                      f"Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
         return page_layout
 
     def crop_lines(self, img, lines: list):
@@ -496,21 +505,30 @@ class LineCropper(object):
             except ValueError:
                 line.crop = np.zeros(
                     (self.crop_engine.line_height, self.crop_engine.line_height, 3))
-                print(f"WARNING: Failed to crop line {line.id}. Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
+                print(f"WARNING: Failed to crop line {line.id}. Probably contain vertical line. "
+                      f"Contanct Olda Kodym to fix this bug!")
 
 
-class PageOCR(object):
+class PageOCR:
+    default_confidence = 0.0
+
     def __init__(self, config, device, config_path=''):
         json_file = compose_path(config['OCR_JSON'], config_path)
         use_cpu = config.getboolean('USE_CPU')
 
         self.device = device if not use_cpu else torch.device("cpu")
         self.categories = config_get_list(config, key='CATEGORIES', fallback=['text'])
+        self.substitute_output = config.getboolean('SUBSTITUTE_OUTPUT', fallback=True)
+        self.substitute_output_atomic = config.getboolean('SUBSTITUTE_OUTPUT_ATOMIC', fallback=True)
+        self.update_transcription_by_confidence = config.getboolean(
+            'UPDATE_TRANSCRIPTION_BY_CONFIDENCE', fallback=False)
 
         if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
-            self.ocr_engine = TransformerEngineLineOCR(json_file, self.device)
+            self.ocr_engine = TransformerEngineLineOCR(json_file, self.device,
+                                                       substitute_output_atomic=self.substitute_output_atomic)
         else:
-            self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
+            self.ocr_engine = PytorchEngineLineOCR(json_file, self.device,
+                                                   substitute_output_atomic=self.substitute_output_atomic)
 
     def process_page(self, img, page_layout: PageLayout):
         lines_to_process = []
@@ -521,12 +539,64 @@ class PageOCR(object):
 
         transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in lines_to_process])
 
-        for line, line_transcription, line_logits, line_logit_coords in zip(lines_to_process, transcriptions, logits, logit_coords):
-            line.transcription = line_transcription
-            line.logits = line_logits
-            line.characters = self.ocr_engine.characters
-            line.logit_coords = line_logit_coords
+        for line, line_transcription, line_logits, line_logit_coords in zip(lines_to_process, transcriptions,
+                                                                            logits, logit_coords):
+            new_line = TextLine(id=line.id,
+                                transcription=line_transcription,
+                                logits=line_logits,
+                                characters=self.ocr_engine.characters,
+                                logit_coords=line_logit_coords)
+            new_line.transcription_confidence = self.get_line_confidence(new_line)
+
+            if not self.update_transcription_by_confidence:
+                self.update_line(line, new_line)
+            else:
+                if (line.transcription_confidence in [None, self.default_confidence] or
+                        line.transcription_confidence < new_line.transcription_confidence):
+                    self.update_line(line, new_line)
+
+        if self.substitute_output and self.ocr_engine.output_substitution is not None:
+            self.substitute_transcriptions(lines_to_process)
+
         return page_layout
+
+    def substitute_transcriptions(self, lines_to_process: list[TextLine]):
+        transcriptions_substituted = []
+
+        for line in lines_to_process:
+            transcriptions_substituted.append(self.ocr_engine.output_substitution(line.transcription))
+
+            if transcriptions_substituted[-1] is None:
+                if self.substitute_output_atomic:
+                    return  # scratch everything if the last line couldn't be substituted atomically
+                else:
+                    transcriptions_substituted[-1] = line.transcription  # keep the original transcription
+
+        for line, transcription_substituted in zip(lines_to_process, transcriptions_substituted):
+            line.transcription = transcription_substituted
+
+    def get_line_confidence(self, line):
+        if line.transcription:
+            try:
+                log_probs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
+                confidences = get_line_confidence(line, log_probs=log_probs)
+                return np.quantile(confidences, .50)
+            except ValueError as e:
+                logger.warning(f'PageOCR is unable to get confidence of line {line.id} due to exception: {e}.')
+                return self.default_confidence
+        return self.default_confidence
+
+    @property
+    def provides_ctc_logits(self):
+        return isinstance(self.ocr_engine, PytorchEngineLineOCR) or isinstance(self.ocr_engine, TransformerEngineLineOCR)
+
+    @staticmethod
+    def update_line(line, new_line):
+        line.transcription = new_line.transcription
+        line.logits = new_line.logits
+        line.characters = new_line.characters
+        line.logit_coords = new_line.logit_coords
+        line.transcription_confidence = new_line.transcription_confidence
 
 
 def get_prob(best_ids, best_probs):
@@ -546,7 +616,7 @@ def get_prob(best_ids, best_probs):
 
 
 def get_default_device():
-    return torch.device('cuda') if torch.cuda.is_available() else torch.device ('cpu')
+    return torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 
 class PageParser(object):
@@ -558,15 +628,13 @@ class PageParser(object):
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
                                                                                fallback=-1)
 
-        self.layout_parser = None
-        self.line_cropper = None
-        self.ocr = None
-        self.decoder = None
-
         self.device = device if device is not None else get_default_device()
 
+        self.layout_parsers = {}
         self.line_croppers = {}
         self.ocrs = {}
+        self.decoder = None
+
         if self.run_layout_parser:
             self.layout_parsers = self.init_config_sections(config, config_path, 'LAYOUT_PARSER', layout_parser_factory)
         if self.run_line_cropper:
@@ -588,6 +656,13 @@ class PageParser(object):
         #     print(best_probs[i-1:i+2], best_ids[i-1:i+2])
 
         return worst_best_prob
+
+    @property
+    def provides_ctc_logits(self):
+        if not self.ocrs:
+            return False
+
+        return all(ocr.provides_ctc_logits for ocr in self.ocrs.values())
 
     def update_confidences(self, page_layout):
         for line in page_layout.lines_iterator():

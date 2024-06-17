@@ -10,11 +10,11 @@ import torch
 from .softmax import softmax
 
 from pero_ocr.sequence_alignment import levenshtein_distance
-from pero_ocr.music.music_translator import MusicTranslator
+from pero_ocr.music.output_translator import OutputTranslator
 
 
 class BaseEngineLineOCR(object):
-    def __init__(self, json_def, device, batch_size=8, model_type="ctc"):
+    def __init__(self, json_def, device, batch_size=32, model_type="ctc", substitute_output_atomic: bool = True):
         with open(json_def, 'r', encoding='utf8') as f:
             self.config = json.load(f)
 
@@ -28,9 +28,10 @@ class BaseEngineLineOCR(object):
 
         self.characters = tuple(self.config['characters'])
 
-        self.music_translator = None
-        if 'music_dictionary' in self.config:
-            self.music_translator = MusicTranslator(dictionary=self.config['music_dictionary'])
+        self.output_substitution = None
+        if 'output_substitution_table' in self.config:
+            self.output_substitution = OutputTranslator(dictionary=self.config['output_substitution_table'],
+                                                        atomic=substitute_output_atomic)
 
         self.net_name = self.config['net_name']
         if "embed_num" in self.config:
@@ -89,6 +90,7 @@ class BaseEngineLineOCR(object):
                 max_width = min(max_width, self.max_line_width + 2 * self.line_padding_px)
 
             batch_size = max(1, self.max_input_horizontal_pixels // max_width)
+            batch_size = min(32, batch_size)
 
             batch_line_ids = line_ids[:batch_size]
             line_ids = line_ids[batch_size:]

@@ -35,8 +35,9 @@ def greedy_decode_ctc(scores_probs, chars):
 
 
 class PytorchEngineLineOCR(BaseEngineLineOCR):
-    def __init__(self, json_def, device, batch_size=8):
-        super(PytorchEngineLineOCR, self).__init__(json_def, device, batch_size=batch_size)
+    def __init__(self, json_def, device, batch_size=8, substitute_output_atomic: bool = True):
+        super(PytorchEngineLineOCR, self).__init__(json_def, device, batch_size=batch_size,
+                                                   substitute_output_atomic=substitute_output_atomic)
 
         self.net_subsampling = 4
         self.characters = list(self.characters) + [u'\u200B']

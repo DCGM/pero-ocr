@@ -5,7 +5,8 @@ import json
 from io import BytesIO
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Union
+from typing import Optional, Union, List, Tuple
+import unicodedata
 
 import numpy as np
 import lxml.etree as ET
@@ -46,8 +47,8 @@ class TextLine(object):
                  transcription: Optional[str] = None,
                  logits: Optional[Union[scipy.sparse.csc_matrix, np.ndarray]] = None,
                  crop: Optional[np.ndarray] = None,
-                 characters: Optional[list[str]] = None,
-                 logit_coords: Optional[Union[list[int, int], list[None, None]]] = None,
+                 characters: Optional[List[str]] = None,
+                 logit_coords: Optional[Union[List[Tuple[int]], List[Tuple[None]]]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None,
                  category: Optional[str] = None):
@@ -128,7 +129,7 @@ class TextLine(object):
 
         baseline = line_element.find(schema + 'Baseline')
         if baseline is not None:
-            new_textline.baseline = get_coords_form_pagexml(baseline, schema)
+            new_textline.baseline = get_coords_from_pagexml(baseline, schema)
         else:
             logger.warning(f'Warning: Baseline is missing in TextLine. '
                            f'Skipping this line during import. Line ID: {new_textline.id}')
@@ -136,7 +137,7 @@ class TextLine(object):
 
         textline = line_element.find(schema + 'Coords')
         if textline is not None:
-            new_textline.polygon = get_coords_form_pagexml(textline, schema)
+            new_textline.polygon = get_coords_from_pagexml(textline, schema)
 
         if not new_textline.heights:
             guess_line_heights_from_polygon(new_textline, use_center=False, n=len(new_textline.baseline))
@@ -182,9 +183,8 @@ class TextLine(object):
             return
 
         text_line = ET.SubElement(text_block, "TextLine")
-        text_line_baseline = int(np.average(np.array(self.baseline)[:, 1]))
         text_line.set("ID", f'line_{self.id}')
-        text_line.set("BASELINE", str(text_line_baseline))
+        text_line.set("BASELINE", self.to_altoxml_baseline())
 
         text_line_height, text_line_width, text_line_vpos, text_line_hpos = get_hwvh(self.polygon)
 
@@ -208,6 +208,23 @@ class TextLine(object):
             if self.transcription_confidence is not None:
                 string.set("WC", str(round(self.transcription_confidence, 2)))
 
+    def get_labels(self):
+        chars = [i for i in range(len(self.characters))]
+        char_to_num = dict(zip(self.characters, chars))
+
+        blank_idx = self.logits.shape[1] - 1
+
+        labels = []
+        for item in self.transcription:
+            if item in char_to_num.keys():
+                if char_to_num[item] >= blank_idx:
+                    labels.append(0)
+                else:
+                    labels.append(char_to_num[item])
+            else:
+                labels.append(0)
+        return np.array(labels)
+
     def to_altoxml_text(self, text_line, arabic_helper,
                         text_line_height, text_line_width, text_line_vpos, text_line_hpos):
         arabic_line = False
@@ -215,27 +232,15 @@ class TextLine(object):
             arabic_line = True
 
         try:
-            chars = [i for i in range(len(self.characters))]
-            char_to_num = dict(zip(self.characters, chars))
-
+            label = self.get_labels()
             blank_idx = self.logits.shape[1] - 1
-
-            label = []
-            for item in self.transcription:
-                if item in char_to_num.keys():
-                    if char_to_num[item] >= blank_idx:
-                        label.append(0)
-                    else:
-                        label.append(char_to_num[item])
-                else:
-                    label.append(0)
 
             logits = self.get_dense_logits()[self.logit_coords[0]:self.logit_coords[1]]
             logprobs = self.get_full_logprobs()[self.logit_coords[0]:self.logit_coords[1]]
             aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
         except (ValueError, IndexError, TypeError) as e:
             logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}.')
-            self.transcription_confidence = 0
+            self.transcription_confidence = 0.0
             average_word_width = (text_line_hpos + text_line_width) / len(self.transcription.split())
             for w, word in enumerate(self.transcription.split()):
                 string = ET.SubElement(text_line, "String")
@@ -312,13 +317,25 @@ class TextLine(object):
                     space.set("HPOS", str(int(np.max(all_x))))
                 letter_counter += len(splitted_transcription[w]) + 1
 
+    def to_altoxml_baseline(self, alto_version=2.0) -> str:
+        if alto_version < 4.2:
+            # ALTO 4.1 and older accept baseline only as a single point
+            text_line_baseline = int(np.round(np.average(np.array(self.baseline)[:, 1])))
+            return str(text_line_baseline)
+
+        # ALTO 4.2 and newer accept baseline as a string with list of points. Recommended "x1,y1 x2,y2 ..." format.
+        baseline_points = [f"{int(np.round(coord[0]))},{int(np.round(coord[1]))}"
+                           for coord in self.baseline]
+        baseline_points = " ".join(baseline_points)
+        return baseline_points
+
     @classmethod
     def from_altoxml(cls, line: ET.SubElement, schema):
         hpos = int(line.attrib['HPOS'])
         vpos = int(line.attrib['VPOS'])
         width = int(line.attrib['WIDTH'])
         height = int(line.attrib['HEIGHT'])
-        baseline = int(line.attrib['BASELINE'])
+        baseline = cls.from_altoxml_baseline(line.attrib['BASELINE'])
 
         new_textline = cls(id=line.attrib['ID'],
                            baseline=np.asarray([[hpos, baseline], [hpos + width, baseline]]),
@@ -341,6 +358,19 @@ class TextLine(object):
         new_textline.transcription = word
         return new_textline
 
+    @staticmethod
+    def from_altoxml_baseline(baseline_str):
+        baseline = baseline_str.strip().split(' ')
+
+        if len(baseline) == 1:  # baseline is only one number (probably ALTO version older than 4.2)
+            try:
+                return float(baseline[0])
+            except ValueError:
+                pass
+
+        coords = [t.split(",") for t in baseline]
+        return np.asarray([[int(round(float(x))), int(round(float(y)))] for x, y in coords])
+
 
 class RegionLayout(object):
     def __init__(self, id: str,
@@ -352,7 +382,7 @@ class RegionLayout(object):
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
         self.category = category
-        self.lines: list[TextLine] = []
+        self.lines: List[TextLine] = []
         self.transcription = None
         self.detection_confidence = detection_confidence
 
@@ -412,7 +442,7 @@ class RegionLayout(object):
     @classmethod
     def from_pagexml(cls, region_element: ET.SubElement, schema):
         coords_element = region_element.find(schema + 'Coords')
-        region_coords = get_coords_form_pagexml(coords_element, schema)
+        region_coords = get_coords_from_pagexml(coords_element, schema)
 
         region_type = None
         if "type" in region_element.attrib:
@@ -442,8 +472,8 @@ class RegionLayout(object):
 
         return layout_region
 
-    def to_altoxml(self, print_space, arabic_helper, min_line_confidence, print_space_coords: (int, int, int, int)
-                    ) -> (int, int, int, int):
+    def to_altoxml(self, print_space, arabic_helper, min_line_confidence, 
+                   print_space_coords: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
         text_block = ET.SubElement(print_space, "TextBlock")
@@ -486,7 +516,7 @@ class RegionLayout(object):
         return region_layout
 
 
-def get_coords_form_pagexml(coords_element, schema):
+def get_coords_from_pagexml(coords_element, schema):
     if 'points' in coords_element.attrib:
         coords = points_string_to_array(coords_element.attrib['points'])
     else:
@@ -600,11 +630,11 @@ def get_reading_order(page_element, schema):
 
 
 class PageLayout(object):
-    def __init__(self, id: str = None, page_size: list[int, int] = (0, 0),
+    def __init__(self, id: str = None, page_size: List[Tuple[int]] = (0, 0), 
                  pagexml_file: str = None, altoxml_file: str = None):
         self.id = id
         self.page_size = page_size  # (height, width)
-        self.regions: list[RegionLayout] = []
+        self.regions: List[RegionLayout] = []
         self.reading_order = None
 
         if pagexml_file is not None:
@@ -857,9 +887,12 @@ class PageLayout(object):
                 line.characters = characters[line.id]
                 line.logit_coords = logit_coords[line.id]
 
-    def render_to_image(self, image, thickness: int = 2, circles: bool = True, render_order: bool = False):
+    def render_to_image(self, image, thickness: int = 2, circles: bool = True,
+                        render_order: bool = False, render_category: bool = False):
         """Render layout into image.
         :param image: image to render layout into
+        :param render_order: render region order number given by enumerate(regions) to the middle of given region
+        :param render_region_id: render region id to the upper left corner of given region
         """
         for region_layout in self.regions:
             image = draw_lines(
@@ -875,21 +908,30 @@ class PageLayout(object):
                 [region_layout.polygon], color=(255, 0, 0), circles=(circles, circles, circles), close=True,
                 thickness=thickness)
 
-        if render_order:
+        if render_order or render_category:
             font = cv2.FONT_HERSHEY_DUPLEX
-            font_scale = 4
-            font_thickness = 5
+            font_scale = 1
+            font_thickness = 1
 
             for idx, region in enumerate(self.regions):
-                min = region.polygon.min(axis=0)
-                max = region.polygon.max(axis=0)
+                min_p = region.polygon.min(axis=0)
+                max_p = region.polygon.max(axis=0)
 
-                text_w, text_h = cv2.getTextSize(f"{idx}", font, font_scale, font_thickness)[0]
-
-                mid_coords = (int((min[0] + max[0]) // 2 - text_w // 2), int((min[1] + max[1]) // 2 + text_h // 2))
-
-                cv2.putText(image, f"{idx}", mid_coords, font, font_scale,
-                            (0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                if render_order:
+                    text = f"{idx}"
+                    text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                    mid_x = int((min_p[0] + max_p[0]) // 2 - text_w // 2)
+                    mid_y = int((min_p[1] + max_p[1]) // 2 + text_h // 2)
+                    cv2.putText(image, text, (mid_x, mid_y), font, font_scale,
+                                color=(0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                if render_category and region.category not in [None, 'text']:
+                    text = f"{normalize_text(region.category)}"
+                    text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                    start_point = (int(min_p[0]), int(min_p[1]))
+                    end_point = (int(min_p[0]) + text_w, int(min_p[1]) - text_h)
+                    cv2.rectangle(image, start_point, end_point, color=(255, 0, 0), thickness=-1)
+                    cv2.putText(image, text, start_point, font, font_scale,
+                                color=(255, 255, 255), thickness=font_thickness, lineType=cv2.LINE_AA)
 
         return image
 
@@ -1067,3 +1109,7 @@ def create_ocr_processing_element(id: str = "IdOcr",
 
     return ocr_processing
 
+
+def normalize_text(text: str) -> str:
+    """Normalize text to ASCII characters. (e.g. Obrázek -> Obrazek)"""
+    return unicodedata.normalize('NFD', text).encode('ascii', 'ignore').decode('ascii')

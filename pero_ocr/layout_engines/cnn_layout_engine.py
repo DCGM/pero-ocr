@@ -323,7 +323,7 @@ class LayoutEngine(object):
             if region_poly.is_empty:
                 continue
             if region_poly.geom_type == 'MultiPolygon':
-                for poly in region_poly:
+                for poly in region_poly.geoms:
                     if not poly.is_empty:
                         p_list.append(poly.simplify(5))
             if region_poly.geom_type == 'Polygon':
@@ -390,9 +390,12 @@ class LayoutEngineYolo(object):
         if self.image_size is not None:
             results = self.yolo_net(image,
                                     conf=self.detection_threshold,
-                                    imgsz=self.image_size)
+                                    imgsz=self.image_size,
+                                    verbose=False)
         else:
-            results = self.yolo_net(image, conf=self.detection_threshold)
+            results = self.yolo_net(image,
+                                    conf=self.detection_threshold,
+                                    verbose=False)
 
         if results is None:
             raise Exception('LayoutEngineYolo returned None.')
