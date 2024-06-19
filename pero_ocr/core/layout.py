@@ -372,8 +372,6 @@ class TextLine(object):
 
             # count heights from the FIRST element of baseline
             heights = np.asarray([baseline[0, 1] - vpos, vpos + height - baseline[0, 1]])
-            print(f'height[0]: {heights[0]} = {baseline[0, 1]} - {vpos}')
-            print(f'height[1]: {heights[1]} = {vpos + height} - {baseline[0, 1]}')
 
             coords_top = [[x, y - heights[0]] for x, y in baseline]
             coords_bottom = [[x, y + heights[1]] for x, y in baseline]
