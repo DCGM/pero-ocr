@@ -29,6 +29,9 @@ class PAGEVersion(Enum):
     PAGE_2019_07_15 = 1
     PAGE_2013_07_15 = 2
 
+class ALTOVersion(Enum):
+    ALTO_v2_x = 1
+    ALTO_v4_4 = 2
 
 def log_softmax(x):
     a = np.logaddexp.reduce(x, axis=1)[:, np.newaxis]
@@ -178,13 +181,13 @@ class TextLine(object):
                         heights = heights_array
                     self.heights = heights.tolist()
 
-    def to_altoxml(self, text_block, arabic_helper, min_line_confidence):
+    def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion):
         if self.transcription_confidence is not None and self.transcription_confidence < min_line_confidence:
             return
 
         text_line = ET.SubElement(text_block, "TextLine")
         text_line.set("ID", f'line_{self.id}')
-        text_line.set("BASELINE", self.to_altoxml_baseline())
+        text_line.set("BASELINE", self.to_altoxml_baseline(version))
 
         text_line_height, text_line_width, text_line_vpos, text_line_hpos = get_hwvh(self.polygon)
 
@@ -317,17 +320,18 @@ class TextLine(object):
                     space.set("HPOS", str(int(np.max(all_x))))
                 letter_counter += len(splitted_transcription[w]) + 1
 
-    def to_altoxml_baseline(self, alto_version=2.0) -> str:
-        if alto_version < 4.2:
+    def to_altoxml_baseline(self, version: ALTOVersion) -> str:
+        if version == ALTOVersion.ALTO_v2_x:
             # ALTO 4.1 and older accept baseline only as a single point
-            text_line_baseline = int(np.round(np.average(np.array(self.baseline)[:, 1])))
-            return str(text_line_baseline)
-
-        # ALTO 4.2 and newer accept baseline as a string with list of points. Recommended "x1,y1 x2,y2 ..." format.
-        baseline_points = [f"{int(np.round(coord[0]))},{int(np.round(coord[1]))}"
-                           for coord in self.baseline]
-        baseline_points = " ".join(baseline_points)
-        return baseline_points
+            baseline = int(np.round(np.average(np.array(self.baseline)[:, 1])))
+            return str(baseline)
+        elif version == ALTOVersion.ALTO_v4_4:
+            # ALTO 4.2 and newer accept baseline as a string with list of points. Recommended "x1,y1 x2,y2 ..." format.
+            baseline_points = [f"{x},{y}" for x, y in np.round(self.baseline).astype('int')]
+            baseline_points = " ".join(baseline_points)
+            return baseline_points
+        else:
+            return ""
 
     @classmethod
     def from_altoxml(cls, line: ET.SubElement, schema):
@@ -335,17 +339,10 @@ class TextLine(object):
         vpos = int(line.attrib['VPOS'])
         width = int(line.attrib['WIDTH'])
         height = int(line.attrib['HEIGHT'])
-        baseline = cls.from_altoxml_baseline(line.attrib['BASELINE'])
+        baseline_str = line.attrib['BASELINE']
+        baseline, heights, polygon = cls.from_altoxml_polygon(baseline_str, hpos, vpos, width, height)
 
-        new_textline = cls(id=line.attrib['ID'],
-                           baseline=np.asarray([[hpos, baseline], [hpos + width, baseline]]),
-                           heights=np.asarray([height + vpos - baseline, baseline - vpos]))
-
-        polygon = [[hpos, vpos],
-                   [hpos + width, vpos],
-                   [hpos + width, vpos + height],
-                   [hpos, vpos + height]]
-        new_textline.polygon = np.asarray(polygon)
+        new_textline = cls(id=line.attrib['ID'], baseline=baseline, heights=heights, polygon=polygon)
 
         word = ''
         start = True
@@ -359,17 +356,40 @@ class TextLine(object):
         return new_textline
 
     @staticmethod
-    def from_altoxml_baseline(baseline_str):
+    def from_altoxml_polygon(baseline_str, hpos, vpos, width, height) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         baseline = baseline_str.strip().split(' ')
 
-        if len(baseline) == 1:  # baseline is only one number (probably ALTO version older than 4.2)
+        if len(baseline) == 1:
+            # baseline is only one number (probably ALTOversion = 2.x)
             try:
-                return float(baseline[0])
+                baseline = float(baseline[0])
             except ValueError:
-                pass
+                baseline = vpos + height  # fallback: baseline is at the bottom of the bounding box, heights[1] = 0
 
-        coords = [t.split(",") for t in baseline]
-        return np.asarray([[int(round(float(x))), int(round(float(y)))] for x, y in coords])
+            baseline_arr = np.asarray([[hpos, baseline], [hpos + width, baseline]])
+            heights = np.asarray([baseline - vpos, vpos + height - baseline])
+            polygon = np.asarray([[hpos, vpos],
+                                  [hpos + width, vpos],
+                                  [hpos + width, vpos + height],
+                                  [hpos, vpos + height]])
+            return baseline_arr, heights, polygon
+        else:
+            # baseline is list of points (probably ALTOversion = 4.4)
+            baseline_coords = [t.split(",") for t in baseline]
+            baseline = np.asarray([[int(round(float(x))), int(round(float(y)))] for x, y in baseline_coords])
+
+            # count heights from the FIRST element of baseline
+            heights = np.asarray([baseline[0, 1] - vpos, vpos + height - baseline[0, 1]])
+            print(f'height[0]: {heights[0]} = {baseline[0, 1]} - {vpos}')
+            print(f'height[1]: {heights[1]} = {vpos + height} - {baseline[0, 1]}')
+
+            coords_top = [[x, y - heights[0]] for x, y in baseline]
+            coords_bottom = [[x, y + heights[1]] for x, y in baseline]
+            # reverse coords_bottom to create polygon in clockwise order
+            coords_bottom.reverse()
+            polygon = np.concatenate([coords_top, coords_bottom, coords_top[:1]])
+
+            return baseline, heights, polygon
 
 
 class RegionLayout(object):
@@ -473,7 +493,7 @@ class RegionLayout(object):
         return layout_region
 
     def to_altoxml(self, print_space, arabic_helper, min_line_confidence, 
-                   print_space_coords: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+                   print_space_coords: Tuple[int, int, int, int], version: ALTOVersion) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
         text_block = ET.SubElement(print_space, "TextBlock")
@@ -495,7 +515,7 @@ class RegionLayout(object):
         for line in self.lines:
             if not line.transcription or line.transcription.strip() == "":
                 continue
-            line.to_altoxml(text_block, arabic_helper, min_line_confidence)
+            line.to_altoxml(text_block, arabic_helper, min_line_confidence, version)
         return print_space_height, print_space_width, print_space_vpos, print_space_hpos
 
     @classmethod
@@ -707,12 +727,17 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None, min_line_confidence: float = 0):
+    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
+                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v4_4):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
-        root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v2#")
+
+        if version == ALTOVersion.ALTO_v4_4:
+            root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v4#")
+        elif version == ALTOVersion.ALTO_v2_1:
+            root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v2#")
 
         description = ET.SubElement(root, "Description")
         measurement_unit = ET.SubElement(description, "MeasurementUnit")
@@ -748,7 +773,7 @@ class PageLayout(object):
         print_space_coords = (print_space_height, print_space_width, print_space_vpos, print_space_hpos)
 
         for block in self.regions:
-            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords)
+            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords, version)
 
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
@@ -779,8 +804,9 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
-    def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None):
-        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid)
+    def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
+                   version: ALTOVersion = ALTOVersion.ALTO_v4_4):
+        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid, version=version)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
