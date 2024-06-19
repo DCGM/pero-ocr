@@ -662,7 +662,7 @@ class PageParser(object):
         if not self.ocrs:
             return False
 
-        return all(ocr.provides_ctc_logits for ocr in self.ocrs.values())
+        return any(ocr.provides_ctc_logits for ocr in self.ocrs.values())
 
     def update_confidences(self, page_layout):
         for line in page_layout.lines_iterator():
