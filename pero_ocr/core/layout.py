@@ -94,17 +94,11 @@ class TextLine(object):
         coords = ET.SubElement(text_line, "Coords")
 
         if self.polygon is not None:
-            points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in
-                      self.polygon]
-            points = " ".join(points)
-            coords.set("points", points)
+            coords.set("points", coords_to_pagexml_points(self.polygon))
 
         if self.baseline is not None:
             baseline_element = ET.SubElement(text_line, "Baseline")
-            points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in
-                      self.baseline]
-            points = " ".join(points)
-            baseline_element.set("points", points)
+            baseline_element.set("points", coords_to_pagexml_points(self.baseline))
 
         if self.transcription is not None:
             text_element = ET.SubElement(text_line, "TextEquiv")
@@ -444,9 +438,8 @@ class RegionLayout(object):
             custom = json.dumps(custom)
             region_element.set("custom", custom)
 
-        points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in self.polygon]
-        points = " ".join(points)
-        coords.set("points", points)
+        coords.set("points", coords_to_pagexml_points(self.polygon))
+
         if self.transcription is not None:
             text_element = ET.SubElement(region_element, "TextEquiv")
             text_element = ET.SubElement(text_element, "Unicode")
@@ -544,6 +537,13 @@ def get_coords_from_pagexml(coords_element, schema):
             coords.append([float(x), float(y)])
         coords = np.asarray(coords)
     return coords
+
+
+def coords_to_pagexml_points(polygon: np.ndarray) -> str:
+    polygon = np.round(polygon).astype(np.dtype('int'))
+    points = [f"{x},{y}" for x, y in np.maximum(polygon, 0)]
+    points = " ".join(points)
+    return points
 
 
 def guess_line_heights_from_polygon(text_line: TextLine, use_center: bool = False, n: int = 10, interpolate=False):
