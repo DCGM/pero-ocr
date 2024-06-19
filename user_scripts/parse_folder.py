@@ -174,7 +174,7 @@ class Computator:
                 image = None
 
             if self.input_xml_path:
-                page_layout = PageLayout(pagexml_file=os.path.join(self.input_xml_path, file_id + '.xml'))
+                page_layout = PageLayout(file=os.path.join(self.input_xml_path, file_id + '.xml'))
             elif self.input_alto_path:
                 page_layout = PageLayout(altoxml_file=os.path.join(self.input_alto_path, file_id + '.xml'))
             else:

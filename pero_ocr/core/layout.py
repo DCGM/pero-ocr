@@ -650,15 +650,15 @@ def get_reading_order(page_element, schema):
 
 
 class PageLayout(object):
-    def __init__(self, id: str = None, page_size: List[Tuple[int]] = (0, 0), 
-                 pagexml_file: str = None, altoxml_file: str = None):
+    def __init__(self, id: str = None, page_size: List[Tuple[int]] = (0, 0),
+                 file: str = None, altoxml_file: str = None):
         self.id = id
         self.page_size = page_size  # (height, width)
         self.regions: List[RegionLayout] = []
         self.reading_order = None
 
-        if pagexml_file is not None:
-            self.from_pagexml(pagexml_file)
+        if file is not None:  # anticipate that file is pagexml (for backward compatibility)
+            self.from_pagexml(file)
         elif altoxml_file is not None:
             self.from_altoxml(altoxml_file)
 
