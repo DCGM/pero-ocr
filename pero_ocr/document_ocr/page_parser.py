@@ -6,7 +6,6 @@ import math
 import time
 import re
 from typing import Union, Tuple
-from copy import deepcopy
 
 import torch.cuda
 
@@ -621,6 +620,9 @@ def get_default_device():
 
 class PageParser(object):
     def __init__(self, config, device=None, config_path='', ):
+        if not config.sections():
+            raise ValueError('Config file is empty or does not exist.')
+
         self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER', fallback=False)
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)

@@ -18,17 +18,6 @@ For the current shell session, this can be achieved by setting ``PYTHONPATH`` up
 export PYTHONPATH=/path/to/the/repo:$PYTHONPATH
 ```
 
-As a more permanent solution, a very simplistic `setup.py` is prepared:
-```
-python setup.py develop
-```
-Beware that the `setup.py` does not promise to bring all the required stuff, e.g. setting CUDA up is up to you.
-
-Pero can be later removed from your Python distribution by running:
-```
-python setup.py develop --uninstall
-```
-
 ## Available models
 General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://nextcloud.fit.vutbr.cz/s/NtAbHTNkZFpapdJ). The OCR engine is suitable for most european printed documents. It is specialized for low-quality czech newspapers digitized from microfilms, but it provides very good results for almast all types of printed documents in most languages. If you are interested in processing printed fraktur fonts, handwritten documents or medieval manuscripts, feel free to contact the authors. The newest OCR engines are available at [pero-ocr.fit.vutbr.cz](https://pero-ocr.fit.vutbr.cz). OCR engines are available also through API runing at [pero-ocr.fit.vutbr.cz/api](https://pero-ocr.fit.vutbr.cz/api), [github repository](https://github.com/DCGM/pero-ocr-api).
 
@@ -63,7 +52,7 @@ import os
 import configparser
 import cv2
 import numpy as np
-from pero_ocr.document_ocr.layout import PageLayout
+from pero_ocr.core.layout import PageLayout
 from pero_ocr.document_ocr.page_parser import PageParser
 
 # Read config file.
