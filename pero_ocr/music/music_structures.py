@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from enum import Enum
 import logging
+from typing import Optional
 
 import music21 as music
 from pero_ocr.music.music_symbols import Symbol, SymbolType, AlteredPitches, LENGTH_TO_SYMBOL
@@ -75,14 +76,14 @@ class Measure:
             self.set_key(previous_measure_key)
         return self.keysignature
 
-    def get_start_clef(self) -> music.clef.Clef | None:
+    def get_start_clef(self) -> Optional[music.clef.Clef]:
         if self.start_clef is not None:
             return self.start_clef
         else:
             return self.symbol_groups[0].get_clef()
 
     def get_last_clef(self, previous_measure_last_clef: music.clef.Clef = music.clef.TrebleClef
-                      ) -> music.clef.Clef | None:
+                      ) -> Optional[music.clef.Clef]:
         if self.last_clef is not None:
             return self.last_clef
 
@@ -325,7 +326,7 @@ class SymbolGroup:
             else:
                 return SymbolGroupType.TUPLE
 
-    def get_key(self) -> music.key.Key | None:
+    def get_key(self) -> Optional[music.key.Key]:
         """Go through all labels and find key signature or return None.
 
         Returns:
@@ -423,7 +424,7 @@ class SymbolGroup:
 
         return groups_to_add
 
-    def get_clef(self) -> music.clef.Clef | None:
+    def get_clef(self) -> Optional[music.clef.Clef]:
         if self.type == SymbolGroupType.SYMBOL and self.symbols[0].type == SymbolType.CLEF:
             return self.symbols[0].repr
         return None

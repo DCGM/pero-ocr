@@ -396,7 +396,7 @@ class RegionLayout(object):
         self.transcription = None
         self.detection_confidence = detection_confidence
 
-    def get_lines_of_category(self, categories: str | list):
+    def get_lines_of_category(self, categories: Union[str, list]):
         if isinstance(categories, str):
             categories = [categories]
 

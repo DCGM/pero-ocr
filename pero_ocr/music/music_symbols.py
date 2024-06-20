@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from enum import Enum
 import re
+from typing import Optional
 
 import music21 as music
 
@@ -257,7 +258,7 @@ class Note:
         self.gracenote = gracenote
         self.note_ready = False
 
-    def get_real_height(self, altered_pitches: AlteredPitches) -> music.note.Note | None:
+    def get_real_height(self, altered_pitches: AlteredPitches) -> Optional[music.note.Note]:
         """Returns the real height of the note.
 
         Args:

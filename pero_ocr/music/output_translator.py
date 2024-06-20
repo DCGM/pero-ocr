@@ -4,6 +4,7 @@ import re
 import logging
 import json
 import os
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class OutputTranslator:
 
         return ' '.join(converted_symbols)
 
-    def translate_symbol(self, symbol: str, reverse: bool = False) -> str | None:
+    def translate_symbol(self, symbol: str, reverse: bool = False) -> Optional[str]:
         dictionary = self.dictionary_reversed if reverse else self.dictionary
 
         translation = dictionary.get(symbol, None)

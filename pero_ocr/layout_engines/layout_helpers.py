@@ -1,9 +1,8 @@
 import math
 import random
 import warnings
-import logging
 from copy import deepcopy
-from typing import Tuple
+from typing import Tuple, Optional
 
 import numpy as np
 import cv2
@@ -495,7 +494,7 @@ def insert_line_to_page_layout(page_layout: PageLayout, region: RegionLayout, li
     return page_layout
 
 
-def find_region_by_id(page_layout: PageLayout, region_id: str) -> RegionLayout | None:
+def find_region_by_id(page_layout: PageLayout, region_id: str) -> Optional[RegionLayout]:
     for region in page_layout.regions:
         if region.id == region_id:
             return region
