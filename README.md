@@ -25,6 +25,7 @@ General layout analysis (printed and handwritten) with european printed OCR spec
 A command line application is `./user_scripts/parse_folder.py.` It is able to process images in a directory using an OCR engine. It can render detected lines in an image and provide document content in Page XML and ALTO XML formats. Additionally, it is able to crop all text lines as rectangular regions of normalized size and save them into separate image files.
 
 ## Running command line application in container
+<a name="running-command-line-application-in-container"></a>
 A docker container can be built from the sourcecode to run scripts and programs based on the pero-ocr. Example of running the `parse_folder.py` script to generate page-xml files for images in input directory:
 ```shell
 docker run --rm --tty --interactive \
@@ -106,7 +107,7 @@ Currently, only unittests are provided with the code. Some of the code. So simpl
 ```
 
 #### Simple regression testing
-Regression testing can be done by `test/processing_test.sh`. Script calls containerized `parse_folder.py` to process input images and page-xml files and calls user suplied comparison script to compare outputs to example outputs suplied by user. `PERO-OCR` container have to be built in advance to run the test, see 'Running command line application in container' chapter. Script can be called like this:
+Regression testing can be done by `test/processing_test.sh`. Script calls containerized `parse_folder.py` to process input images and page-xml files and calls user suplied comparison script to compare outputs to example outputs suplied by user. `PERO-OCR` container have to be built in advance to run the test, see [Running command line application in container](#running-command-line-application-in-container) for more information. Script can be run like this:
 ```shell
 sh test/processing_test.sh \
      --input-images path/to/input/image/directory \
