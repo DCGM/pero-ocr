@@ -22,7 +22,7 @@ export PYTHONPATH=/path/to/the/repo:$PYTHONPATH
 General layout analysis (printed and handwritten) with european printed OCR specialized to czech newspapers can be [downloaded here](https://nextcloud.fit.vutbr.cz/s/NtAbHTNkZFpapdJ). The OCR engine is suitable for most european printed documents. It is specialized for low-quality czech newspapers digitized from microfilms, but it provides very good results for almast all types of printed documents in most languages. If you are interested in processing printed fraktur fonts, handwritten documents or medieval manuscripts, feel free to contact the authors. The newest OCR engines are available at [pero-ocr.fit.vutbr.cz](https://pero-ocr.fit.vutbr.cz). OCR engines are available also through API runing at [pero-ocr.fit.vutbr.cz/api](https://pero-ocr.fit.vutbr.cz/api), [github repository](https://github.com/DCGM/pero-ocr-api).
 
 ## Command line application
-A command line application is ./user_scripts/parse_folder.py. It is able to process images in a directory using an OCR engine. It can render detected lines in an image and provide document content in Page XML and ALTO XML formats. Additionally, it is able to crop all text lines as rectangular regions of normalized size and save them into separate image files.
+A command line application is `./user_scripts/parse_folder.py.` It is able to process images in a directory using an OCR engine. It can render detected lines in an image and provide document content in Page XML and ALTO XML formats. Additionally, it is able to crop all text lines as rectangular regions of normalized size and save them into separate image files.
 
 ## Running command line application in container
 A docker container can be built from the sourcecode to run scripts and programs based on the pero-ocr. Example of running the `parse_folder.py` script to generate page-xml files for images in input directory:
@@ -106,7 +106,7 @@ Currently, only unittests are provided with the code. Some of the code. So simpl
 ```
 
 #### Simple regression testing
-Regression testing can be done by `test/processing_test.sh`. Script calls containerized `parser_folder.py` to process input images and page-xml files and calls user suplied comparison script to compare outputs to example outputs suplied by user. `PERO-OCR` container have to be built in advance to run the test, see 'Running command line application in container' chapter. Script can be called like this:
+Regression testing can be done by `test/processing_test.sh`. Script calls containerized `parse_folder.py` to process input images and page-xml files and calls user suplied comparison script to compare outputs to example outputs suplied by user. `PERO-OCR` container have to be built in advance to run the test, see 'Running command line application in container' chapter. Script can be called like this:
 ```shell
 sh test/processing_test.sh \
      --input-images path/to/input/image/directory \
