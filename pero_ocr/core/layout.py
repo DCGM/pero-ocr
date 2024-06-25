@@ -721,7 +721,7 @@ class PageLayout(object):
             out_f.write(xml_string)
 
     def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v4_4):
+                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -729,7 +729,7 @@ class PageLayout(object):
 
         if version == ALTOVersion.ALTO_v4_4:
             root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v4#")
-        elif version == ALTOVersion.ALTO_v2_1:
+        elif version == ALTOVersion.ALTO_v2_x:
             root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v2#")
 
         description = ET.SubElement(root, "Description")
@@ -798,7 +798,7 @@ class PageLayout(object):
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                   version: ALTOVersion = ALTOVersion.ALTO_v4_4):
+                   version: ALTOVersion = ALTOVersion.ALTO_v2_x):
         alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid, version=version)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
