@@ -5,7 +5,7 @@ from multiprocessing import Pool
 import math
 import time
 import re
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 
 import torch.cuda
 
@@ -559,7 +559,7 @@ class PageOCR:
 
         return page_layout
 
-    def substitute_transcriptions(self, lines_to_process: list[TextLine]):
+    def substitute_transcriptions(self, lines_to_process: List[TextLine]):
         transcriptions_substituted = []
 
         for line in lines_to_process:

@@ -3,6 +3,7 @@ import sys
 import os
 import re
 import logging
+from typing import List
 
 import music21 as music
 
@@ -18,9 +19,9 @@ class MusicPageExporter:
     For CLI usage see user_scripts/music_exporter.py
     """
 
-    def __init__(self, input_xml_path: str = '', input_transcription_files: list[str] = None,
+    def __init__(self, input_xml_path: str = '', input_transcription_files: List[str] = None,
                  translator_path: str = None, output_folder: str = 'output_page', export_midi: bool = False,
-                 export_musicxml: bool = False, categories: list = None, verbose: bool = False):
+                 export_musicxml: bool = False, categories: List = None, verbose: bool = False):
         self.translator_path = translator_path
         if verbose:
             logging.basicConfig(level=logging.DEBUG, format='[%(levelname)-s]  \t- %(message)s')
@@ -103,7 +104,7 @@ class MusicPageExporter:
             base = self.get_output_file_base(file_id)
             part.export_to_midi(base)
 
-    def regions_to_parts(self, regions: list[RegionLayout]) -> list[Part]:
+    def regions_to_parts(self, regions: List[RegionLayout]) -> List[Part]:
         """Takes a list of regions and splits them to parts."""
         max_parts = max(
             [len(region.get_lines_of_category(self.categories)) for region in regions],
@@ -123,7 +124,7 @@ class MusicPageExporter:
 
 class MusicLinesExporter:
     """Takes text files with transcriptions as individual lines and exports musicxml file for each one"""
-    def __init__(self, input_files: list[str] = None, output_folder: str = 'output_musicxml',
+    def __init__(self, input_files: List[str] = None, output_folder: str = 'output_musicxml',
                  translator: Translator = None, verbose: bool = False):
         self.translator = translator
         self.output_folder = output_folder
@@ -180,7 +181,7 @@ class MusicLinesExporter:
             os.makedirs(output_folder)
 
     @staticmethod
-    def get_input_files(input_files: list[str] = None):
+    def get_input_files(input_files: List[str] = None):
         existing_files = []
 
         if not input_files:
@@ -193,7 +194,7 @@ class MusicLinesExporter:
         return existing_files
 
     @staticmethod
-    def read_file_lines(input_file: str) -> list[str]:
+    def read_file_lines(input_file: str) -> List[str]:
         with open(input_file, 'r', encoding='utf-8') as f:
             lines = f.read().splitlines()
 
@@ -210,9 +211,9 @@ class Part:
         self.translator = translator
 
         self.repr_music21 = music.stream.Part([music.instrument.Piano()])
-        self.labels: list[str] = []
-        self.textlines: list[TextLineWrapper] = []
-        self.measures: list[Measure] = []  # List of measures in internal representation, NOT music21
+        self.labels: List[str] = []
+        self.textlines: List[TextLineWrapper] = []
+        self.measures: List[Measure] = []  # List of measures in internal representation, NOT music21
 
     def add_textline(self, line: TextLine) -> None:
         labels = line.transcription
@@ -247,7 +248,7 @@ class Part:
 
 class TextLineWrapper:
     """Class to wrap one TextLine for easier export etc."""
-    def __init__(self, text_line: TextLine, measures: list[music.stream.Measure]):
+    def __init__(self, text_line: TextLine, measures: List[music.stream.Measure]):
         self.text_line = text_line
         self.repr_music21 = music.stream.Part([music.instrument.Piano()] + measures)
 
@@ -259,7 +260,7 @@ class TextLineWrapper:
         parsed_xml.write('mid', filename)
 
 
-def parse_semantic_to_measures(labels: str) -> list[Measure]:
+def parse_semantic_to_measures(labels: str) -> List[Measure]:
     """Convert line of semantic labels to list of measures.
 
     Args:
@@ -290,7 +291,7 @@ def parse_semantic_to_measures(labels: str) -> list[Measure]:
     return measures
 
 
-def encode_measures(measures: list, measure_id_start_from: int = 1) -> list[Measure]:
+def encode_measures(measures: List, measure_id_start_from: int = 1) -> List[Measure]:
     """Get list of measures and encode them to music21 encoded measures."""
     logging.debug('-------------------------------- -------------- --------------------------------')
     logging.debug('-------------------------------- START ENCODING --------------------------------')

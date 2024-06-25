@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from enum import Enum
 import logging
-from typing import Optional
+from typing import Optional, List
 
 import music21 as music
 from pero_ocr.music.music_symbols import Symbol, SymbolType, AlteredPitches, LENGTH_TO_SYMBOL
@@ -174,15 +174,15 @@ class Measure:
         return music.stream.Measure(zero_length_encoded + voices_repr)
 
     @staticmethod
-    def find_shortest_voices(voices: list, ignore: list = None) -> list[int]:
+    def find_shortest_voices(voices: List, ignore: List = None) -> List[int]:
         """Go through all voices and find the one with the current shortest duration.
 
         Args:
-            voices (list): list of voices.
-            ignore (list): indexes of voices to ignore.
+            voices (List): List of voices.
+            ignore (List): indexes of voices to ignore.
 
         Returns:
-            list: indexes of voices with the current shortest duration.
+            List: indexes of voices with the current shortest duration.
         """
         if ignore is None:
             ignore = []
@@ -201,8 +201,8 @@ class Measure:
         return shortest_voice_ids
 
     @staticmethod
-    def find_zero_length_symbol_groups(symbol_groups: list[SymbolGroup]) -> list[SymbolGroup]:
-        """Returns a list of zero-length symbol groups AT THE BEGGING OF THE MEASURE."""
+    def find_zero_length_symbol_groups(symbol_groups: List[SymbolGroup]) -> List[SymbolGroup]:
+        """Returns a List of zero-length symbol groups AT THE BEGGING OF THE MEASURE."""
         zero_length_symbol_groups = []
         for symbol_group in symbol_groups:
             if symbol_group.type == SymbolGroupType.TUPLE or symbol_group.length > 0:
@@ -211,15 +211,15 @@ class Measure:
         return zero_length_symbol_groups
 
     @staticmethod
-    def pad_voices_to_n_shortest(voices: list[Voice], n: int = 1) -> list[int]:
+    def pad_voices_to_n_shortest(voices: List[Voice], n: int = 1) -> List[int]:
         """Pads voices (starting from the shortest) so there is n shortest voices with same length.
 
         Args:
-            voices (list): list of voices.
+            voices (List): List of voices.
             n (int): number of desired shortest voices.
 
         Returns:
-            list: list of voice IDS with the current shortest duration.
+            List: List of voice IDS with the current shortest duration.
         """
         shortest_voice_ids = Measure.find_shortest_voices(voices)
 
@@ -236,11 +236,11 @@ class Measure:
         return shortest_voice_ids
 
     @staticmethod
-    def get_mono_start_symbol_groups(symbol_groups: list[SymbolGroup]) -> list[SymbolGroup]:
-        """Get a list of monophonic symbol groups AT THE BEGINNING OF THE MEASURE.
+    def get_mono_start_symbol_groups(symbol_groups: List[SymbolGroup]) -> List[SymbolGroup]:
+        """Get a List of monophonic symbol groups AT THE BEGINNING OF THE MEASURE.
 
         Returns:
-            list: list of monophonic symbol groups AT THE BEGINNING OF THE MEASURE
+            List: List of monophonic symbol groups AT THE BEGINNING OF THE MEASURE
         """
         mono_start_symbol_groups = []
         for symbol_group in symbol_groups:
@@ -250,15 +250,15 @@ class Measure:
         return mono_start_symbol_groups
 
     @staticmethod
-    def create_mono_start(voices: list[Voice], mono_start_symbol_groups: list[SymbolGroup]) -> list[Voice]:
+    def create_mono_start(voices: List[Voice], mono_start_symbol_groups: List[SymbolGroup]) -> List[Voice]:
         """Create monophonic start of measure in the first voice and add padding to the others.
 
         Args:
-            voices (list[Voices]): list of voices
-            mono_start_symbol_groups: list of monophonic symbol groups AT THE BEGINNING OF MEASURE.
+            voices (List[Voices]): List of voices
+            mono_start_symbol_groups: List of monophonic symbol groups AT THE BEGINNING OF MEASURE.
 
         Returns:
-            list[Voice]: list of voices
+            List[Voice]: List of voices
         """
         padding_length = 0
         for symbol_group in mono_start_symbol_groups:
@@ -281,7 +281,7 @@ class SymbolGroupType(Enum):
 
 class SymbolGroup:
     """Represents one label group in a measure. Consisting of 1 to n labels/symbols."""
-    tuple_data: list = None  # Tuple data consists of a list of symbol groups where symbols have same lengths.
+    tuple_data: List = None  # Tuple data consists of a List of symbol groups where symbols have same lengths.
     length: float = None   # Length of the symbol group in quarter notes.
 
     def __init__(self, labels: str):
@@ -373,7 +373,7 @@ class SymbolGroup:
     def create_tuple_data(self):
         """Create tuple data for the label group.
 
-        Tuple data consists of a list of symbol groups where symbols have same lengths.
+        Tuple data consists of a List of symbol groups where symbols have same lengths.
         """
         # logging.debug(f'Creating tuple data for label group: {self.labels}')
         list_of_groups = [[self.symbols[0]]]
@@ -433,7 +433,7 @@ class SymbolGroup:
 class Voice:
     """Internal representation of voice (list of symbol groups symbolizing one musical line)."""
     length: float = 0.0   # Accumulated length of symbol groups (in quarter notes).
-    symbol_groups: list = []
+    symbol_groups: List = []
     repr = None
 
     def __init__(self):

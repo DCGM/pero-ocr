@@ -1,7 +1,7 @@
 import numpy as np
 from copy import deepcopy
 import time
-from typing import Union
+from typing import Union, Tuple
 
 import cv2
 from scipy import ndimage
@@ -377,7 +377,7 @@ class LayoutEngine(object):
 
 class LayoutEngineYolo(object):
     def __init__(self, model_path, device,
-                 image_size: Union[int, tuple[int, int], None] = None,
+                 image_size: Union[int, Tuple[int, int], None] = None,
                  detection_threshold=0.2):
         self.yolo_net = YOLO(model_path).to(device)
         self.detection_threshold = detection_threshold
