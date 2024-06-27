@@ -9,7 +9,6 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 import skimage.draw
 import shapely.geometry as sg
-from ultralytics import YOLO
 import torch
 
 from pero_ocr.layout_engines import layout_helpers as helpers
@@ -379,6 +378,9 @@ class LayoutEngineYolo(object):
     def __init__(self, model_path, device,
                  image_size: Union[int, Tuple[int, int], None] = None,
                  detection_threshold=0.2):
+        from ultralytics import YOLO  # import here, only if needed
+        # (ultralytics need different numpy version than some specific version installed on pero-ocr machines)
+
         self.yolo_net = YOLO(model_path).to(device)
         self.detection_threshold = detection_threshold
         self.image_size = image_size  # height or (height, width)
@@ -398,7 +400,7 @@ class LayoutEngineYolo(object):
                                     verbose=False)
 
         if results is None:
-            raise Exception('LayoutEngineYolo returned None.')
+            raise Exception('Yolo inference returned None.')
         return results[0]
 
 

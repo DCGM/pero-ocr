@@ -41,8 +41,6 @@ dependencies = [
     "pyamg",
     "imgaug",
     "arabic_reshaper",
-    "ultralytics",
-    "music21",
 ]
 
 

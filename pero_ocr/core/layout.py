@@ -87,7 +87,8 @@ class TextLine(object):
 
         custom = {}
         if self.heights is not None:
-            custom['heights'] = list(np.round(self.heights, decimals=1))
+            heights_out = [np.float64(x) for x in self.heights]
+            custom['heights'] = list(np.round(heights_out, decimals=1))
         if self.category is not None:
             custom['category'] = self.category
         if len(custom) > 0:

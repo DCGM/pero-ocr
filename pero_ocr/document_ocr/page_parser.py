@@ -312,6 +312,9 @@ class LayoutExtractor(object):
 
 class LayoutExtractorYolo(object):
     def __init__(self, config, device, config_path=''):
+        import ultralytics  # check if ultralytics library is installed
+        # (ultralytics need different numpy version than some specific version installed on pero-ocr machines)
+
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
         self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
