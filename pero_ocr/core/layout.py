@@ -707,7 +707,7 @@ class PageLayout(object):
         page.set("imageWidth", str(self.page_size[1]))
         page.set("imageHeight", str(self.page_size[0]))
 
-        if self.reading_order is not None:
+        if self.reading_order is not None and self.reading_order != {}:
             self.sort_regions_by_reading_order()
             self.reading_order_to_pagexml(page)
 

@@ -73,7 +73,7 @@ def page_decoder_factory(config, device, config_path=''):
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, device, allow_no_decoder=False, config_path=config_path)
     confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
     carry_h_over = config['DECODER'].getboolean('CARRY_H_OVER')
-    categories = config_get_list(config['DECODER'], key='CATEGORIES', fallback=['text'])
+    categories = config_get_list(config['DECODER'], key='CATEGORIES', fallback=[])
     return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over,
                        categories=categories)
 
@@ -215,7 +215,7 @@ class LayoutExtractor(object):
         self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
-        self.categories = config_get_list(config, key='CATEGORIES', fallback=['text'])
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -406,7 +406,7 @@ class LineFilter(object):
         self.filter_incomplete_pages = config.getboolean('FILTER_INCOMPLETE_PAGES')
         self.filter_pages_with_short_lines = config.getboolean('FILTER_PAGES_WITH_SHORT_LINES')
         self.length_threshold = config.getint('LENGTH_THRESHOLD')
-        self.categories = config_get_list(config, key='CATEGORIES', fallback=['text'])
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -516,7 +516,7 @@ class PageOCR:
         use_cpu = config.getboolean('USE_CPU')
 
         self.device = device if not use_cpu else torch.device("cpu")
-        self.categories = config_get_list(config, key='CATEGORIES', fallback=['text'])
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
         self.substitute_output = config.getboolean('SUBSTITUTE_OUTPUT', fallback=True)
         self.substitute_output_atomic = config.getboolean('SUBSTITUTE_OUTPUT_ATOMIC', fallback=True)
         self.update_transcription_by_confidence = config.getboolean(
