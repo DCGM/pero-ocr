@@ -84,11 +84,13 @@ class TextLine(object):
             text_line.set("index", f'{self.index:d}')
         else:
             text_line.set("index", f'{fallback_id:d}')
+
+        custom = {}
         if self.heights is not None:
-            custom = {
-                "heights": list(np.round(self.heights, decimals=1)),
-                "category": self.category
-            }
+            custom['heights'] = list(np.round(self.heights, decimals=1))
+        if self.category is not None:
+            custom['category'] = self.category
+        if len(custom) > 0:
             text_line.set("custom", json.dumps(custom))
 
         coords = ET.SubElement(text_line, "Coords")
