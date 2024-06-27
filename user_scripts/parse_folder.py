@@ -33,6 +33,8 @@ def parse_arguments():
     parser.add_argument('--input-logit-path', help='')
     parser.add_argument('--output-xml-path', help='')
     parser.add_argument('--output-render-path', help='')
+    parser.add_argument('--output-render-category', default=False, action='store_true',
+                        help='Render category tags for every non-text region.')
     parser.add_argument('--output-line-path', help='')
     parser.add_argument('--output-logit-path', help='')
     parser.add_argument('--output-alto-path', help='')
@@ -57,9 +59,12 @@ def setup_logging(config):
     logger.setLevel(level)
 
 
-def get_value_or_none(config, section, key):
+def get_value_or_none(config, section, key, getboolean: bool = False):
     if config.has_option(section, key):
-        value = config[section][key]
+        if getboolean:
+            value = config.getboolean(section, key)
+        else:
+            value = config[section][key]
     else:
         value = None
     return value
@@ -139,12 +144,13 @@ class LMDB_writer(object):
 
 class Computator:
     def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                 output_logit_path, output_alto_path, output_xml_path, output_line_path):
+                 output_render_category, output_logit_path, output_alto_path, output_xml_path, output_line_path):
         self.page_parser = page_parser
         self.input_image_path = input_image_path
         self.input_xml_path = input_xml_path
         self.input_logit_path = input_logit_path
         self.output_render_path = output_render_path
+        self.output_render_category = output_render_category
         self.output_logit_path = output_logit_path
         self.output_alto_path = output_alto_path
         self.output_xml_path = output_xml_path
@@ -177,8 +183,9 @@ class Computator:
                     os.path.join(self.output_xml_path, file_id + '.xml'))
 
             if self.output_render_path is not None:
-                page_layout.render_to_image(image)
-                cv2.imwrite(os.path.join(self.output_render_path, file_id + '.jpg'), image, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+                page_layout.render_to_image(image, render_category=self.output_render_category)
+                render_file = str(os.path.join(self.output_render_path, file_id + '.jpg'))
+                cv2.imwrite(render_file, image, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
 
             if self.output_logit_path is not None:
                 page_layout.save_logits(os.path.join(self.output_logit_path, file_id + '.logits'))
@@ -247,6 +254,8 @@ def main():
         config['PARSE_FOLDER']['OUTPUT_XML_PATH'] = args.output_xml_path
     if args.output_render_path is not None:
         config['PARSE_FOLDER']['OUTPUT_RENDER_PATH'] = args.output_render_path
+    if args.output_render_category is not None:
+        config['PARSE_FOLDER']['OUTPUT_RENDER_CATEGORY'] = 'yes' if args.output_render_category else 'no'
     if args.output_line_path is not None:
         config['PARSE_FOLDER']['OUTPUT_LINE_PATH'] = args.output_line_path
     if args.output_logit_path is not None:
@@ -266,6 +275,7 @@ def main():
     input_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'INPUT_LOGIT_PATH')
 
     output_render_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_RENDER_PATH')
+    output_render_category = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_RENDER_CATEGORY', True)
     output_line_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LINE_PATH')
     output_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_XML_PATH')
     output_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LOGIT_PATH')
@@ -334,7 +344,8 @@ def main():
         images_to_process = filtered_images_to_process
 
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                            output_logit_path, output_alto_path, output_xml_path, output_line_path)
+                            output_render_category, output_logit_path, output_alto_path, output_xml_path,
+                            output_line_path)
 
     t_start = time.time()
     results = []
