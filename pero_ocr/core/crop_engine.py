@@ -51,8 +51,10 @@ class EngineLineCropper(object):
 
         return img
 
-    def get_crop_inputs(self, baseline, line_heights, target_height):
+    def get_crop_inputs(self, baseline, line_heights, target_height, min_line_height=1):
         line_heights = [line_heights[0] * self.scale, line_heights[1] * self.scale]
+        if line_heights[0] + line_heights[1] < min_line_height:
+            line_heights = [min_line_height / 2, min_line_height / 2]
         coords = np.asarray(baseline).copy().astype(int)
         alfa = math.atan2(coords[-1, 1] - coords[0, 1], coords[-1, 0] - coords[0, 0])
         R = np.array([[np.cos(alfa), np.sin(alfa)], [-np.sin(alfa), np.cos(alfa)]])
