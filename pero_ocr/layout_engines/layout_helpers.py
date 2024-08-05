@@ -440,20 +440,26 @@ def split_page_layout_by_categories(page_layout: PageLayout, categories: list) -
     regions = page_layout.regions
     page_layout.regions = []
 
-    page_layout_text = page_layout
-    page_layout_no_text = deepcopy(page_layout)
+    page_layout_positive = page_layout
+    page_layout_negative = deepcopy(page_layout)
 
     for region in regions:
-        for line in region.lines:
-            if line.category in categories:
-                page_layout_text = insert_line_to_page_layout(page_layout_text, region, line)
+        if region.category is not None or len(region.lines) == 0:
+            if region.category in categories:
+                page_layout_positive.regions.append(region)
             else:
-                page_layout_no_text = insert_line_to_page_layout(page_layout_no_text, region, line)
+                page_layout_negative.regions.append(region)
+        else:
+            for line in region.lines:
+                if line.category in categories:
+                    page_layout_positive = insert_line_to_page_layout(page_layout_positive, region, line)
+                else:
+                    page_layout_negative = insert_line_to_page_layout(page_layout_negative, region, line)
 
-    return page_layout_text, page_layout_no_text
+    return page_layout_positive, page_layout_negative
 
 
-def merge_page_layouts(page_layout_text: PageLayout, page_layout_no_text: PageLayout) -> PageLayout:
+def merge_page_layouts(page_layout_positive: PageLayout, page_layout_negative: PageLayout) -> PageLayout:
     """Merge two page_layouts into one by line. If same region ID, create new ID.
 
     Example:
@@ -465,21 +471,21 @@ def merge_page_layouts(page_layout_text: PageLayout, page_layout_no_text: PageLa
                 RegionLayout(id='r001', lines=[TextLine(id='r001-l001', category='text')]),
                 RegionLayout(id='r002', lines=[TextLine(id='r002-l002', category='logo')])])
     """
-    used_region_ids = set(region.id for region in page_layout_text.regions)
+    used_region_ids = set(region.id for region in page_layout_positive.regions)
 
     id_offset = 0
-    for region in page_layout_no_text.regions:
+    for region in page_layout_negative.regions:
         if region.id not in used_region_ids:
             used_region_ids.add(region.id)
-            page_layout_text.regions.append(region)
+            page_layout_positive.regions.append(region)
         else:
             while 'r{:03d}'.format(id_offset) in used_region_ids:
                 id_offset += 1
             region.replace_id('r{:03d}'.format(id_offset))
             used_region_ids.add(region.id)
-            page_layout_text.regions.append(region)
+            page_layout_positive.regions.append(region)
 
-    return page_layout_text
+    return page_layout_positive
 
 
 def insert_line_to_page_layout(page_layout: PageLayout, region: RegionLayout, line: TextLine) -> PageLayout:

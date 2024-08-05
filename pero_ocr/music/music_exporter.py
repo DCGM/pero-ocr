@@ -210,7 +210,7 @@ class Part:
     def __init__(self, translator: Translator = None):
         self.translator = translator
 
-        self.repr_music21 = music.stream.Part([music.instrument.Piano()])
+        self.repr_music21 = music.stream.Part([music.instrument.Piano()])  # Default instrument is piano
         self.labels: List[str] = []
         self.textlines: List[TextLineWrapper] = []
         self.measures: List[Measure] = []  # List of measures in internal representation, NOT music21
