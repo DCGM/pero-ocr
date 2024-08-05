@@ -12,6 +12,7 @@ from enum import Enum
 import logging
 from typing import Optional, List
 
+import numpy as np
 import music21 as music
 from pero_ocr.music.music_symbols import Symbol, SymbolType, AlteredPitches, LENGTH_TO_SYMBOL
 
@@ -473,7 +474,9 @@ class Voice:
 
         self.repr = music.stream.Voice()
         for group in self.symbol_groups:
-            self.repr.append(group.encode_to_music21_monophonic())
+            encoded_group = group.encode_to_music21_monophonic()
+            if encoded_group is not None:
+                self.repr.append(encoded_group)
         return self.repr
 
     def add_padding(self, padding_length: float) -> None:
@@ -482,8 +485,8 @@ class Voice:
         Args:
             padding_length (float): desired length of the padding in quarter notes.
         """
-        lengths = list(LENGTH_TO_SYMBOL.values())
-        min_length = min(LENGTH_TO_SYMBOL.keys())
+        lengths = np.array(list(LENGTH_TO_SYMBOL.keys()))
+        min_length = lengths.min()
 
         while padding_length > 0:
             if padding_length in LENGTH_TO_SYMBOL:

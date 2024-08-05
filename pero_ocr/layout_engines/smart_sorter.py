@@ -284,6 +284,7 @@ class SmartRegionSorter:
         regions = []
 
         if len(page_layout.regions) < 2:
+            page_layout = helpers.merge_page_layouts(page_layout_ignore, page_layout)
             return page_layout
 
         rotation = SmartRegionSorter.get_rotation(max(*page_layout.regions, key=lambda reg: len(reg.lines)).lines)
