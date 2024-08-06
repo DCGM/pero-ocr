@@ -124,7 +124,9 @@ class Measure:
         self.repr = music.stream.Measure()
         if not self._is_polyphonic:
             for symbol_group in self.symbol_groups:
-                self.repr.append(symbol_group.encode_to_music21_monophonic())
+                encoded_group = symbol_group.encode_to_music21_monophonic()
+                if encoded_group is not None:
+                    self.repr.append(encoded_group)
         else:
             self.repr = self.encode_to_music21_polyphonic()
 
@@ -171,7 +173,14 @@ class Measure:
                 logging.debug(f'voice ({voice_id}) len: {voice.length}')
 
         zero_length_encoded = [group.encode_to_music21_monophonic() for group in zero_length_symbol_groups]
+        zero_length_encoded = [group for group in zero_length_encoded if group is not None]
         voices_repr = [voice.encode_to_music21_monophonic() for voice in voices]
+        voices_repr = [voice for voice in voices_repr if voice is not None]
+
+        if len(voices_repr) == 0:
+            logging.warning('No voices in the measure, returning empty measure.')
+            return music.stream.Measure(zero_length_encoded)
+
         return music.stream.Measure(zero_length_encoded + voices_repr)
 
     @staticmethod
@@ -350,7 +359,7 @@ class SymbolGroup:
             for symbol in self.symbols:
                 symbol.set_key(altered_pitches)
 
-    def encode_to_music21_monophonic(self):
+    def encode_to_music21_monophonic(self) -> Optional[music.stream.Stream]:
         """Encodes the label group to music21 format.
 
         Returns:
@@ -460,7 +469,7 @@ class Voice:
         self.length += symbol_group.length
         self.repr = None
 
-    def encode_to_music21_monophonic(self) -> music.stream.Voice:
+    def encode_to_music21_monophonic(self) -> Optional[music.stream.Voice]:
         """Encodes the voice to music21 format.
 
         Returns:
