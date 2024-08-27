@@ -253,6 +253,10 @@ class TextLineWrapper:
         self.repr_music21 = music.stream.Part([music.instrument.Piano()] + measures)
 
     def export_midi(self, file_base: str = 'out'):
+        # do not export line, if it has no notes
+        if not any([note for note in self.repr_music21.flatten().notes]):
+            return
+
         filename = f'{file_base}_{self.text_line.id}.mid'
 
         xml = music21_to_musicxml(self.repr_music21)

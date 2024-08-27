@@ -124,7 +124,7 @@ class Symbol:
         return music.key.Key(keysignature)
 
     @staticmethod
-    def multirest_to_symbol(multirest: str) -> MultiRest:
+    def multirest_to_symbol(multirest: str) -> music.note.Rest:
         """Converts one multi rest label to internal MultiRest format.
 
         Args:
@@ -133,17 +133,9 @@ class Symbol:
         Returns:
             music.note.Rest: one rest in music21 format
         """
-        def return_default_multirest() -> MultiRest:
-            logging.info(f'Unknown multi rest label: {multirest}, returning default Multirest.')
-            return MultiRest()
-
-        if not multirest:
-            return_default_multirest()
-
-        try:
-            return MultiRest(int(multirest))
-        except ValueError:
-            return return_default_multirest()
+        rest = music.note.Rest()
+        rest.duration = label_to_length('whole')  # default duration, because multirest is not implemented in music21
+        return rest
 
     @staticmethod
     def note_to_symbol(note, gracenote: bool = False) -> Note:
