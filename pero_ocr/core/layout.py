@@ -232,7 +232,7 @@ def get_reading_order(page_element, schema):
 
 
 class PageLayout(object):
-    def __init__(self, id: str = None, page_size: List[Tuple[int]] = (0, 0), file: str = None):
+    def __init__(self, id: str = None, page_size: Tuple[int, int] = (0, 0), file: str = None):
         self.id = id
         self.page_size = page_size  # (height, width)
         self.regions: List[RegionLayout] = []
