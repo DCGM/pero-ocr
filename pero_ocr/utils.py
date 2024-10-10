@@ -12,10 +12,12 @@ try:
 except Exception:
     logging.warning('cannot import numba, creating dummy jit definition')
 
-    def jit(function):
-        def wrapper(*args, **kwargs):
-            return function(*args, **kwargs)
-        return wrapper
+    def jit(*_, **__):
+        def decorator(function):
+            def wrapper(*args, **kwargs):
+                return function(*args, **kwargs)
+            return wrapper
+        return decorator
 
 
 def compose_path(file_path, reference_path):
