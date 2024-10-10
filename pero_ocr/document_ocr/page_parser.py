@@ -8,7 +8,7 @@ import time
 import torch.cuda
 
 from pero_ocr.utils import compose_path
-from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine, guess_line_heights_from_polygon
 import pero_ocr.core.crop_engine as cropper
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
@@ -19,7 +19,7 @@ from pero_ocr.layout_engines.line_postprocessing_engine import PostprocessingEng
 from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
-from pero_ocr.layout_engines.baseline_refiner import refine_baseline
+from pero_ocr.layout_engines.baseline_refiner import refine_baseline, refine_baseline_linear_regression
 from pero_ocr.layout_engines import layout_helpers as helpers
 
 
@@ -208,6 +208,7 @@ class LayoutExtractor(object):
         self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
+        self.adjust_baselines_linear_regression = config.getboolean('ADJUST_BASELINES_LINEAR_REGRESSION', fallback=False)
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -273,7 +274,7 @@ class LayoutExtractor(object):
                     if len(region.lines) == original_line_count:
                         break
 
-        if self.detect_straight_lines_in_regions or self.adjust_heights or self.adjust_baselines:
+        if self.detect_straight_lines_in_regions or self.adjust_heights or self.adjust_baselines or self.adjust_baselines_linear_regression:
             maps, ds = self.engine.parsenet.get_maps_with_optimal_resolution(img)
 
         if self.detect_straight_lines_in_regions:
@@ -289,6 +290,13 @@ class LayoutExtractor(object):
                 line.heights = self.engine.get_heights(maps, ds, sample_points)
                 line.polygon = helpers.baseline_to_textline(
                     line.baseline, line.heights)
+
+        if self.adjust_baselines_linear_regression:
+            crop_engine = cropper.EngineLineCropper(
+                line_height=32, poly=0, scale=1)
+            for line in page_layout.lines_iterator():
+                line.baseline = refine_baseline_linear_regression(line.baseline, line.heights, maps, ds, crop_engine)
+                guess_line_heights_from_polygon(line)
 
         if self.adjust_baselines:
             crop_engine = cropper.EngineLineCropper(

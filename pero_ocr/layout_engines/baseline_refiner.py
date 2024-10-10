@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.ndimage import measurements
 from scipy import interpolate
+from sklearn import linear_model
 
 from pero_ocr.layout_engines import layout_helpers as helpers
 
@@ -66,3 +67,41 @@ def refine_baseline(baseline, heights, detection_maps, downsample, crop_engine, 
     except:
         print(f'Baseline refinement failed for baseline {baseline * downsample}')
         return baseline * downsample
+
+
+def refine_baseline_linear_regression(baseline, heights, detection_maps, downsample, crop_engine, detection_threshold=0.3):
+    baseline = baseline.copy() / downsample
+    tolerance = (heights[0] + heights[1]) / (2 * downsample)
+
+    line_crop, line_mapping = crop_engine.crop(
+        detection_maps[:, :, 2:3], baseline, [tolerance, tolerance], return_forward_mapping=True)
+    line_crop[line_crop < detection_threshold] = 0
+    line_crop[line_crop > 0] = 1
+
+    ys, xs = np.where(line_crop == 1)
+    ransac = linear_model.RANSACRegressor(max_trials=1000)
+
+    try:
+        ransac.fit(xs.reshape(-1, 1), ys)
+    except ValueError:
+        print(f'Baseline refinement with linear regression failed for baseline {baseline * downsample}: not enough points for RANSAC')
+        return baseline * downsample
+
+    num_steps = 10
+    xs = np.linspace(0, line_crop.shape[1] - 1, num_steps)
+    ys = ransac.predict(xs.reshape(-1, 1))
+
+    xs = np.round(xs).astype(int)
+    ys = np.round(ys).astype(int)
+
+    mask = np.bitwise_and(0 < ys, ys < line_crop.shape[0])
+    xs = xs[mask]
+    ys = ys[mask]
+
+    if len(xs) < 2:
+        print(f'Baseline refinement with linear regression failed for baseline {baseline * downsample}: not enough points for baseline')
+        return baseline * downsample
+
+    new_baseline_x = line_mapping[ys, xs, 0]
+    new_baseline_y = line_mapping[ys, xs, 1]
+    return np.stack([new_baseline_x, new_baseline_y], axis=1) * downsample
