@@ -414,22 +414,27 @@ def adjust_baselines_to_intensity(baselines, img, tolerance=5):
 
 
 def split_page_layout(page_layout: PageLayout) -> Tuple[PageLayout, PageLayout]:
-    """Split page layout to text and non-text lines."""
+    """Split page layout to text and non-text regions."""
     return split_page_layout_by_categories(page_layout, ['text'])
 
 
 def split_page_layout_by_categories(page_layout: PageLayout, categories: list) -> Tuple[PageLayout, PageLayout]:
-    """Split page_layout into two: one with textlines of given categories, the other with textlines of other categories.
+    """Split page_layout into two by region category. Return one page_layout with regions of given categories and one with
+    regions of other categories. No region category is treated as 'text' for backwards compatibility.
+    If no categories, return original page_layout and empty page_layout.
+    ! TextLine categories are ignored here !
 
     Example:
         split_page_layout_by_categories(page_layout, ['text'])
         IN:  PageLayout(regions=[
-                RegionLayout(id='r001', lines=[TextLine(id='r001-l001', category='text'),
-                                               TextLine(id='r001-l002', category='logo')])])
+                RegionLayout(id='r001', category='text', lines=[TextLine(id='r001-l001', category='text'),
+                                                                TextLine(id='r001-l002', category='logo')]),
+                RegionLayout(id='r002', category='image', lines=[TextLine(id='r002-l001', category='text')])])
         OUT: PageLayout(regions=[
-                RegionLayout(id='r001', lines=[TextLine(id='r001-l001', category='text')])]),
-             PageLayout(regions=[
-                RegionLayout(id='r001', lines=[TextLine(id='r001-l002', category='logo')])])
+                RegionLayout(id='r001', category='text', lines=[TextLine(id='r001-l001', category='text'),
+                                                                TextLine(id='r001-l002', category='logo')])])
+            PageLayout(regions=[
+                RegionLayout(id='r002', category='image', lines=[TextLine(id='r002-l001', category='text')])])
     """
     if not categories:
         # if no categories, return original page_layout and empty page_layout
@@ -444,23 +449,16 @@ def split_page_layout_by_categories(page_layout: PageLayout, categories: list) -
     page_layout_negative = deepcopy(page_layout)
 
     for region in regions:
-        if region.category is not None or len(region.lines) == 0:
-            if region.category in categories:
-                page_layout_positive.regions.append(region)
-            else:
-                page_layout_negative.regions.append(region)
+        region_category = region.category if region.category is not None else 'text'
+        if region_category in categories:
+            page_layout_positive.regions.append(region)
         else:
-            for line in region.lines:
-                if line.category in categories:
-                    page_layout_positive = insert_line_to_page_layout(page_layout_positive, region, line)
-                else:
-                    page_layout_negative = insert_line_to_page_layout(page_layout_negative, region, line)
-
+            page_layout_negative.regions.append(region)
     return page_layout_positive, page_layout_negative
 
 
 def merge_page_layouts(page_layout_positive: PageLayout, page_layout_negative: PageLayout) -> PageLayout:
-    """Merge two page_layouts into one by line. If same region ID, create new ID.
+    """Merge two page_layouts into one by regions. If same region ID, create new ID (rename line IDs also).
 
     Example:
         IN:  PageLayout(regions=[
@@ -469,39 +467,25 @@ def merge_page_layouts(page_layout_positive: PageLayout, page_layout_negative: P
                 RegionLayout(id='r001', lines=[TextLine(id='r001-l002', category='logo')])])
         OUT: PageLayout(regions=[
                 RegionLayout(id='r001', lines=[TextLine(id='r001-l001', category='text')]),
-                RegionLayout(id='r002', lines=[TextLine(id='r002-l002', category='logo')])])
+                RegionLayout(id='r001-1', lines=[TextLine(id='r001-1-l002', category='logo')])])
     """
     used_region_ids = set(region.id for region in page_layout_positive.regions)
 
-    id_offset = 0
     for region in page_layout_negative.regions:
         if region.id not in used_region_ids:
             used_region_ids.add(region.id)
             page_layout_positive.regions.append(region)
         else:
-            while 'r{:03d}'.format(id_offset) in used_region_ids:
+            new_region_id = region.id
+            id_offset = 1
+
+            # find new unique region ID by adding offset
+            while new_region_id in used_region_ids:
+                new_region_id = region.id + '-' + str(id_offset)
                 id_offset += 1
-            region.replace_id('r{:03d}'.format(id_offset))
-            used_region_ids.add(region.id)
+
+            region.replace_id(new_region_id)
+            used_region_ids.add(new_region_id)
             page_layout_positive.regions.append(region)
 
     return page_layout_positive
-
-
-def insert_line_to_page_layout(page_layout: PageLayout, region: RegionLayout, line: TextLine) -> PageLayout:
-    """Insert line to page layout given region of origin. Find if region already exists by ID."""
-    existing_region = find_region_by_id(page_layout, region.id)
-
-    if existing_region is not None:
-        existing_region.lines.append(line)
-    else:
-        region.lines = [line]
-        page_layout.regions.append(region)
-    return page_layout
-
-
-def find_region_by_id(page_layout: PageLayout, region_id: str) -> Optional[RegionLayout]:
-    for region in page_layout.regions:
-        if region.id == region_id:
-            return region
-    return None
