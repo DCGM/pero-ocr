@@ -11,6 +11,8 @@ from shapely import geometry, affinity
 from typing import List, Dict, Union, Optional
 
 from pero_ocr.core.layout import PageLayout, RegionLayout
+from pero_ocr.utils import config_get_list
+from pero_ocr.layout_engines import layout_helpers as helpers
 
 
 def pairwise(iterable):
@@ -275,11 +277,14 @@ class SmartRegionSorter:
     def __init__(self, config: SectionProxy, config_path=""):
         # if intersection of two regions is less than given parameter w.r.t. both regions, intersection doesn't count
         self.intersect_param = config.getfloat('FakeIntersectionParameter', fallback=0.1)
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
 
     def process_page(self, image, page_layout: PageLayout):
+        page_layout, page_layout_ignore = helpers.split_page_layout_by_categories(page_layout, self.categories)
         regions = []
 
         if len(page_layout.regions) < 2:
+            page_layout = helpers.merge_page_layouts(page_layout_ignore, page_layout)
             return page_layout
 
         rotation = SmartRegionSorter.get_rotation(max(*page_layout.regions, key=lambda reg: len(reg.lines)).lines)
@@ -300,6 +305,7 @@ class SmartRegionSorter:
         page_layout.regions = [page_layout.regions[idx] for idx in region_idxs]
         page_layout = SmartRegionSorter.rotate_page_layout(page_layout, rotation)
 
+        page_layout = helpers.merge_page_layouts(page_layout_ignore, page_layout)
         return page_layout
 
     @staticmethod
