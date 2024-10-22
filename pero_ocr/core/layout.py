@@ -991,9 +991,17 @@ class PageLayout(object):
                 image,
                 [line.polygon for line in region_layout.lines if line.polygon is not None], color=(0, 255, 0),
                 close=True, thickness=thickness)
+
+            if region_layout.category is None or region_layout.category == "text":
+                region_color = (255, 0, 0)
+                region_circles = (circles, circles, circles)
+            else:
+                region_color = (255, 0, 255)
+                region_circles = (False, False, False)
+
             image = draw_lines(
                 image,
-                [region_layout.polygon], color=(255, 0, 0), circles=(circles, circles, circles), close=True,
+                [region_layout.polygon], color=region_color, circles=region_circles, close=True,
                 thickness=thickness)
 
         if render_order or render_category:
