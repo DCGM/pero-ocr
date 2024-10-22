@@ -50,6 +50,15 @@ def layout_parser_factory(config, device, config_path=''):
         layout_parser = NaiveRegionSorter(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SORTER_SMART':
         layout_parser = SmartRegionSorter(config, config_path=config_path)
+    elif config['METHOD'] == 'DUMMY_IMAGE_CAPTIONING_SIMPLE':
+        from orbis_pictus.anno_page.captioning import DummyImageCaptioningSimple
+        layout_parser = DummyImageCaptioningSimple(config, config_path=config_path)
+    elif config['METHOD'] == 'DUMMY_IMAGE_CAPTIONING_RICH':
+        from orbis_pictus.anno_page.captioning import DummyImageCaptioningRich
+        layout_parser = DummyImageCaptioningRich(config, config_path=config_path)
+    elif config['METHOD'] == 'CHAT_GPT_IMAGE_CAPTIONING':
+        from orbis_pictus.anno_page.captioning import ChatGPTImageCaptioning
+        layout_parser = ChatGPTImageCaptioning(config, config_path=config_path)
     else:
         raise ValueError('Unknown layout parser method: {}'.format(config['METHOD']))
     return layout_parser
