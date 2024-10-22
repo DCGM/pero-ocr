@@ -505,3 +505,7 @@ def find_region_by_id(page_layout: PageLayout, region_id: str) -> Optional[Regio
         if region.id == region_id:
             return region
     return None
+
+
+def normalize_category_name(category):
+    return category.lower().replace(' ', '_').replace(',', '')
