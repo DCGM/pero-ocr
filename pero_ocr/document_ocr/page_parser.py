@@ -1,11 +1,11 @@
 import numpy as np
-
 import logging
 from multiprocessing import Pool
 import math
 import time
 import re
 from typing import Union, Tuple, List
+from collections import defaultdict
 
 import torch.cuda
 
@@ -346,12 +346,13 @@ class LayoutExtractorYolo(object):
         page_layout.regions = []
 
         result = self.engine.detect(img)
-        start_id = self.get_start_id([region.id for region in page_layout_text.regions])
+
+        category_counts = defaultdict(int)
+        for region in page_layout_text.regions:
+            category_counts[region.category] += 1
 
         boxes = result.boxes.data.cpu()
         for box_id, box in enumerate(boxes):
-            id_str = 'r{:03d}'.format(start_id + box_id)
-
             x_min, y_min, x_max, y_max, conf, class_id = box.tolist()
             polygon = np.array([[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min], [x_min, y_min]])
             baseline_y = y_min + (y_max - y_min) / 2
@@ -362,6 +363,9 @@ class LayoutExtractorYolo(object):
             if self.categories and category not in self.categories:
                 continue
 
+            category_counts[category] += 1
+
+            id_str = f'{helpers.normalize_category_name(category)}_{category_counts[category]:03d}'.lower()
             region = RegionLayout(id_str, polygon, category=category, detection_confidence=conf)
 
             if category in self.line_categories:
