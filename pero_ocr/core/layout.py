@@ -1186,10 +1186,16 @@ def create_ocr_processing_element(id: str = "IdOcr",
                                   software_creator_str: str = "Project PERO",
                                   software_name_str: str = "PERO OCR",
                                   software_version_str: str = "v0.1.0",
-                                  processing_datetime=None):
-    ocr_processing = ET.Element("OCRProcessing")
+                                  processing_datetime=None,
+                                  alto_version: ALTOVersion = ALTOVersion.ALTO_v2_x):
+    if alto_version == ALTOVersion.ALTO_v4_4:
+        ocr_processing = ET.Element("Processing")
+        ocr_processing_step = ocr_processing
+    else:
+        ocr_processing = ET.Element("OCRProcessing")
+        ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
+
     ocr_processing.set("ID", id)
-    ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
     processing_date_time = ET.SubElement(ocr_processing_step, "processingDateTime")
     if processing_datetime is not None:
         processing_date_time.text = processing_datetime
