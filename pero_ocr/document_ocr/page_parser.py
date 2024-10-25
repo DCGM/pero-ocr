@@ -587,7 +587,7 @@ class PageOCR:
                 log_probs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
                 confidences = get_line_confidence(line, log_probs=log_probs)
                 return np.quantile(confidences, .50)
-            except ValueError as e:
+            except (ValueError, IndexError) as e:
                 logger.warning(f'PageOCR is unable to get confidence of line {line.id} due to exception: {e}.')
                 return self.default_confidence
         return self.default_confidence
