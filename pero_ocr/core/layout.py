@@ -242,7 +242,7 @@ class TextLine(object):
         except (ValueError, IndexError, TypeError) as e:
             logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}.')
 
-            if logits is not None:
+            if logits is not None and logits.shape[0] > 0:
                 max_val = np.max(logits, axis=1)
                 logits = logits - max_val[:, np.newaxis]
                 probs = np.exp(logits)
