@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 
-import argparse
 import json
-import cv2
 import numpy as np
 from os.path import isabs, realpath, join, dirname
 from scipy import sparse
@@ -12,10 +10,11 @@ import torch
 from .softmax import softmax
 
 from pero_ocr.sequence_alignment import levenshtein_distance
+from pero_ocr.music.output_translator import OutputTranslator
 
 
 class BaseEngineLineOCR(object):
-    def __init__(self, json_def, device, batch_size=32, model_type="ctc"):
+    def __init__(self, json_def, device, batch_size=32, model_type="ctc", substitute_output_atomic: bool = True):
         with open(json_def, 'r', encoding='utf8') as f:
             self.config = json.load(f)
 
@@ -28,6 +27,12 @@ class BaseEngineLineOCR(object):
             self.checkpoint = realpath(join(dirname(json_def), self.config['checkpoint']))
 
         self.characters = tuple(self.config['characters'])
+
+        self.output_substitution = None
+        if 'output_substitution_table' in self.config:
+            self.output_substitution = OutputTranslator(dictionary=self.config['output_substitution_table'],
+                                                        atomic=substitute_output_atomic)
+
         self.net_name = self.config['net_name']
         if "embed_num" in self.config:
             self.embed_num = int(self.config["embed_num"])

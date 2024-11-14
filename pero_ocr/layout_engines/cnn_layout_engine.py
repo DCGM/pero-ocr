@@ -1,6 +1,7 @@
 import numpy as np
 from copy import deepcopy
 import time
+from typing import Union, Tuple
 
 import cv2
 from scipy import ndimage
@@ -8,6 +9,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 import skimage.draw
 import shapely.geometry as sg
+import torch
 
 from pero_ocr.layout_engines import layout_helpers as helpers
 from pero_ocr.layout_engines.torch_parsenet import TorchParseNet, TorchOrientationNet
@@ -370,6 +372,37 @@ class LayoutEngine(object):
 
         else:
             return [0]
+
+
+class LayoutEngineYolo(object):
+    def __init__(self, model_path, device,
+                 image_size: Union[int, Tuple[int, int], None] = None,
+                 detection_threshold=0.2):
+        from ultralytics import YOLO  # import here, only if needed
+        # (ultralytics need different numpy version than some specific version installed on pero-ocr machines)
+
+        self.yolo_net = YOLO(model_path).to(device)
+        self.detection_threshold = detection_threshold
+        self.image_size = image_size  # height or (height, width)
+
+    def detect(self, image):
+        """Uses yolo_net to find bounding boxes.
+        :param image: input image
+        """
+        if self.image_size is not None:
+            results = self.yolo_net(image,
+                                    conf=self.detection_threshold,
+                                    imgsz=self.image_size,
+                                    verbose=False)
+        else:
+            results = self.yolo_net(image,
+                                    conf=self.detection_threshold,
+                                    verbose=False)
+
+        if results is None:
+            raise Exception('Yolo inference returned None.')
+        return results[0]
+
 
 def nonmaxima_suppression(input, element_size=(7, 1)):
     """Vertical non-maxima suppression.
