@@ -12,7 +12,6 @@ import torch.cuda
 from pero_ocr.utils import compose_path, config_get_list
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 import pero_ocr.core.crop_engine as cropper
-from pero_ocr.core.confidence_estimation import get_line_confidence
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
