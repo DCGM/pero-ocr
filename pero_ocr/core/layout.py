@@ -16,7 +16,10 @@ import scipy
 
 from pero_ocr.core.crop_engine import EngineLineCropper
 from pero_ocr.core.force_alignment import align_text
-from pero_ocr.core.confidence_estimation import get_line_confidence
+from pero_ocr.core.confidence_estimation import (get_character_confidences, get_transcription_confidence,
+                                                 get_transcription_confidence_from_characters,
+                                                 get_word_confidence_from_characters,
+                                                 get_page_confidence_from_transcription_confidences)
 from pero_ocr.core.arabic_helper import ArabicHelper
 
 Num = Union[int, float]
