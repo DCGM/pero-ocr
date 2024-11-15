@@ -321,9 +321,9 @@ class TextLine(object):
                 if self.transcription_confidence == 1:
                     word_confidence = 1
                 else:
-                    if confidences.size != 0:
-                        word_confidence = np.quantile(
-                            confidences[letter_counter:letter_counter + len(splitted_transcription[w])], .50)
+                    if self.character_confidences.size != 0:
+                        word_character_confidences = self.character_confidences[letter_counter:letter_counter + len(splitted_transcription[w])]
+                        word_confidence = get_word_confidence_from_characters(word_character_confidences)
 
                 string = ET.SubElement(text_line, "String")
 
