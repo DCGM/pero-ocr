@@ -249,9 +249,6 @@ class TextLine(object):
         if arabic_helper.is_arabic_line(self.transcription):
             arabic_line = True
 
-        logits = None
-        logprobs = None
-        aligned_letters = None
         try:
             label = self.get_labels()
             blank_idx = self.logits.shape[1] - 1
@@ -261,16 +258,6 @@ class TextLine(object):
             aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
         except (ValueError, IndexError, TypeError) as e:
             logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}.')
-
-            if logits is not None and logits.shape[0] > 0:
-                max_val = np.max(logits, axis=1)
-                logits = logits - max_val[:, np.newaxis]
-                probs = np.exp(logits)
-                probs = probs / np.sum(probs, axis=1, keepdims=True)
-                probs = np.max(probs, axis=1)
-                self.transcription_confidence = np.quantile(probs, .50)
-            else:
-                self.transcription_confidence = 0.0
 
             average_word_width = (text_line_hpos + text_line_width) / len(self.transcription.split())
             for w, word in enumerate(self.transcription.split()):
@@ -294,9 +281,6 @@ class TextLine(object):
             splitted_transcription = self.transcription.split()
             lm_const = line_coords.shape[1] / logits.shape[0]
             letter_counter = 0
-            confidences = get_line_confidence(self, np.array(label), aligned_letters, logprobs)
-            # if self.transcription_confidence is None:
-            self.transcription_confidence = np.quantile(confidences, .50)
             for w, word in enumerate(words):
                 extension = 2
                 while line_coords.size > 0 and extension < 40:
