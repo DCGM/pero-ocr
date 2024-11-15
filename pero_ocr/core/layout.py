@@ -52,6 +52,7 @@ class TextLine(object):
                  crop: Optional[np.ndarray] = None,
                  characters: Optional[List[str]] = None,
                  logit_coords: Optional[Union[List[Tuple[int]], List[Tuple[None]]]] = None,
+                 character_confidences: Optional[List[Num]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None,
                  category: Optional[str] = None):
@@ -65,6 +66,7 @@ class TextLine(object):
         self.crop = crop
         self.characters = characters
         self.logit_coords = logit_coords
+        self.character_confidences = character_confidences
         self.transcription_confidence = transcription_confidence
         self.category = category
 
@@ -76,6 +78,18 @@ class TextLine(object):
     def get_full_logprobs(self, zero_logit_value: int = -80):
         dense_logits = self.get_dense_logits(zero_logit_value)
         return log_softmax(dense_logits)
+
+    def calculate_confidences(self, default_transcription_confidence=None):
+        try:
+            log_probs = self.get_full_logprobs()[self.logit_coords[0]:self.logit_coords[1]]
+            self.character_confidences = get_character_confidences(self, log_probs=log_probs)
+        except:
+            self.character_confidences = None
+
+        if self.character_confidences is not None:
+            self.transcription_confidence = get_transcription_confidence_from_characters(self.character_confidences)
+        else:
+            self.transcription_confidence = default_transcription_confidence
 
     def to_pagexml(self, region_element: ET.SubElement, fallback_id: int, validate_id: bool = False):
         text_line = ET.SubElement(region_element, "TextLine")
@@ -177,6 +191,9 @@ class TextLine(object):
                     self.heights = heights.tolist()
 
     def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion):
+        if self.character_confidences is None or self.transcription_confidence is None:
+            self.calculate_confidences()
+
         if self.transcription_confidence is not None and self.transcription_confidence < min_line_confidence:
             return
 
@@ -667,12 +684,17 @@ class PageLayout(object):
         self.page_size = page_size  # (height, width)
         self.regions: List[RegionLayout] = []
         self.reading_order = None
+        self.confidence = None
 
         if file is not None:
             self.from_pagexml(file)
 
         if self.reading_order is not None and len(self.regions) > 0:
             self.sort_regions_by_reading_order()
+
+    def calculate_confidence(self):
+        transcription_confidences = [line.transcription_confidence for line in self.lines_iterator('text')]
+        self.confidence = get_page_confidence_from_transcription_confidences(transcription_confidences)
 
     def from_pagexml_string(self, pagexml_string: str):
         self.from_pagexml(BytesIO(pagexml_string.encode('utf-8')))
@@ -1021,7 +1043,7 @@ class PageLayout(object):
                             counter += 1
 
                     lm_const = line_coords.shape[1] / logits.shape[0]
-                    confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
+                    confidences = get_character_confidences(line, np.array(label), aligned_letters, logprobs)
                     line.transcription_confidence = np.quantile(confidences, .50)
                     for w, word in enumerate(words):
                         extension = 2
