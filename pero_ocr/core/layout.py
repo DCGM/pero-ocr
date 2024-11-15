@@ -1030,8 +1030,6 @@ class PageLayout(object):
                             counter += 1
 
                     lm_const = line_coords.shape[1] / logits.shape[0]
-                    confidences = get_character_confidences(line, np.array(label), aligned_letters, logprobs)
-                    line.transcription_confidence = np.quantile(confidences, .50)
                     for w, word in enumerate(words):
                         extension = 2
                         while True:
@@ -1047,9 +1045,9 @@ class PageLayout(object):
                         hpos = int(np.min(all_x))
                         if x and y and height and width:
                             if vpos >= y and vpos <= (y+height) and hpos >= x and hpos <= (x+width):
-                                bbox_confidences.append(confidences[only_letters[w]])
+                                bbox_confidences.append(line.character_confidences[only_letters[w]])
                         else:
-                            bbox_confidences.append(confidences[only_letters[w]])
+                            bbox_confidences.append(line.character_confidences[only_letters[w]])
 
         if len(bbox_confidences) != 0:
             return (1 / len(bbox_confidences) * (np.power(bbox_confidences, power).sum())) ** (1 / power)
