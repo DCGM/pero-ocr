@@ -21,6 +21,7 @@ from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEn
 from pero_ocr.layout_engines.line_postprocessing_engine import PostprocessingEngine
 from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
+from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
 from pero_ocr.layout_engines.baseline_refiner import refine_baseline
 from pero_ocr.layout_engines import layout_helpers as helpers
@@ -50,6 +51,8 @@ def layout_parser_factory(config, device, config_path=''):
         layout_parser = NaiveRegionSorter(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SORTER_SMART':
         layout_parser = SmartRegionSorter(config, config_path=config_path)
+    elif config['METHOD'] == 'REGION_SORTER_TRANSFORMER':
+        layout_parser = TransformerRegionSorter(config, config_path=config_path)
     else:
         raise ValueError('Unknown layout parser method: {}'.format(config['METHOD']))
     return layout_parser
