@@ -7,6 +7,8 @@
 
 import numpy as np
 import typing
+
+from pero_ocr.core.layout import TextLine
 from pero_ocr.utils import jit
 
 
@@ -163,3 +165,12 @@ def align_text(neg_logprobs, transcription, blank_symbol):
         char_positions[i] = seq_positions[best_pos]
 
     return char_positions
+
+#Return X coordinates in original image for each character in the line.transcription
+#WARNING - this will only work for straight lines
+def align_text_to_image(line: TextLine, blank_symbol, net_subsampling=4):
+    crop_image_width = ((line.logit_coords[1] - line.logit_coords[0]) * net_subsampling)
+    orig_image_width = line.baseline[-1][0] - line.baseline[0][0]
+    scale = orig_image_width / crop_image_width
+    logits = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
+    return align_text(-logits, np.asarray([line.characters.index(x) for x in line.transcription]), blank_symbol) * 4 * scale + line.baseline[0][0]
