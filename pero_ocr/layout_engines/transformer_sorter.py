@@ -68,7 +68,10 @@ def page_layout_to_model_inputs(
     return region_bboxes, np.array(query_types)
 
 
-def find_shortest_path(cost_mat: np.ndarray, max_nodes: int = 8):
+def find_shortest_path(
+    cost_mat: np.ndarray,
+    max_nodes: int = 8,
+) -> list[int]:
     merged_nodes = [([i], 0) for i in range(cost_mat.shape[0])]
     np.fill_diagonal(cost_mat, 9)
 
@@ -125,11 +128,15 @@ class TransformerRegionSorter:
         config: SectionProxy,
         config_path="",
     ):
-        self.model = torch.jit.load(config["MODEL_PATH"])
+        self.model_path = config.get("MODEL_PATH")
+        self.model = torch.jit.load(self.model_path)
         self.model.eval()
-        self.max_bbox_count = int(config["MAX_BBOX_COUNT"])
-        self.image_width = int(config["IMAGE_WIDTH"])
-        self.image_height = int(config["IMAGE_HEIGHT"])
+        
+        self.max_bbox_count = config.getint("MAX_BBOX_COUNT")
+        self.image_width = config.getint("IMAGE_WIDTH")
+        self.image_height = config.getint("IMAGE_HEIGHT")
+
+        self.device = torch.device("cuda" if config.get("USE_CPU") == "no" else "cpu")
 
     def process_page(
         self,
@@ -145,11 +152,11 @@ class TransformerRegionSorter:
             page_layout=page_layout,
             max_bbox_count=self.max_bbox_count,
         )
-        region_bboxes = torch.tensor(region_bboxes, dtype=torch.float32, device="cuda").unsqueeze(0)
-        query_types = torch.tensor(query_types, dtype=torch.int64, device="cuda").unsqueeze(0)
+        region_bboxes = torch.tensor(region_bboxes, dtype=torch.float32, device=self.device).unsqueeze(0)
+        query_types = torch.tensor(query_types, dtype=torch.int64, device=self.device).unsqueeze(0)
 
         image_resized = cv2.resize(image, (self.image_height, self.image_width))
-        image_tensor = torch.tensor(image_resized, dtype=torch.uint8, device="cuda").permute(2, 0, 1).unsqueeze(0)
+        image_tensor = torch.tensor(image_resized, dtype=torch.uint8, device=self.device).permute(2, 0, 1).unsqueeze(0)
 
         with torch.no_grad():
             outputs = self.model(
@@ -163,7 +170,10 @@ class TransformerRegionSorter:
 
         order = find_shortest_path(1-prob.cpu().numpy().T)
         new_regions = [page_layout.regions[i] for i in order]
+
         remainder = set(page_layout.regions) - set(new_regions)
         new_regions += list(remainder)
+
         page_layout.regions = new_regions
+
         return page_layout
