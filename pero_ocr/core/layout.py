@@ -986,7 +986,7 @@ class PageLayout(object):
     def lines_iterator(self, categories: list = None):
         for region in self.regions:
             for line in region.lines:
-                if not categories or line.category in categories:
+                if not categories or not line.category or line.category in categories:
                     yield line
 
     def get_quality(self, x: int = None, y: int = None, width: int = None, height: int = None, power: int = 6):
