@@ -30,6 +30,7 @@ def parse_arguments():
                         help='If set, already processed files are skipped.')
     parser.add_argument('-i', '--input-image-path', help='')
     parser.add_argument('-x', '--input-xml-path', help='')
+    parser.add_argument('--doc-id', help="Document ID for line export")
     parser.add_argument('--input-logit-path', help='')
     parser.add_argument('--output-xml-path', help='')
     parser.add_argument('--output-render-path', help='')
@@ -116,10 +117,11 @@ def get_device(device, gpu_index=None, logger=None):
 
 
 class LMDB_writer(object):
-    def __init__(self, path):
+    def __init__(self, path, doc_id=None):
         import lmdb
-        gb100 = 100000000000
+        gb100 = 1_000_000_000_000
         self.env_out = lmdb.open(path, map_size=gb100)
+        self.doc_id = doc_id
 
     def __call__(self, page_layout: PageLayout, file_id):
         all_lines = list(page_layout.lines_iterator())
@@ -128,6 +130,8 @@ class LMDB_writer(object):
         for line in all_lines:
             if line.transcription:
                 key = f'{file_id}-{line.id}.jpg'
+                if self.doc_id:
+                    key = self.doc_id + '--' + key
                 img = cv2.imencode('.jpg', line.crop.astype(np.uint8), [int(cv2.IMWRITE_JPEG_QUALITY), 95])[1].tobytes()
                 records_to_write[key] = img
 
@@ -139,7 +143,7 @@ class LMDB_writer(object):
 
 class Computator:
     def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                 output_logit_path, output_alto_path, output_xml_path, output_line_path):
+                 output_logit_path, output_alto_path, output_xml_path, output_line_path, doc_id):
         self.page_parser = page_parser
         self.input_image_path = input_image_path
         self.input_xml_path = input_xml_path
@@ -149,6 +153,7 @@ class Computator:
         self.output_alto_path = output_alto_path
         self.output_xml_path = output_xml_path
         self.output_line_path = output_line_path
+        self.doc_id = doc_id
 
     def __call__(self, image_file_name, file_id, index, ids_count):
         print(f"Processing {file_id}")
@@ -188,13 +193,16 @@ class Computator:
 
             if self.output_line_path is not None and page_layout is not None:
                 if 'lmdb' in self.output_line_path:
-                    lmdb_writer = LMDB_writer(self.output_line_path)
+                    lmdb_writer = LMDB_writer(self.output_line_path, doc_id=self.doc_id)
                     lmdb_writer(page_layout, file_id)
                 else:
                     for region in page_layout.regions:
                         for line in region.lines:
+                            image_name = f'{file_id}-{line.id}.jpg'
+                            if self.doc_id:
+                                image_name = self.doc_id + '--' + image_name
                             cv2.imwrite(
-                                os.path.join(self.output_line_path, f'{file_id}-{line.id}.jpg'),
+                                os.path.join(self.output_line_path, image_name),
                                 line.crop.astype(np.uint8),
                                 [int(cv2.IMWRITE_JPEG_QUALITY), 98])
 
@@ -203,8 +211,13 @@ class Computator:
             annotations = []
             for line in all_lines:
                 if line.transcription:
-                    key = f'{file_id}-{line.id}.jpg'
-                    annotations.append(key + " " + line.transcription)
+                    image_name = f'{file_id}-{line.id}.jpg'
+                    if self.doc_id:
+                        image_name = self.doc_id + '--' + image_name
+                    if line.transcription:
+                        annotations.append(image_name + " " + line.transcription)
+                    else:
+                        annotations.append(image_name)
 
         except KeyboardInterrupt:
             traceback.print_exc()
@@ -334,7 +347,7 @@ def main():
         images_to_process = filtered_images_to_process
 
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                            output_logit_path, output_alto_path, output_xml_path, output_line_path)
+                            output_logit_path, output_alto_path, output_xml_path, output_line_path, doc_id=args.doc_id)
 
     t_start = time.time()
     results = []
