@@ -84,9 +84,13 @@ class TextLine(object):
 
     def calculate_confidences(self, default_transcription_confidence=None):
         try:
-            log_probs = self.get_full_logprobs()[self.logit_coords[0]:self.logit_coords[1]]
+            # logit cropping should not be done for confidence calculation - only for word alignment
+            log_probs = self.get_full_logprobs()#[self.logit_coords[0]:self.logit_coords[1]]
             self.character_confidences = get_character_confidences(self, log_probs=log_probs)
-        except:
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            logger.warning(f'Error: Unable to calculate confidences for line {self.id} due to exception: {e}.')
             self.character_confidences = None
 
         if self.character_confidences is not None:

@@ -148,6 +148,9 @@ def viterbi_align(neg_logits: np.ndarray, A: np.ndarray) -> typing.List[int]:
 
 
 def align_text(neg_logprobs, transcription, blank_symbol):
+    if neg_logprobs.shape[0] == len(transcription):
+        return np.array(list(range(neg_logprobs.shape[0])))
+
     logit_characters = force_align(neg_logprobs, transcription, blank_symbol, return_seq_positions=True)
 
     max_probs = (-neg_logprobs).max(axis=-1)

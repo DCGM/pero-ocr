@@ -4,6 +4,7 @@ import typing
 
 from pero_ocr.core.force_alignment import align_text
 
+global_confidence_quantile = 0.33
 
 def get_letter_confidence(logits: np.ndarray, alignment: typing.List[int], blank_ind: int) -> typing.List[float]:
     """Function which estimates confidence of characters as the maximal log-prob aligned to them.
@@ -71,11 +72,15 @@ def squeeze(sequence):
 
 
 def get_page_confidence_from_transcription_confidences(transcription_confidences):
-    return np.quantile(transcription_confidences, .50)
+    if len(transcription_confidences) == 0:
+        return 0
+    return np.quantile(transcription_confidences, global_confidence_quantile)
 
 
-def get_transcription_confidence_from_characters(character_confidences):
-    return np.quantile(character_confidences, .50)
+def get_transcription_confidence_from_characters(character_confidences) -> float:
+    if len(character_confidences) == 0:
+        return 0
+    return np.quantile(character_confidences, global_confidence_quantile)
 
 
 def get_transcription_confidence(line, labels=None, aligned_letters=None, log_probs=None):
@@ -85,12 +90,16 @@ def get_transcription_confidence(line, labels=None, aligned_letters=None, log_pr
 
 
 def get_word_confidence_from_characters(word_character_confidences):
-    return np.quantile(word_character_confidences, .50)
+    return np.quantile(word_character_confidences, global_confidence_quantile)
 
 
-def get_character_confidences(line, labels=None, aligned_letters=None, log_probs=None):
+def get_character_confidences(line, labels=None, aligned_letters=None, log_probs=None) -> np.ndarray:
     if labels is None:
         labels = line.get_labels()
+
+    if len(labels) == 0:
+        return np.array([])
+
 
     # There is the same number of outputs as labels (probably transformer model was used) --> each letter has only one
     # possible frame in logits thus it is not needed to align them
