@@ -83,9 +83,15 @@ class TextLine(object):
         return log_softmax(dense_logits)
 
     def calculate_confidences(self, default_transcription_confidence=None):
+        if not self.logits:
+            logger.warning(f'Error: Unable to calculate confidences for line {self.id} due to missing logits.')
+            self.character_confidences = None
+            self.transcription_confidence = None
+            return
+
         try:
             # logit cropping should not be done for confidence calculation - only for word alignment
-            log_probs = self.get_full_logprobs()#[self.logit_coords[0]:self.logit_coords[1]]
+            log_probs = self.get_full_logprobs()
             self.character_confidences = get_character_confidences(self, log_probs=log_probs)
         except KeyboardInterrupt:
             raise
@@ -684,7 +690,8 @@ class PageLayout(object):
             self.sort_regions_by_reading_order()
 
     def calculate_confidence(self):
-        transcription_confidences = [line.transcription_confidence for line in self.lines_iterator('text')]
+        transcription_confidences = [line.transcription_confidence for line in self.lines_iterator([None, 'text'])
+                                     if line.transcription_confidence is not None]
         self.confidence = get_page_confidence_from_transcription_confidences(transcription_confidences)
 
     def from_pagexml_string(self, pagexml_string: str):
