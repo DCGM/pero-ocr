@@ -253,8 +253,8 @@ class TextLine(object):
                 labels.append(0)
         return np.array(labels)
 
-    def to_altoxml_text(self, text_line, arabic_helper,
-                        text_line_height, text_line_width, text_line_vpos, text_line_hpos):
+    def to_altoxml_text(self, text_line, arabic_helper, text_line_height, text_line_width, text_line_vpos,
+                        text_line_hpos, next_line=None, previous_line=None, word_splitters=None):
         arabic_line = False
         if arabic_helper.is_arabic_line(self.transcription):
             arabic_line = True
@@ -269,8 +269,9 @@ class TextLine(object):
         except (ValueError, IndexError, TypeError) as e:
             logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}.')
 
-            average_word_width = (text_line_hpos + text_line_width) / len(self.transcription.split())
-            for w, word in enumerate(self.transcription.split()):
+            words = self.transcription.split()
+            average_word_width = (text_line_hpos + text_line_width) / len(words)
+            for w, word in enumerate(words):
                 string = ET.SubElement(text_line, "String")
                 string.set("CONTENT", word)
 
@@ -278,6 +279,24 @@ class TextLine(object):
                 string.set("WIDTH", str(int(average_word_width)))
                 string.set("VPOS", str(int(text_line_vpos)))
                 string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
+
+                if word_splitters is not None:
+                    if w == 0 and previous_line is not None and previous_line.transcription is not None:
+                        previous_word = previous_line.transcription.split()[-1]
+                        last_char = previous_word[-1]
+                        if last_char in word_splitters:
+                            subs_word = previous_word[:-1] + word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart2")
+
+                    elif w == len(words) - 1 and next_line is not None and next_line.transcription is not None:
+                        last_char = word[-1]
+                        if last_char in word_splitters:
+                            next_line_first_word = next_line.transcription.split()[0]
+                            subs_word = word[:-1] + next_line_first_word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart1")
+
         else:
             crop_engine = EngineLineCropper(poly=2)
             line_coords = crop_engine.get_crop_inputs(self.baseline, self.heights, 16)
@@ -333,6 +352,23 @@ class TextLine(object):
 
                 if word_confidence is not None:
                     string.set("WC", str(round(word_confidence, 2)))
+
+                if word_splitters is not None:
+                    if w == 0 and previous_line is not None and previous_line.transcription is not None:
+                        previous_word = previous_line.transcription.split()[-1]
+                        last_char = previous_word[-1]
+                        if last_char in word_splitters:
+                            subs_word = previous_word[:-1] + word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart2")
+
+                    elif w == len(words) - 1 and next_line is not None and next_line.transcription is not None:
+                        last_char = word[-1]
+                        if last_char in word_splitters:
+                            next_line_first_word = next_line.transcription.split()[0]
+                            subs_word = word[:-1] + next_line_first_word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart1")
 
                 if w != (len(self.transcription.split()) - 1):
                     space = ET.SubElement(text_line, "SP")
