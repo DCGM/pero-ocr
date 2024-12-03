@@ -356,19 +356,20 @@ class TextLine(object):
                     string.set("WC", str(round(word_confidence, 2)))
 
                 if word_splitters is not None:
-                    if w == 0 and previous_line is not None and previous_line.transcription is not None:
+                    current_word = splitted_transcription[w]
+                    if w == 0 and previous_line is not None and previous_line.transcription:
                         previous_word = previous_line.transcription.split()[-1]
                         last_char = previous_word[-1]
                         if last_char in word_splitters:
-                            subs_word = previous_word[:-1] + word
+                            subs_word = previous_word[:-1] + current_word
                             string.set("SUBS_CONTENT", subs_word)
                             string.set("SUBS_TYPE", "HypPart2")
 
-                    elif w == len(words) - 1 and next_line is not None and next_line.transcription is not None:
-                        last_char = word[-1]
+                    elif w == len(words) - 1 and next_line is not None and next_line.transcription:
+                        last_char = current_word[-1]
                         if last_char in word_splitters:
                             next_line_first_word = next_line.transcription.split()[0]
-                            subs_word = word[:-1] + next_line_first_word
+                            subs_word = current_word[:-1] + next_line_first_word
                             string.set("SUBS_CONTENT", subs_word)
                             string.set("SUBS_TYPE", "HypPart1")
 
