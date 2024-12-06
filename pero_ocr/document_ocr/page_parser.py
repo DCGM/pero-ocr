@@ -52,7 +52,7 @@ def layout_parser_factory(config, device, config_path=''):
     elif config['METHOD'] == 'REGION_SORTER_SMART':
         layout_parser = SmartRegionSorter(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SORTER_TRANSFORMER':
-        layout_parser = TransformerRegionSorter(config, config_path=config_path)
+        layout_parser = TransformerRegionSorter(config, device, config_path=config_path)
     else:
         raise ValueError('Unknown layout parser method: {}'.format(config['METHOD']))
     return layout_parser

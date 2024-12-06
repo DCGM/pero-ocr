@@ -2,6 +2,7 @@
 
 from enum import Enum
 import itertools
+import os
 
 from configparser import SectionProxy
 import torch
@@ -9,6 +10,7 @@ import cv2
 import numpy as np
 
 from pero_ocr.core.layout import PageLayout
+from pero_ocr.utils import compose_path
 
 
 class QueryType(Enum):
@@ -126,17 +128,24 @@ class TransformerRegionSorter:
     def __init__(
         self,
         config: SectionProxy,
-        config_path="",
+        device: torch.device,
+        config_path: str="",
     ):
-        self.model_path = config.get("MODEL_PATH")
+        self.model_path = compose_path(config.get("MODEL_PATH"), config_path)
+        path_to_model, self.model_filename = os.path.split(self.model_path)
+        self.device = device
+
+        if config.get("USE_CPU") == "yes" or device.type == "cpu":
+            self.model_filename = self.model_filename.replace("cuda", "cpu")
+            self.model_path = os.path.join(path_to_model, self.model_filename)
+            self.device = torch.device("cpu")
+
         self.model = torch.jit.load(self.model_path)
         self.model.eval()
         
         self.max_bbox_count = config.getint("MAX_BBOX_COUNT")
         self.image_width = config.getint("IMAGE_WIDTH")
         self.image_height = config.getint("IMAGE_HEIGHT")
-
-        self.device = torch.device("cuda" if config.get("USE_CPU") == "no" else "cpu")
 
     def process_page(
         self,
