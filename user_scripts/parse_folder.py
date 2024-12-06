@@ -41,6 +41,8 @@ def parse_arguments():
     parser.add_argument('--output-transcriptions-file-path', help='')
     parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
 
+    parser.add_argument('--word-splitters', default=None, type=str, help='Word splitters for ALTO XML export.')
+
     parser.add_argument('--device', choices=["gpu", "cpu"], default="gpu")
     parser.add_argument('--gpu-id', type=int, default=None, help='If set, the computation runs of the specified GPU, otherwise safe-gpu is used to allocate first unused GPU.')
 
@@ -144,7 +146,8 @@ class LMDB_writer(object):
 
 class Computator:
     def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                 output_render_category, output_logit_path, output_alto_path, output_xml_path, output_line_path):
+                 output_render_category, output_logit_path, output_alto_path, output_xml_path, output_line_path,
+                 word_splitters=None):
         self.page_parser = page_parser
         self.input_image_path = input_image_path
         self.input_xml_path = input_xml_path
@@ -155,6 +158,7 @@ class Computator:
         self.output_alto_path = output_alto_path
         self.output_xml_path = output_xml_path
         self.output_line_path = output_line_path
+        self.word_splitters = word_splitters
 
     def __call__(self, image_file_name, file_id, index, ids_count):
         print(f"Processing {file_id}")
@@ -191,7 +195,8 @@ class Computator:
                 page_layout.save_logits(os.path.join(self.output_logit_path, file_id + '.logits'))
 
             if self.output_alto_path is not None:
-                page_layout.to_altoxml(os.path.join(self.output_alto_path, file_id + '.xml'))
+                page_layout.to_altoxml(os.path.join(self.output_alto_path, file_id + '.xml'),
+                                       word_splitters=self.word_splitters)
 
             if self.output_line_path is not None and page_layout is not None:
                 if 'lmdb' in self.output_line_path:
@@ -343,9 +348,11 @@ def main():
         ids_to_process = filtered_ids_to_process
         images_to_process = filtered_images_to_process
 
+    word_splitters = set(list(args.word_splitters)) if args.word_splitters else None
+
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
                             output_render_category, output_logit_path, output_alto_path, output_xml_path,
-                            output_line_path)
+                            output_line_path, word_splitters=word_splitters)
 
     t_start = time.time()
     results = []

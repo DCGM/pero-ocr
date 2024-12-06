@@ -83,7 +83,7 @@ class TextLine(object):
         return log_softmax(dense_logits)
 
     def calculate_confidences(self, default_transcription_confidence=None):
-        if not self.logits:
+        if self.logits is None:
             logger.warning(f'Error: Unable to calculate confidences for line {self.id} due to missing logits.')
             self.character_confidences = None
             self.transcription_confidence = None
@@ -203,7 +203,8 @@ class TextLine(object):
                         heights = heights_array
                     self.heights = heights.tolist()
 
-    def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion):
+    def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion, next_line=None,
+                   previous_line=None, word_splitters=None):
         if self.character_confidences is None or self.transcription_confidence is None:
             self.calculate_confidences()
 
@@ -222,8 +223,9 @@ class TextLine(object):
         text_line.set("WIDTH", str(int(text_line_width)))
 
         if self.category == 'text':
-            self.to_altoxml_text(text_line, arabic_helper,
-                                 text_line_height, text_line_width, text_line_vpos, text_line_hpos)
+            self.to_altoxml_text(text_line, arabic_helper, text_line_height, text_line_width, text_line_vpos,
+                                 text_line_hpos, next_line=next_line, previous_line=previous_line,
+                                 word_splitters=word_splitters)
         else:
             string = ET.SubElement(text_line, "String")
             string.set("CONTENT", self.transcription)
@@ -253,8 +255,8 @@ class TextLine(object):
                 labels.append(0)
         return np.array(labels)
 
-    def to_altoxml_text(self, text_line, arabic_helper,
-                        text_line_height, text_line_width, text_line_vpos, text_line_hpos):
+    def to_altoxml_text(self, text_line, arabic_helper, text_line_height, text_line_width, text_line_vpos,
+                        text_line_hpos, next_line=None, previous_line=None, word_splitters=None):
         arabic_line = False
         if arabic_helper.is_arabic_line(self.transcription):
             arabic_line = True
@@ -269,8 +271,9 @@ class TextLine(object):
         except (ValueError, IndexError, TypeError) as e:
             logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}.')
 
-            average_word_width = (text_line_hpos + text_line_width) / len(self.transcription.split())
-            for w, word in enumerate(self.transcription.split()):
+            words = self.transcription.split()
+            average_word_width = (text_line_hpos + text_line_width) / len(words)
+            for w, word in enumerate(words):
                 string = ET.SubElement(text_line, "String")
                 string.set("CONTENT", word)
 
@@ -278,6 +281,24 @@ class TextLine(object):
                 string.set("WIDTH", str(int(average_word_width)))
                 string.set("VPOS", str(int(text_line_vpos)))
                 string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
+
+                if word_splitters is not None:
+                    if w == 0 and previous_line is not None and previous_line.transcription is not None:
+                        previous_word = previous_line.transcription.split()[-1]
+                        last_char = previous_word[-1]
+                        if last_char in word_splitters:
+                            subs_word = previous_word[:-1] + word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart2")
+
+                    elif w == len(words) - 1 and next_line is not None and next_line.transcription is not None:
+                        last_char = word[-1]
+                        if last_char in word_splitters:
+                            next_line_first_word = next_line.transcription.split()[0]
+                            subs_word = word[:-1] + next_line_first_word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart1")
+
         else:
             crop_engine = EngineLineCropper(poly=2)
             line_coords = crop_engine.get_crop_inputs(self.baseline, self.heights, 16)
@@ -333,6 +354,24 @@ class TextLine(object):
 
                 if word_confidence is not None:
                     string.set("WC", str(round(word_confidence, 2)))
+
+                if word_splitters is not None:
+                    current_word = splitted_transcription[w]
+                    if w == 0 and previous_line is not None and previous_line.transcription:
+                        previous_word = previous_line.transcription.split()[-1]
+                        last_char = previous_word[-1]
+                        if last_char in word_splitters:
+                            subs_word = previous_word[:-1] + current_word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart2")
+
+                    elif w == len(words) - 1 and next_line is not None and next_line.transcription:
+                        last_char = current_word[-1]
+                        if last_char in word_splitters:
+                            next_line_first_word = next_line.transcription.split()[0]
+                            subs_word = current_word[:-1] + next_line_first_word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart1")
 
                 if w != (len(self.transcription.split()) - 1):
                     space = ET.SubElement(text_line, "SP")
@@ -511,8 +550,8 @@ class RegionLayout(object):
 
         return layout_region
 
-    def to_altoxml(self, print_space, arabic_helper, min_line_confidence, 
-                   print_space_coords: Tuple[int, int, int, int], version: ALTOVersion) -> Tuple[int, int, int, int]:
+    def to_altoxml(self, print_space, arabic_helper, min_line_confidence,  print_space_coords: Tuple[int, int, int, int],
+                   version: ALTOVersion, word_splitters=None) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
         text_block = ET.SubElement(print_space, "TextBlock")
@@ -531,10 +570,14 @@ class RegionLayout(object):
         print_space_height = print_space_height - print_space_vpos
         print_space_width = print_space_width - print_space_hpos
 
-        for line in self.lines:
+        for i, line in enumerate(self.lines):
             if not line.transcription or line.transcription.strip() == "":
                 continue
-            line.to_altoxml(text_block, arabic_helper, min_line_confidence, version)
+
+            previous_line = self.lines[i - 1] if i > 0 else None
+            next_line = self.lines[i + 1] if i + 1 < len(self.lines) else None
+            line.to_altoxml(text_block, arabic_helper, min_line_confidence, version, next_line=next_line,
+                            previous_line=previous_line, word_splitters=word_splitters)
         return print_space_height, print_space_width, print_space_vpos, print_space_hpos
 
     @classmethod
@@ -757,7 +800,8 @@ class PageLayout(object):
             out_f.write(xml_string)
 
     def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x):
+                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
+                          word_splitters=None):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -802,7 +846,8 @@ class PageLayout(object):
         print_space_coords = (print_space_height, print_space_width, print_space_vpos, print_space_hpos)
 
         for block in self.regions:
-            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords, version)
+            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords,
+                                                  version, word_splitters=word_splitters)
 
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
@@ -834,8 +879,9 @@ class PageLayout(object):
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                   version: ALTOVersion = ALTOVersion.ALTO_v2_x):
-        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid, version=version)
+                   version: ALTOVersion = ALTOVersion.ALTO_v2_x, word_splitters=None):
+        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid,
+                                             version=version, word_splitters=word_splitters)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
