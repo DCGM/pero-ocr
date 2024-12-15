@@ -65,11 +65,12 @@ def find_best_iou(source_text_lines: list[Textline], merge_text_line: Textline) 
 def find_closest_line(source_text_lines: list[Textline], merge_text_line: Textline, iou_threshold: float = 0.2) -> Textline:
     closest_line = None
     best_distance = 1000000
+    max_distance = 6 * merge_text_line.height
     for source_text_line in source_text_lines:
         horizontal_iou = source_text_line.horizontal_iou(merge_text_line)
         if horizontal_iou > iou_threshold:
             vertical_distance = abs(source_text_line.y - merge_text_line.y)
-            if vertical_distance < best_distance:
+            if vertical_distance < best_distance and vertical_distance < max_distance:
                 best_distance = vertical_distance
                 closest_line = source_text_line
     return closest_line
