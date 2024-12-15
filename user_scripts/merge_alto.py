@@ -161,6 +161,7 @@ def main():
     merge_tree = ET.parse(args.merge_file)
     merge_root = merge_tree.getroot()
     merge_text_lines = parse_text_lines(merge_root)
+    image_base_bame = os.path.basename(args.image)
 
     #if args.image:
     #    image_base_bame = os.path.basename(args.image)
