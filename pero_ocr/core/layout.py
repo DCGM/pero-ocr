@@ -6,6 +6,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Union, List, Tuple
+import unicodedata
 
 import numpy as np
 import lxml.etree as ET
@@ -28,6 +29,9 @@ class PAGEVersion(Enum):
     PAGE_2019_07_15 = 1
     PAGE_2013_07_15 = 2
 
+class ALTOVersion(Enum):
+    ALTO_v2_x = 1
+    ALTO_v4_4 = 2
 
 def log_softmax(x):
     a = np.logaddexp.reduce(x, axis=1)[:, np.newaxis]
@@ -49,7 +53,8 @@ class TextLine(object):
                  characters: Optional[List[str]] = None,
                  logit_coords: Optional[Union[List[Tuple[int]], List[Tuple[None]]]] = None,
                  transcription_confidence: Optional[Num] = None,
-                 index: Optional[int] = None):
+                 index: Optional[int] = None,
+                 category: Optional[str] = None):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -61,6 +66,7 @@ class TextLine(object):
         self.characters = characters
         self.logit_coords = logit_coords
         self.transcription_confidence = transcription_confidence
+        self.category = category
 
     def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
@@ -71,18 +77,365 @@ class TextLine(object):
         dense_logits = self.get_dense_logits(zero_logit_value)
         return log_softmax(dense_logits)
 
+    def to_pagexml(self, region_element: ET.SubElement, fallback_id: int, validate_id: bool = False):
+        text_line = ET.SubElement(region_element, "TextLine")
+        text_line.set("id", export_id(self.id, validate_id))
+        if self.index is not None:
+            text_line.set("index", f'{self.index:d}')
+        else:
+            text_line.set("index", f'{fallback_id:d}')
+
+        custom = {}
+        if self.heights is not None:
+            heights_out = [np.float64(x) for x in self.heights]
+            custom['heights'] = list(np.round(heights_out, decimals=1))
+        if self.category is not None:
+            custom['category'] = self.category
+        if len(custom) > 0:
+            text_line.set("custom", json.dumps(custom))
+
+        coords = ET.SubElement(text_line, "Coords")
+
+        if self.polygon is not None:
+            coords.set("points", coords_to_pagexml_points(self.polygon))
+
+        if self.baseline is not None:
+            baseline_element = ET.SubElement(text_line, "Baseline")
+            baseline_element.set("points", coords_to_pagexml_points(self.baseline))
+
+        if self.transcription is not None:
+            text_element = ET.SubElement(text_line, "TextEquiv")
+            if self.transcription_confidence is not None:
+                text_element.set("conf", f"{self.transcription_confidence:.3f}")
+            text_element = ET.SubElement(text_element, "Unicode")
+            text_element.text = self.transcription
+
+    @classmethod
+    def from_pagexml(cls, line_element: ET.SubElement, schema, fallback_index: int):
+        new_textline = cls(id=line_element.attrib['id'])
+        if 'custom' in line_element.attrib:
+            new_textline.from_pagexml_parse_custom(line_element.attrib['custom'])
+
+        if 'index' in line_element.attrib:
+            try:
+                new_textline.index = int(line_element.attrib['index'])
+            except ValueError:
+                pass
+
+        if new_textline.index is None:
+            new_textline.index = fallback_index
+
+        baseline = line_element.find(schema + 'Baseline')
+        if baseline is not None:
+            new_textline.baseline = get_coords_from_pagexml(baseline, schema)
+        else:
+            logger.warning(f'Warning: Baseline is missing in TextLine. '
+                           f'Skipping this line during import. Line ID: {new_textline.id}')
+            return None
+
+        textline = line_element.find(schema + 'Coords')
+        if textline is not None:
+            new_textline.polygon = get_coords_from_pagexml(textline, schema)
+
+        if not new_textline.heights:
+            guess_line_heights_from_polygon(new_textline, use_center=False, n=len(new_textline.baseline))
+
+        transcription = line_element.find(schema + 'TextEquiv')
+        if transcription is not None:
+            t_unicode = transcription.find(schema + 'Unicode').text
+            if t_unicode is None:
+                t_unicode = ''
+            new_textline.transcription = t_unicode
+            conf = transcription.get('conf', None)
+            new_textline.transcription_confidence = float(conf) if conf is not None else None
+        return new_textline
+
+    def from_pagexml_parse_custom(self, custom_str):
+        try:
+            custom = json.loads(custom_str)
+            self.category = custom.get('category', None)
+            self.heights = custom.get('heights', None)
+        except json.decoder.JSONDecodeError:
+            if 'heights_v2' in custom_str:
+                for word in custom_str.split():
+                    if 'heights_v2' in word:
+                        self.heights = json.loads(word.split(":")[1])
+            else:
+                if re.findall("heights", custom_str):
+                    heights = re.findall(r"\d+", custom_str)
+                    heights_array = np.asarray([float(x) for x in heights])
+                    if heights_array.shape[0] == 4:
+                        heights = np.zeros(2, dtype=np.float32)
+                        heights[0] = heights_array[0]
+                        heights[1] = heights_array[2]
+                    elif heights_array.shape[0] == 3:
+                        heights = np.zeros(2, dtype=np.float32)
+                        heights[0] = heights_array[1]
+                        heights[1] = heights_array[2] - heights_array[0]
+                    else:
+                        heights = heights_array
+                    self.heights = heights.tolist()
+
+    def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion):
+        if self.transcription_confidence is not None and self.transcription_confidence < min_line_confidence:
+            return
+
+        text_line = ET.SubElement(text_block, "TextLine")
+        text_line.set("ID", f'line_{self.id}')
+        text_line.set("BASELINE", self.to_altoxml_baseline(version))
+
+        text_line_height, text_line_width, text_line_vpos, text_line_hpos = get_hwvh(self.polygon)
+
+        text_line.set("VPOS", str(int(text_line_vpos)))
+        text_line.set("HPOS", str(int(text_line_hpos)))
+        text_line.set("HEIGHT", str(int(text_line_height)))
+        text_line.set("WIDTH", str(int(text_line_width)))
+
+        if self.category == 'text':
+            self.to_altoxml_text(text_line, arabic_helper,
+                                 text_line_height, text_line_width, text_line_vpos, text_line_hpos)
+        else:
+            string = ET.SubElement(text_line, "String")
+            string.set("CONTENT", self.transcription)
+
+            string.set("HEIGHT", str(int(text_line_height)))
+            string.set("WIDTH", str(int(text_line_width)))
+            string.set("VPOS", str(int(text_line_vpos)))
+            string.set("HPOS", str(int(text_line_hpos)))
+
+            if self.transcription_confidence is not None:
+                string.set("WC", str(round(self.transcription_confidence, 2)))
+
+    def get_labels(self):
+        chars = [i for i in range(len(self.characters))]
+        char_to_num = dict(zip(self.characters, chars))
+
+        blank_idx = self.logits.shape[1] - 1
+
+        labels = []
+        for item in self.transcription:
+            if item in char_to_num.keys():
+                if char_to_num[item] >= blank_idx:
+                    labels.append(0)
+                else:
+                    labels.append(char_to_num[item])
+            else:
+                labels.append(0)
+        return np.array(labels)
+
+    def to_altoxml_text(self, text_line, arabic_helper,
+                        text_line_height, text_line_width, text_line_vpos, text_line_hpos):
+        arabic_line = False
+        if arabic_helper.is_arabic_line(self.transcription):
+            arabic_line = True
+
+        logits = None
+        logprobs = None
+        aligned_letters = None
+        try:
+            label = self.get_labels()
+            blank_idx = self.logits.shape[1] - 1
+
+            logits = self.get_dense_logits()[self.logit_coords[0]:self.logit_coords[1]]
+            logprobs = self.get_full_logprobs()[self.logit_coords[0]:self.logit_coords[1]]
+            aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
+        except (ValueError, IndexError, TypeError) as e:
+            logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}.')
+
+            if logits is not None and logits.shape[0] > 0:
+                max_val = np.max(logits, axis=1)
+                logits = logits - max_val[:, np.newaxis]
+                probs = np.exp(logits)
+                probs = probs / np.sum(probs, axis=1, keepdims=True)
+                probs = np.max(probs, axis=1)
+                self.transcription_confidence = np.quantile(probs, .50)
+            else:
+                self.transcription_confidence = 0.0
+
+            average_word_width = (text_line_hpos + text_line_width) / len(self.transcription.split())
+            for w, word in enumerate(self.transcription.split()):
+                string = ET.SubElement(text_line, "String")
+                string.set("CONTENT", word)
+
+                string.set("HEIGHT", str(int(text_line_height)))
+                string.set("WIDTH", str(int(average_word_width)))
+                string.set("VPOS", str(int(text_line_vpos)))
+                string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
+        else:
+            crop_engine = EngineLineCropper(poly=2)
+            line_coords = crop_engine.get_crop_inputs(self.baseline, self.heights, 16)
+            space_idxs = [pos for pos, char in enumerate(self.transcription) if char == ' ']
+
+            words = []
+            space_idxs = [-1] + space_idxs + [len(aligned_letters)]
+            for i in range(len(space_idxs[1:])):
+                if space_idxs[i] != space_idxs[i + 1] - 1:
+                    words.append([aligned_letters[space_idxs[i] + 1], aligned_letters[space_idxs[i + 1] - 1]])
+            splitted_transcription = self.transcription.split()
+            lm_const = line_coords.shape[1] / logits.shape[0]
+            letter_counter = 0
+            confidences = get_line_confidence(self, np.array(label), aligned_letters, logprobs)
+            # if self.transcription_confidence is None:
+            self.transcription_confidence = np.quantile(confidences, .50)
+            for w, word in enumerate(words):
+                extension = 2
+                while line_coords.size > 0 and extension < 40:
+                    all_x = line_coords[:,
+                            max(0, int((words[w][0] - extension) * lm_const)):int((words[w][1] + extension) * lm_const),
+                            0]
+                    all_y = line_coords[:,
+                            max(0, int((words[w][0] - extension) * lm_const)):int((words[w][1] + extension) * lm_const),
+                            1]
+
+                    if all_x.size == 0 or all_y.size == 0:
+                        extension += 1
+                    else:
+                        break
+
+                if line_coords.size == 0 or all_x.size == 0 or all_y.size == 0:
+                    all_x = self.baseline[:, 0]
+                    all_y = np.concatenate(
+                        [self.baseline[:, 1] - self.heights[0], self.baseline[:, 1] + self.heights[1]])
+
+                word_confidence = None
+                if self.transcription_confidence == 1:
+                    word_confidence = 1
+                else:
+                    if confidences.size != 0:
+                        word_confidence = np.quantile(
+                            confidences[letter_counter:letter_counter + len(splitted_transcription[w])], .50)
+
+                string = ET.SubElement(text_line, "String")
+
+                if arabic_line:
+                    string.set("CONTENT", arabic_helper.label_form_to_string(splitted_transcription[w]))
+                else:
+                    string.set("CONTENT", splitted_transcription[w])
+
+                string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
+                string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
+                string.set("VPOS", str(int(np.min(all_y))))
+                string.set("HPOS", str(int(np.min(all_x))))
+
+                if word_confidence is not None:
+                    string.set("WC", str(round(word_confidence, 2)))
+
+                if w != (len(self.transcription.split()) - 1):
+                    space = ET.SubElement(text_line, "SP")
+
+                    space.set("WIDTH", str(4))
+                    space.set("VPOS", str(int(np.min(all_y))))
+                    space.set("HPOS", str(int(np.max(all_x))))
+                letter_counter += len(splitted_transcription[w]) + 1
+
+    def to_altoxml_baseline(self, version: ALTOVersion) -> str:
+        if version == ALTOVersion.ALTO_v2_x:
+            # ALTO 4.1 and older accept baseline only as a single point
+            baseline = int(np.round(np.average(np.array(self.baseline)[:, 1])))
+            return str(baseline)
+        elif version == ALTOVersion.ALTO_v4_4:
+            # ALTO 4.2 and newer accept baseline as a string with list of points. Recommended "x1,y1 x2,y2 ..." format.
+            baseline_points = [f"{x},{y}" for x, y in np.round(self.baseline).astype('int')]
+            baseline_points = " ".join(baseline_points)
+            return baseline_points
+        else:
+            return ""
+
+    @classmethod
+    def from_altoxml(cls, line: ET.SubElement, schema):
+        hpos = int(line.attrib['HPOS'])
+        vpos = int(line.attrib['VPOS'])
+        width = int(line.attrib['WIDTH'])
+        height = int(line.attrib['HEIGHT'])
+        baseline_str = line.attrib['BASELINE']
+        baseline, heights, polygon = cls.from_altoxml_polygon(baseline_str, hpos, vpos, width, height)
+
+        new_textline = cls(id=line.attrib['ID'], baseline=baseline, heights=heights, polygon=polygon)
+
+        word = ''
+        start = True
+        for text in line.iter(schema + 'String'):
+            if start:
+                start = False
+                word = word + text.get('CONTENT')
+            else:
+                word = word + " " + text.get('CONTENT')
+        new_textline.transcription = word
+        return new_textline
+
+    @staticmethod
+    def from_altoxml_polygon(baseline_str, hpos, vpos, width, height) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        baseline = baseline_str.strip().split(' ')
+
+        if len(baseline) == 1:
+            # baseline is only one number (probably ALTOversion = 2.x)
+            try:
+                baseline = float(baseline[0])
+            except ValueError:
+                baseline = vpos + height  # fallback: baseline is at the bottom of the bounding box, heights[1] = 0
+
+            baseline_arr = np.asarray([[hpos, baseline], [hpos + width, baseline]])
+            heights = np.asarray([baseline - vpos, vpos + height - baseline])
+            polygon = np.asarray([[hpos, vpos],
+                                  [hpos + width, vpos],
+                                  [hpos + width, vpos + height],
+                                  [hpos, vpos + height]])
+            return baseline_arr, heights, polygon
+        else:
+            # baseline is list of points (probably ALTOversion = 4.4)
+            baseline_coords = [t.split(",") for t in baseline]
+            baseline = np.asarray([[int(round(float(x))), int(round(float(y)))] for x, y in baseline_coords])
+
+            # count heights from the FIRST element of baseline
+            heights = np.asarray([baseline[0, 1] - vpos, vpos + height - baseline[0, 1]])
+
+            coords_top = [[x, y - heights[0]] for x, y in baseline]
+            coords_bottom = [[x, y + heights[1]] for x, y in baseline]
+            # reverse coords_bottom to create polygon in clockwise order
+            coords_bottom.reverse()
+            polygon = np.concatenate([coords_top, coords_bottom, coords_top[:1]])
+
+            return baseline, heights, polygon
+
 
 class RegionLayout(object):
     def __init__(self, id: str,
                  polygon: np.ndarray,
-                 region_type=None):
+                 region_type: Optional[str] = None,
+                 category: Optional[str] = None,
+                 detection_confidence: Optional[float] = None):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
+        self.category = category
         self.lines: List[TextLine] = []
         self.transcription = None
+        self.detection_confidence = detection_confidence
 
-    def to_page_xml(self, page_element: ET.SubElement, validate_id: bool = False):
+    def get_lines_of_category(self, categories: Union[str, list]):
+        if isinstance(categories, str):
+            categories = [categories]
+
+        return [line for line in self.lines if line.category in categories]
+
+    def replace_id(self, new_id):
+        """Replace region ID and all IDs in TextLines which has region ID inside them."""
+        for line in self.lines:
+            line.id = line.id.replace(self.id, new_id)
+        self.id = new_id
+
+    def get_polygon_bounding_box(self) -> Tuple[int, int, int, int]:
+        """Get bounding box of region polygon which includes all polygon points.
+        :return: tuple[int, int, int, int]: (x_min, y_min, x_max, y_max)
+        """
+        x_min = min(self.polygon[:, 0])
+        x_max = max(self.polygon[:, 0])
+        y_min = min(self.polygon[:, 1])
+        y_max = max(self.polygon[:, 1])
+
+        return x_min, y_min, x_max, y_max
+
+    def to_pagexml(self, page_element: ET.SubElement, validate_id: bool = False):
         region_element = ET.SubElement(page_element, "TextRegion")
         coords = ET.SubElement(region_element, "Coords")
         region_element.set("id", export_id(self.id, validate_id))
@@ -90,17 +443,105 @@ class RegionLayout(object):
         if self.region_type is not None:
             region_element.set("type", self.region_type)
 
-        points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in self.polygon]
-        points = " ".join(points)
-        coords.set("points", points)
+        custom = {}
+        if self.category is not None:
+            custom['category'] = self.category
+        if self.detection_confidence is not None:
+            custom['detection_confidence'] = round(self.detection_confidence, 3)
+        if len(custom) > 0:
+            custom = json.dumps(custom)
+            region_element.set("custom", custom)
+
+        coords.set("points", coords_to_pagexml_points(self.polygon))
+
         if self.transcription is not None:
             text_element = ET.SubElement(region_element, "TextEquiv")
             text_element = ET.SubElement(text_element, "Unicode")
             text_element.text = self.transcription
+
+        for i, line in enumerate(self.lines):
+            line.to_pagexml(region_element, fallback_id=i, validate_id=validate_id)
+
         return region_element
 
+    @classmethod
+    def from_pagexml(cls, region_element: ET.SubElement, schema):
+        coords_element = region_element.find(schema + 'Coords')
+        region_coords = get_coords_from_pagexml(coords_element, schema)
 
-def get_coords_form_page_xml(coords_element, schema):
+        region_type = None
+        if "type" in region_element.attrib:
+            region_type = region_element.attrib["type"]
+
+        category = None
+        detection_confidence = None
+        if "custom" in region_element.attrib:
+            custom = json.loads(region_element.attrib["custom"])
+            category = custom.get('category', None)
+            detection_confidence = custom.get('detection_confidence', None)
+
+        layout_region = cls(region_element.attrib['id'], region_coords, region_type,
+                            category=category,
+                            detection_confidence=detection_confidence)
+
+        transcription = region_element.find(schema + 'TextEquiv')
+        if transcription is not None:
+            layout_region.transcription = transcription.find(schema + 'Unicode').text
+            if layout_region.transcription is None:
+                layout_region.transcription = ''
+
+        for i, line in enumerate(region_element.iter(schema + 'TextLine')):
+            new_textline = TextLine.from_pagexml(line, schema, fallback_index=i)
+            if new_textline is not None:
+                layout_region.lines.append(new_textline)
+
+        return layout_region
+
+    def to_altoxml(self, print_space, arabic_helper, min_line_confidence, 
+                   print_space_coords: Tuple[int, int, int, int], version: ALTOVersion) -> Tuple[int, int, int, int]:
+        print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
+
+        text_block = ET.SubElement(print_space, "TextBlock")
+        text_block.set("ID", 'block_{}'.format(self.id))
+
+        text_block_height, text_block_width, text_block_vpos, text_block_hpos = get_hwvh(self.polygon)
+        text_block.set("HEIGHT", str(int(text_block_height)))
+        text_block.set("WIDTH", str(int(text_block_width)))
+        text_block.set("VPOS", str(int(text_block_vpos)))
+        text_block.set("HPOS", str(int(text_block_hpos)))
+
+        print_space_height = max([print_space_vpos + print_space_height, text_block_vpos + text_block_height])
+        print_space_width = max([print_space_hpos + print_space_width, text_block_hpos + text_block_width])
+        print_space_vpos = min([print_space_vpos, text_block_vpos])
+        print_space_hpos = min([print_space_hpos, text_block_hpos])
+        print_space_height = print_space_height - print_space_vpos
+        print_space_width = print_space_width - print_space_hpos
+
+        for line in self.lines:
+            if not line.transcription or line.transcription.strip() == "":
+                continue
+            line.to_altoxml(text_block, arabic_helper, min_line_confidence, version)
+        return print_space_height, print_space_width, print_space_vpos, print_space_hpos
+
+    @classmethod
+    def from_altoxml(cls, text_block: ET.SubElement, schema):
+        region_coords = list()
+        region_coords.append([int(text_block.get('HPOS')), int(text_block.get('VPOS'))])
+        region_coords.append([int(text_block.get('HPOS')) + int(text_block.get('WIDTH')), int(text_block.get('VPOS'))])
+        region_coords.append([int(text_block.get('HPOS')) + int(text_block.get('WIDTH')),
+                              int(text_block.get('VPOS')) + int(text_block.get('HEIGHT'))])
+        region_coords.append([int(text_block.get('HPOS')), int(text_block.get('VPOS')) + int(text_block.get('HEIGHT'))])
+
+        region_layout = cls(text_block.attrib['ID'], np.asarray(region_coords).tolist())
+
+        for line in text_block.iter(schema + 'TextLine'):
+            new_textline = TextLine.from_altoxml(line, schema)
+            region_layout.lines.append(new_textline)
+
+        return region_layout
+
+
+def get_coords_from_pagexml(coords_element, schema):
     if 'points' in coords_element.attrib:
         coords = points_string_to_array(coords_element.attrib['points'])
     else:
@@ -112,22 +553,11 @@ def get_coords_form_page_xml(coords_element, schema):
     return coords
 
 
-def get_region_from_page_xml(region_element, schema):
-    coords_element = region_element.find(schema + 'Coords')
-    region_coords = get_coords_form_page_xml(coords_element, schema)
-
-    region_type = None
-    if "type" in region_element.attrib:
-        region_type = region_element.attrib["type"]
-
-    layout_region = RegionLayout(region_element.attrib['id'], region_coords, region_type)
-
-    transcription = region_element.find(schema + 'TextEquiv')
-    if transcription is not None:
-        layout_region.transcription = transcription.find(schema + 'Unicode').text
-        if layout_region.transcription is None:
-            layout_region.transcription = ''
-    return layout_region
+def coords_to_pagexml_points(polygon: np.ndarray) -> str:
+    polygon = np.round(polygon).astype(np.dtype('int'))
+    points = [f"{x},{y}" for x, y in np.maximum(polygon, 0)]
+    points = " ".join(points)
+    return points
 
 
 def guess_line_heights_from_polygon(text_line: TextLine, use_center: bool = False, n: int = 10, interpolate=False):
@@ -232,7 +662,7 @@ def get_reading_order(page_element, schema):
 
 
 class PageLayout(object):
-    def __init__(self, id: str = None, page_size: List[Tuple[int]] = (0, 0), file: str = None):
+    def __init__(self, id: str = None, page_size: Tuple[int, int] = (0, 0), file: str = None):
         self.id = id
         self.page_size = page_size  # (height, width)
         self.regions: List[RegionLayout] = []
@@ -258,66 +688,7 @@ class PageLayout(object):
         self.reading_order = get_reading_order(page, schema)
 
         for region in page_tree.iter(schema + 'TextRegion'):
-            region_layout = get_region_from_page_xml(region, schema)
-
-            for line_i, line in enumerate(region.iter(schema + 'TextLine')):
-                new_textline = TextLine(id=line.attrib['id'])
-                if 'custom' in line.attrib:
-                    custom_str = line.attrib['custom']
-                    if 'heights_v2' in custom_str:
-                        for word in custom_str.split():
-                            if 'heights_v2' in word:
-                                new_textline.heights = json.loads(word.split(":")[1])
-                    else:
-                        if re.findall("heights", line.attrib['custom']):
-                            heights = re.findall("\d+", line.attrib['custom'])
-                            heights_array = np.asarray([float(x) for x in heights])
-                            if heights_array.shape[0] == 4:
-                                heights = np.zeros(2, dtype=np.float32)
-                                heights[0] = heights_array[0]
-                                heights[1] = heights_array[2]
-                            elif heights_array.shape[0] == 3:
-                                heights = np.zeros(2, dtype=np.float32)
-                                heights[0] = heights_array[1]
-                                heights[1] = heights_array[2] - heights_array[0]
-                            else:
-                                heights = heights_array
-                            new_textline.heights = heights.tolist()
-
-                if 'index' in line.attrib:
-                    try:
-                        new_textline.index = int(line.attrib['index'])
-                    except ValueError:
-                        pass
-
-                if new_textline.index is None:
-                    new_textline.index = line_i
-
-                baseline = line.find(schema + 'Baseline')
-                if baseline is not None:
-                    new_textline.baseline = get_coords_form_page_xml(baseline, schema)
-                else:
-                    logger.warning(f'Warning: Baseline is missing in TextLine. '
-                                   f'Skipping this line during import. Line ID: {new_textline.id} Page ID: {self.id}')
-                    continue
-
-                textline = line.find(schema + 'Coords')
-                if textline is not None:
-                    new_textline.polygon = get_coords_form_page_xml(textline, schema)
-
-                if not new_textline.heights:
-                    guess_line_heights_from_polygon(new_textline, use_center=False, n=len(new_textline.baseline))
-
-                transcription = line.find(schema + 'TextEquiv')
-                if transcription is not None:
-                    t_unicode = transcription.find(schema + 'Unicode').text
-                    if t_unicode is None:
-                        t_unicode = ''
-                    new_textline.transcription = t_unicode
-                    conf = transcription.get('conf', None)
-                    new_textline.transcription_confidence = float(conf) if conf is not None else None
-                region_layout.lines.append(new_textline)
-
+            region_layout = RegionLayout.from_pagexml(region, schema)
             self.regions.append(region_layout)
 
     def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
@@ -350,44 +721,12 @@ class PageLayout(object):
         page.set("imageWidth", str(self.page_size[1]))
         page.set("imageHeight", str(self.page_size[0]))
 
-        if self.reading_order is not None:
+        if self.reading_order is not None and self.reading_order != {}:
             self.sort_regions_by_reading_order()
-            self.reading_order_to_page_xml(page)
+            self.reading_order_to_pagexml(page)
 
         for region_layout in self.regions:
-            text_region = region_layout.to_page_xml(page, validate_id=validate_id)
-
-            for i, line in enumerate(region_layout.lines):
-                text_line = ET.SubElement(text_region, "TextLine")
-                text_line.set("id", export_id(line.id, validate_id))
-                if line.index is not None:
-                    text_line.set("index", f'{line.index:d}')
-                else:
-                    text_line.set("index", f'{i:d}')
-                if line.heights is not None:
-                    text_line.set("custom", f"heights_v2:[{line.heights[0]:.1f},{line.heights[1]:.1f}]")
-
-                coords = ET.SubElement(text_line, "Coords")
-
-                if line.polygon is not None:
-                    points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in
-                              line.polygon]
-                    points = " ".join(points)
-                    coords.set("points", points)
-
-                if line.baseline is not None:
-                    baseline_element = ET.SubElement(text_line, "Baseline")
-                    points = ["{},{}".format(int(np.round(coord[0])), int(np.round(coord[1]))) for coord in
-                              line.baseline]
-                    points = " ".join(points)
-                    baseline_element.set("points", points)
-
-                if line.transcription is not None:
-                    text_element = ET.SubElement(text_line, "TextEquiv")
-                    if line.transcription_confidence is not None:
-                        text_element.set("conf", f"{line.transcription_confidence:.3f}")
-                    text_element = ET.SubElement(text_element, "Unicode")
-                    text_element.text = line.transcription
+            region_layout.to_pagexml(page, validate_id=validate_id)
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
@@ -397,12 +736,17 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None, min_line_confidence: float = 0):
+    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
+                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
-        root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v2#")
+
+        if version == ALTOVersion.ALTO_v4_4:
+            root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v4#")
+        elif version == ALTOVersion.ALTO_v2_x:
+            root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v2#")
 
         description = ET.SubElement(root, "Description")
         measurement_unit = ET.SubElement(description, "MeasurementUnit")
@@ -435,147 +779,13 @@ class PageLayout(object):
         print_space_width = 0
         print_space_vpos = self.page_size[0]
         print_space_hpos = self.page_size[1]
+        print_space_coords = (print_space_height, print_space_width, print_space_vpos, print_space_hpos)
 
-        for b, block in enumerate(self.regions):
-            text_block = ET.SubElement(print_space, "TextBlock")
-            text_block.set("ID", 'block_{}' .format(block.id))
+        for block in self.regions:
+            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords, version)
 
-            text_block_height, text_block_width, text_block_vpos, text_block_hpos = get_hwvh(block.polygon)
-            text_block.set("HEIGHT", str(int(text_block_height)))
-            text_block.set("WIDTH", str(int(text_block_width)))
-            text_block.set("VPOS", str(int(text_block_vpos)))
-            text_block.set("HPOS", str(int(text_block_hpos)))
+        print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
-            print_space_height = max([print_space_vpos + print_space_height, text_block_vpos + text_block_height])
-            print_space_width = max([print_space_hpos + print_space_width, text_block_hpos + text_block_width])
-            print_space_vpos = min([print_space_vpos, text_block_vpos])
-            print_space_hpos = min([print_space_hpos, text_block_hpos])
-            print_space_height = print_space_height - print_space_vpos
-            print_space_width = print_space_width - print_space_hpos
-
-            for l, line in enumerate(block.lines):
-                if not line.transcription or line.transcription.strip() == "":
-                    continue
-                arabic_line = False
-                if arabic_helper.is_arabic_line(line.transcription):
-                    arabic_line = True
-                text_line = ET.SubElement(text_block, "TextLine")
-                text_line_baseline = int(np.average(np.array(line.baseline)[:, 1]))
-                text_line.set("BASELINE", str(text_line_baseline))
-
-                text_line_height, text_line_width, text_line_vpos, text_line_hpos = get_hwvh(line.polygon)
-
-                text_line.set("VPOS", str(int(text_line_vpos)))
-                text_line.set("HPOS", str(int(text_line_hpos)))
-                text_line.set("HEIGHT", str(int(text_line_height)))
-                text_line.set("WIDTH", str(int(text_line_width)))
-
-                logits = None
-                logprobs = None
-                aligned_letters = None
-                try:
-                    chars = [i for i in range(len(line.characters))]
-                    char_to_num = dict(zip(line.characters, chars))
-
-                    blank_idx = line.logits.shape[1] - 1
-
-                    label = []
-                    for item in line.transcription:
-                        if item in char_to_num.keys():
-                            if char_to_num[item] >= blank_idx:
-                                label.append(0)
-                            else:
-                                label.append(char_to_num[item])
-                        else:
-                            label.append(0)
-
-                    logits = line.get_dense_logits()[line.logit_coords[0]:line.logit_coords[1]]
-                    logprobs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
-                    aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
-                except (ValueError, IndexError, TypeError) as e:
-                    logger.warning(f'Error: Alto export, unable to align line {line.id} due to exception {e}.')
-
-                    if logits is not None:
-                        max_val = np.max(logits, axis=1)
-                        logits = logits - max_val[:, np.newaxis]
-                        probs = np.exp(logits)
-                        probs = probs / np.sum(probs, axis=1, keepdims=True)
-                        probs = np.max(probs, axis=1)
-                        line.transcription_confidence = np.quantile(probs, .50)
-                    else:
-                        line.transcription_confidence = 0
-                    average_word_width = (text_line_hpos + text_line_width) / len(line.transcription.split())
-                    for w, word in enumerate(line.transcription.split()):
-                        string = ET.SubElement(text_line, "String")
-                        string.set("CONTENT", word)
-
-                        string.set("HEIGHT", str(int(text_line_height)))
-                        string.set("WIDTH", str(int(average_word_width)))
-                        string.set("VPOS", str(int(text_line_vpos)))
-                        string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
-                else:
-                    crop_engine = EngineLineCropper(poly=2)
-                    line_coords = crop_engine.get_crop_inputs(line.baseline, line.heights, 16)
-                    space_idxs = [pos for pos, char in enumerate(line.transcription) if char == ' ']
-
-                    words = []
-                    space_idxs = [-1] + space_idxs + [len(aligned_letters)]
-                    for i in range(len(space_idxs[1:])):
-                        if space_idxs[i] != space_idxs[i+1]-1:
-                            words.append([aligned_letters[space_idxs[i]+1], aligned_letters[space_idxs[i+1]-1]])
-                    splitted_transcription = line.transcription.split()
-                    lm_const = line_coords.shape[1] / logits.shape[0]
-                    letter_counter = 0
-                    confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
-                    #if line.transcription_confidence is None:
-                    line.transcription_confidence = np.quantile(confidences, .50)
-                    for w, word in enumerate(words):
-                        extension = 2
-                        while line_coords.size > 0 and extension < 40:
-                            all_x = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 0]
-                            all_y = line_coords[:, max(0, int((words[w][0]-extension) * lm_const)):int((words[w][1]+extension) * lm_const), 1]
-
-                            if all_x.size == 0 or all_y.size == 0:
-                                extension += 1
-                            else:
-                                break
-
-                        if line_coords.size == 0 or all_x.size == 0 or all_y.size == 0:
-                           all_x = line.baseline[:, 0]
-                           all_y = np.concatenate([line.baseline[:, 1] - line.heights[0], line.baseline[:, 1] + line.heights[1]])
-
-                        word_confidence = None
-                        if line.transcription_confidence == 1:
-                            word_confidence = 1
-                        else:
-                            if confidences.size != 0:
-                                word_confidence = np.quantile(confidences[letter_counter:letter_counter+len(splitted_transcription[w])], .50)
-
-                        string = ET.SubElement(text_line, "String")
-
-                        if arabic_line:
-                            string.set("CONTENT", arabic_helper.label_form_to_string(splitted_transcription[w]))
-                        else:
-                            string.set("CONTENT", splitted_transcription[w])
-
-                        string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
-                        string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
-                        string.set("VPOS", str(int(np.min(all_y))))
-                        string.set("HPOS", str(int(np.min(all_x))))
-
-                        if word_confidence is not None:
-                            string.set("WC", str(round(word_confidence, 2)))
-
-                        if w != (len(line.transcription.split())-1):
-                            space = ET.SubElement(text_line, "SP")
-
-                            space.set("WIDTH", str(4))
-                            space.set("VPOS", str(int(np.min(all_y))))
-                            space.set("HPOS", str(int(np.max(all_x))))
-                        letter_counter += len(splitted_transcription[w])+1
-                if line.transcription_confidence is not None:
-                    if line.transcription_confidence < min_line_confidence:
-                        text_block.remove(text_line)
         top_margin.set("HEIGHT", "{}" .format(int(print_space_vpos)))
         top_margin.set("WIDTH", "{}" .format(int(self.page_size[1])))
         top_margin.set("VPOS", "0")
@@ -603,8 +813,9 @@ class PageLayout(object):
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
-    def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None):
-        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid)
+    def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
+                   version: ALTOVersion = ALTOVersion.ALTO_v2_x):
+        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid, version=version)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
@@ -624,48 +835,13 @@ class PageLayout(object):
 
         print_space = page.findall(schema + 'PrintSpace')[0]
         for region in print_space.iter(schema + 'TextBlock'):
-            region_coords = list()
-            region_coords.append([int(region.get('HPOS')), int(region.get('VPOS'))])
-            region_coords.append([int(region.get('HPOS')) + int(region.get('WIDTH')), int(region.get('VPOS'))])
-            region_coords.append([int(region.get('HPOS')) + int(region.get('WIDTH')),
-                                  int(region.get('VPOS')) + int(region.get('HEIGHT'))])
-            region_coords.append([int(region.get('HPOS')), int(region.get('VPOS')) + int(region.get('HEIGHT'))])
-
-            region_layout = RegionLayout(region.attrib['ID'], np.asarray(region_coords).tolist())
-
-            for line in region.iter(schema + 'TextLine'):
-                new_textline = TextLine(baseline=np.asarray(
-                    [[int(line.attrib['HPOS']), int(line.attrib['BASELINE'])],
-                       [int(line.attrib['HPOS']) + int(line.attrib['WIDTH']), int(line.attrib['BASELINE'])]]))
-                polygon = []
-                new_textline.heights = np.asarray([
-                    int(line.attrib['HEIGHT']) + int(line.attrib['VPOS']) - int(line.attrib['BASELINE']),
-                    int(line.attrib['BASELINE']) - int(line.attrib['VPOS'])])
-                polygon.append([int(line.attrib['HPOS']), int(line.attrib['VPOS'])])
-                polygon.append(
-                    [int(line.attrib['HPOS']) + int(line.attrib['WIDTH']), int(line.attrib['VPOS'])])
-                polygon.append([int(line.attrib['HPOS']) + int(line.attrib['WIDTH']),
-                                             int(line.attrib['VPOS']) + int(line.attrib['HEIGHT'])])
-                polygon.append(
-                    [int(line.attrib['HPOS']), int(line.attrib['VPOS']) + int(line.attrib['HEIGHT'])])
-                new_textline.polygon = np.asarray(polygon)
-                word = ''
-                start = True
-                for text in line.iter(schema + 'String'):
-                    if start:
-                        start = False
-                        word = word + text.get('CONTENT')
-                    else:
-                        word = word + " " + text.get('CONTENT')
-                new_textline.transcription = word
-                region_layout.lines.append(new_textline)
-
+            region_layout = RegionLayout.from_altoxml(region, schema)
             self.regions.append(region_layout)
 
     def sort_regions_by_reading_order(self):
         self.regions = sorted(self.regions, key=lambda k: self.reading_order[k] if k in self.reading_order else float("inf"))
 
-    def reading_order_to_page_xml(self, page_element: ET.SubElement):
+    def reading_order_to_pagexml(self, page_element: ET.SubElement):
         reading_order_element = ET.SubElement(page_element, "ReadingOrder")
         ordered_group_element = ET.SubElement(reading_order_element, "OrderedGroup")
         ordered_group_element.set("id", "reading_order")
@@ -746,9 +922,12 @@ class PageLayout(object):
                 line.characters = characters[line.id]
                 line.logit_coords = logit_coords[line.id]
 
-    def render_to_image(self, image, thickness: int = 2, circles: bool = True, render_order: bool = False):
+    def render_to_image(self, image, thickness: int = 2, circles: bool = True,
+                        render_order: bool = False, render_category: bool = False):
         """Render layout into image.
         :param image: image to render layout into
+        :param render_order: render region order number given by enumerate(regions) to the middle of given region
+        :param render_region_id: render region id to the upper left corner of given region
         """
         for region_layout in self.regions:
             image = draw_lines(
@@ -764,28 +943,38 @@ class PageLayout(object):
                 [region_layout.polygon], color=(255, 0, 0), circles=(circles, circles, circles), close=True,
                 thickness=thickness)
 
-        if render_order:
+        if render_order or render_category:
             font = cv2.FONT_HERSHEY_DUPLEX
-            font_scale = 4
-            font_thickness = 5
+            font_scale = 1
+            font_thickness = 1
 
             for idx, region in enumerate(self.regions):
-                min = region.polygon.min(axis=0)
-                max = region.polygon.max(axis=0)
+                min_p = region.polygon.min(axis=0)
+                max_p = region.polygon.max(axis=0)
 
-                text_w, text_h = cv2.getTextSize(f"{idx}", font, font_scale, font_thickness)[0]
-
-                mid_coords = (int((min[0] + max[0]) // 2 - text_w // 2), int((min[1] + max[1]) // 2 + text_h // 2))
-
-                cv2.putText(image, f"{idx}", mid_coords, font, font_scale,
-                            (0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                if render_order:
+                    text = f"{idx}"
+                    text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                    mid_x = int((min_p[0] + max_p[0]) // 2 - text_w // 2)
+                    mid_y = int((min_p[1] + max_p[1]) // 2 + text_h // 2)
+                    cv2.putText(image, text, (mid_x, mid_y), font, font_scale,
+                                color=(0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                if render_category and region.category not in [None, 'text']:
+                    text = f"{normalize_text(region.category)}"
+                    text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                    start_point = (int(min_p[0]), int(min_p[1]))
+                    end_point = (int(min_p[0]) + text_w, int(min_p[1]) - text_h)
+                    cv2.rectangle(image, start_point, end_point, color=(255, 0, 0), thickness=-1)
+                    cv2.putText(image, text, start_point, font, font_scale,
+                                color=(255, 255, 255), thickness=font_thickness, lineType=cv2.LINE_AA)
 
         return image
 
-    def lines_iterator(self):
+    def lines_iterator(self, categories: list = None):
         for region in self.regions:
             for line in region.lines:
-                yield line
+                if not categories or line.category in categories:
+                    yield line
 
     def get_quality(self, x: int = None, y: int = None, width: int = None, height: int = None, power: int = 6):
         bbox_confidences = []
@@ -857,6 +1046,14 @@ class PageLayout(object):
             return (1 / len(bbox_confidences) * (np.power(bbox_confidences, power).sum())) ** (1 / power)
         else:
             return -1
+
+    def rename_region_id(self, old_id, new_id):
+        for region in self.regions:
+            if region.id == old_id:
+                region.replace_id(new_id)
+                break
+        else:
+            raise ValueError(f'Region with id {old_id} not found.')
 
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):
@@ -947,3 +1144,7 @@ def create_ocr_processing_element(id: str = "IdOcr",
 
     return ocr_processing
 
+
+def normalize_text(text: str) -> str:
+    """Normalize text to ASCII characters. (e.g. Obrázek -> Obrazek)"""
+    return unicodedata.normalize('NFD', text).encode('ascii', 'ignore').decode('ascii')

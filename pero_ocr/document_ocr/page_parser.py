@@ -4,20 +4,24 @@ import logging
 from multiprocessing import Pool
 import math
 import time
+import re
+from typing import Union, Tuple, List
 
 import torch.cuda
 
-from pero_ocr.utils import compose_path
+from pero_ocr.utils import compose_path, config_get_list
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 import pero_ocr.core.crop_engine as cropper
+from pero_ocr.core.confidence_estimation import get_line_confidence
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
 from pero_ocr.layout_engines.simple_baseline_engine import EngineLineDetectorSimple
-from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEngine
+from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine, LineFilterEngine, LayoutEngineYolo
 from pero_ocr.layout_engines.line_postprocessing_engine import PostprocessingEngine
 from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
+from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
 from pero_ocr.layout_engines.baseline_refiner import refine_baseline
 from pero_ocr.layout_engines import layout_helpers as helpers
@@ -26,14 +30,15 @@ from pero_ocr.layout_engines import layout_helpers as helpers
 logger = logging.getLogger(__name__)
 
 
-def layout_parser_factory(config, device, config_path='', order=1):
-    config = config['LAYOUT_PARSER_{}'.format(order)]
+def layout_parser_factory(config, device, config_path=''):
     if config['METHOD'] == 'REGION_WHOLE_PAGE':
         layout_parser = WholePageRegion(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SIMPLE_THRESHOLD':
         layout_parser = SimpleThresholdRegion(config, config_path=config_path)
     elif config['METHOD'] == 'LAYOUT_CNN':
         layout_parser = LayoutExtractor(config, device, config_path=config_path)
+    elif config['METHOD'] == 'LAYOUT_YOLO':
+        layout_parser = LayoutExtractorYolo(config, device, config_path=config_path)
     elif config['METHOD'] == 'LINES_SIMPLE_THRESHOLD':
         layout_parser = TextlineExtractorSimple(config, config_path=config_path)
     elif config['METHOD'] == 'LINE_FILTER':
@@ -46,18 +51,18 @@ def layout_parser_factory(config, device, config_path='', order=1):
         layout_parser = NaiveRegionSorter(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SORTER_SMART':
         layout_parser = SmartRegionSorter(config, config_path=config_path)
+    elif config['METHOD'] == 'REGION_SORTER_TRANSFORMER':
+        layout_parser = TransformerRegionSorter(config, device, config_path=config_path)
     else:
         raise ValueError('Unknown layout parser method: {}'.format(config['METHOD']))
     return layout_parser
 
 
-def line_cropper_factory(config, config_path=''):
-    config = config['LINE_CROPPER']
+def line_cropper_factory(config, config_path='', device=None):
     return LineCropper(config, config_path=config_path)
 
 
 def ocr_factory(config, device, config_path=''):
-    config = config['OCR']
     return PageOCR(config, device, config_path=config_path)
 
 
@@ -71,7 +76,9 @@ def page_decoder_factory(config, device, config_path=''):
     decoder = decoding_itf.decoder_factory(config['DECODER'], ocr_chars, device, allow_no_decoder=False, config_path=config_path)
     confidence_threshold = config['DECODER'].getfloat('CONFIDENCE_THRESHOLD', fallback=math.inf)
     carry_h_over = config['DECODER'].getboolean('CARRY_H_OVER')
-    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over)
+    categories = config_get_list(config['DECODER'], key='CATEGORIES', fallback=[])
+    return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over,
+                       categories=categories)
 
 
 class MissingLogits(Exception):
@@ -94,24 +101,26 @@ def prepare_dense_logits(line):
 
 
 class PageDecoder:
-    def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False):
+    def __init__(self, decoder, line_confidence_threshold=None, carry_h_over=False, categories=None):
         self.decoder = decoder
         self.line_confidence_threshold = line_confidence_threshold
         self.lines_examined = 0
         self.lines_decoded = 0
         self.seconds_decoding = 0.0
         self.continue_lines = carry_h_over
+        self.categories = categories if categories else ['text']
 
         self.last_h = None
         self.last_line = None
 
     def process_page(self, page_layout: PageLayout):
         self.last_h = None
-        for line in page_layout.lines_iterator():
+        for line in page_layout.lines_iterator(self.categories):
             try:
                 line.transcription = self.decode_line(line)
             except Exception:
-                logger.error(f'Failed to process line {line.id} of page {page_layout.id}. The page has been processed no further.', exc_info=True)
+                logger.error(f'Failed to process line {line.id} of page {page_layout.id}. '
+                             f'The page has been processed no further.', exc_info=True)
 
         return page_layout
 
@@ -193,7 +202,8 @@ class TextlineExtractorSimple(object):
                     id='{}-l{:03d}'.format(region.id, line_num+1),
                     baseline=baseline,
                     polygon=textline,
-                    heights=heights
+                    heights=heights,
+                    category='text'
                 )
                 region.lines.append(new_textline)
         return page_layout
@@ -208,6 +218,7 @@ class LayoutExtractor(object):
         self.adjust_heights = config.getboolean('ADJUST_HEIGHTS')
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -227,6 +238,8 @@ class LayoutExtractor(object):
         self.pool = Pool(1)
 
     def process_page(self, img, page_layout: PageLayout):
+        page_layout, page_layout_no_text = helpers.split_page_layout(page_layout)
+
         if self.detect_regions or self.detect_lines:
             if self.detect_regions:
                 page_layout.regions = []
@@ -248,7 +261,7 @@ class LayoutExtractor(object):
                             id = 'r{:03d}_{}'.format(id, rot)
                         else:
                             id = 'r{:03d}'.format(id)
-                        region = RegionLayout(id, polygon)
+                        region = RegionLayout(id, polygon, category='text')
                         regions.append(region)
                 if self.detect_lines:
                     if not self.detect_regions:
@@ -283,7 +296,7 @@ class LayoutExtractor(object):
                 region = helpers.assign_lines_to_regions(pb_list, ph_list, pt_list, [region])[0]
 
         if self.adjust_heights:
-            for line in page_layout.lines_iterator():
+            for line in page_layout.lines_iterator(self.categories):
                 sample_points = helpers.resample_baselines(
                     [line.baseline], num_points=40)[0]
                 line.heights = self.engine.get_heights(maps, ds, sample_points)
@@ -293,10 +306,108 @@ class LayoutExtractor(object):
         if self.adjust_baselines:
             crop_engine = cropper.EngineLineCropper(
                 line_height=32, poly=0, scale=1)
-            for line in page_layout.lines_iterator():
+            for line in page_layout.lines_iterator(self.categories):
                 line.baseline = refine_baseline(line.baseline, line.heights, maps, ds, crop_engine)
                 line.polygon = helpers.baseline_to_textline(line.baseline, line.heights)
+        page_layout = helpers.merge_page_layouts(page_layout, page_layout_no_text)
         return page_layout
+
+
+class LayoutExtractorYolo(object):
+    def __init__(self, config, device, config_path=''):
+        try:
+            import ultralytics  # check if ultralytics library is installed
+            # (ultralytics need different numpy version than some specific version installed on pero-ocr machines)
+        except ImportError:
+            raise ImportError("To use LayoutExtractorYolo, you need to install ultralytics library. "
+                              "You can do it by running 'pip install ultralytics'.")
+
+        use_cpu = config.getboolean('USE_CPU')
+        self.device = device if not use_cpu else torch.device("cpu")
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
+        self.line_categories = config_get_list(config, key='LINE_CATEGORIES', fallback=[])
+        self.image_size = self.get_image_size(config)
+
+        self.engine = LayoutEngineYolo(
+            model_path=compose_path(config['MODEL_PATH'], config_path),
+            device=self.device,
+            detection_threshold=config.getfloat('DETECTION_THRESHOLD'),
+            image_size=self.image_size
+        )
+
+    def process_page(self, img, page_layout: PageLayout):
+        page_layout_text, page_layout = helpers.split_page_layout(page_layout)
+        page_layout.regions = []
+
+        result = self.engine.detect(img)
+        start_id = self.get_start_id([region.id for region in page_layout_text.regions])
+
+        boxes = result.boxes.data.cpu()
+        for box_id, box in enumerate(boxes):
+            id_str = 'r{:03d}'.format(start_id + box_id)
+
+            x_min, y_min, x_max, y_max, conf, class_id = box.tolist()
+            polygon = np.array([[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min], [x_min, y_min]])
+            baseline_y = y_min + (y_max - y_min) / 2
+            baseline = np.array([[x_min, baseline_y], [x_max, baseline_y]])
+            height = np.floor(np.array([baseline_y - y_min, y_max - baseline_y]))
+
+            category = result.names[class_id]
+            if self.categories and category not in self.categories:
+                continue
+
+            region = RegionLayout(id_str, polygon, category=category, detection_confidence=conf)
+
+            if category in self.line_categories:
+                line = TextLine(
+                    id=f'{id_str}-l000',
+                    index=0,
+                    polygon=polygon,
+                    baseline=baseline,
+                    heights=height,
+                    category=category
+                )
+                region.lines.append(line)
+            page_layout.regions.append(region)
+
+        page_layout = helpers.merge_page_layouts(page_layout_text, page_layout)
+        return page_layout
+
+    @staticmethod
+    def get_image_size(config) -> Union[int, Tuple[int, int], None]:
+        if 'IMAGE_SIZE' not in config:
+            return None
+
+        try:
+            image_size = config.getint('IMAGE_SIZE')
+        except ValueError:
+            image_size = config_get_list(config, key='IMAGE_SIZE')
+            if len(image_size) != 2:
+                raise ValueError(f'Invalid image size. Expected int or list of two ints, but got: '
+                                 f'{image_size} of type {type(image_size)}')
+            image_size = image_size[0], image_size[1]
+        return image_size
+
+    @staticmethod
+    def get_start_id(used_ids: list) -> int:
+        """Get int from which to start id naming for new regions.
+
+        Expected region id is in format rXXX, where XXX is number.
+        """
+        used_region_ids = sorted(used_ids)
+        if not used_region_ids:
+            return 0
+
+        ids = []
+        for id in used_region_ids:
+            id = re.match(r'r(\d+)', id).group(1)
+            try:
+                ids.append(int(id))
+            except ValueError:
+                pass
+
+        last_used_id = sorted(ids)[-1]
+        return last_used_id + 1
 
 
 class LineFilter(object):
@@ -305,6 +416,7 @@ class LineFilter(object):
         self.filter_incomplete_pages = config.getboolean('FILTER_INCOMPLETE_PAGES')
         self.filter_pages_with_short_lines = config.getboolean('FILTER_PAGES_WITH_SHORT_LINES')
         self.length_threshold = config.getint('LENGTH_THRESHOLD')
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -326,7 +438,7 @@ class LineFilter(object):
                 region.lines = [line for line in region.lines if helpers.check_line_position(line.baseline, page_layout.page_size)]
 
         if self.filter_pages_with_short_lines:
-            b_list = [line.baseline for line in page_layout.lines_iterator()]
+            b_list = [line.baseline for line in page_layout.lines_iterator(self.categories)]
             if helpers.get_max_line_length(b_list) < self.length_threshold:
                 page_layout.regions = []
 
@@ -378,18 +490,20 @@ class LineCropper(object):
         poly = config.getint('INTERP')
         line_scale = config.getfloat('LINE_SCALE')
         line_height = config.getint('LINE_HEIGHT')
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
         self.crop_engine = cropper.EngineLineCropper(
             line_height=line_height, poly=poly, scale=line_scale)
 
     def process_page(self, img, page_layout: PageLayout):
-        for line in page_layout.lines_iterator():
+        for line in page_layout.lines_iterator(self.categories):
             try:
                 line.crop = self.crop_engine.crop(
                     img, line.baseline, line.heights)
             except ValueError:
                 line.crop = np.zeros(
                     (self.crop_engine.line_height, self.crop_engine.line_height, 3))
-                print(f"WARNING: Failed to crop line {line.id} in page {page_layout.id}. Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
+                print(f"WARNING: Failed to crop line {line.id} in page {page_layout.id}. "
+                      f"Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
         return page_layout
 
     def crop_lines(self, img, lines: list):
@@ -400,38 +514,98 @@ class LineCropper(object):
             except ValueError:
                 line.crop = np.zeros(
                     (self.crop_engine.line_height, self.crop_engine.line_height, 3))
-                print(f"WARNING: Failed to crop line {line.id}. Probably contain vertical line. Contanct Olda Kodym to fix this bug!")
+                print(f"WARNING: Failed to crop line {line.id}. Probably contain vertical line. "
+                      f"Contanct Olda Kodym to fix this bug!")
 
 
 class PageOCR:
+    default_confidence = 0.0
+
     def __init__(self, config, device, config_path=''):
         json_file = compose_path(config['OCR_JSON'], config_path)
         use_cpu = config.getboolean('USE_CPU')
 
         self.device = device if not use_cpu else torch.device("cpu")
+        self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
+        self.substitute_output = config.getboolean('SUBSTITUTE_OUTPUT', fallback=True)
+        self.substitute_output_atomic = config.getboolean('SUBSTITUTE_OUTPUT_ATOMIC', fallback=True)
+        self.update_transcription_by_confidence = config.getboolean(
+            'UPDATE_TRANSCRIPTION_BY_CONFIDENCE', fallback=False)
 
         if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
-            self.ocr_engine = TransformerEngineLineOCR(json_file, self.device)
+            self.ocr_engine = TransformerEngineLineOCR(json_file, self.device,
+                                                       substitute_output_atomic=self.substitute_output_atomic)
         else:
-            self.ocr_engine = PytorchEngineLineOCR(json_file, self.device)
+            self.ocr_engine = PytorchEngineLineOCR(json_file, self.device,
+                                                   substitute_output_atomic=self.substitute_output_atomic)
 
     def process_page(self, img, page_layout: PageLayout):
-        for line in page_layout.lines_iterator():
+        lines_to_process = []
+        for line in page_layout.lines_iterator(self.categories):
             if line.crop is None:
                 raise Exception(f'Missing crop in line {line.id}.')
+            lines_to_process.append(line)
 
-        transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in page_layout.lines_iterator()])
+        transcriptions, logits, logit_coords = self.ocr_engine.process_lines([line.crop for line in lines_to_process])
 
-        for line, line_transcription, line_logits, line_logit_coords in zip(page_layout.lines_iterator(), transcriptions, logits, logit_coords):
-            line.transcription = line_transcription
-            line.logits = line_logits
-            line.characters = self.ocr_engine.characters
-            line.logit_coords = line_logit_coords
+        for line, line_transcription, line_logits, line_logit_coords in zip(lines_to_process, transcriptions,
+                                                                            logits, logit_coords):
+            new_line = TextLine(id=line.id,
+                                transcription=line_transcription,
+                                logits=line_logits,
+                                characters=self.ocr_engine.characters,
+                                logit_coords=line_logit_coords)
+            new_line.transcription_confidence = self.get_line_confidence(new_line)
+
+            if not self.update_transcription_by_confidence:
+                self.update_line(line, new_line)
+            else:
+                if (line.transcription_confidence in [None, self.default_confidence] or
+                        line.transcription_confidence < new_line.transcription_confidence):
+                    self.update_line(line, new_line)
+
+        if self.substitute_output and self.ocr_engine.output_substitution is not None:
+            self.substitute_transcriptions(lines_to_process)
+
         return page_layout
+
+    def substitute_transcriptions(self, lines_to_process: List[TextLine]):
+        transcriptions_substituted = []
+
+        for line in lines_to_process:
+            transcriptions_substituted.append(self.ocr_engine.output_substitution(line.transcription))
+
+            if transcriptions_substituted[-1] is None:
+                if self.substitute_output_atomic:
+                    return  # scratch everything if the last line couldn't be substituted atomically
+                else:
+                    transcriptions_substituted[-1] = line.transcription  # keep the original transcription
+
+        for line, transcription_substituted in zip(lines_to_process, transcriptions_substituted):
+            line.transcription = transcription_substituted
+
+    def get_line_confidence(self, line):
+        if line.transcription:
+            try:
+                log_probs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
+                confidences = get_line_confidence(line, log_probs=log_probs)
+                return np.quantile(confidences, .50)
+            except (ValueError, IndexError) as e:
+                logger.warning(f'PageOCR is unable to get confidence of line {line.id} due to exception: {e}.')
+                return self.default_confidence
+        return self.default_confidence
 
     @property
     def provides_ctc_logits(self):
         return isinstance(self.ocr_engine, PytorchEngineLineOCR) or isinstance(self.ocr_engine, TransformerEngineLineOCR)
+
+    @staticmethod
+    def update_line(line, new_line):
+        line.transcription = new_line.transcription
+        line.logits = new_line.logits
+        line.characters = new_line.characters
+        line.logit_coords = new_line.logit_coords
+        line.transcription_confidence = new_line.transcription_confidence
 
 
 def get_prob(best_ids, best_probs):
@@ -456,6 +630,9 @@ def get_default_device():
 
 class PageParser(object):
     def __init__(self, config, device=None, config_path='', ):
+        if not config.sections():
+            raise ValueError('Config file is empty or does not exist.')
+
         self.run_layout_parser = config['PAGE_PARSER'].getboolean('RUN_LAYOUT_PARSER', fallback=False)
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
@@ -463,22 +640,19 @@ class PageParser(object):
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
                                                                                fallback=-1)
 
-        self.layout_parser = None
-        self.line_cropper = None
-        self.ocr = None
-        self.decoder = None
-
         self.device = device if device is not None else get_default_device()
 
+        self.layout_parsers = {}
+        self.line_croppers = {}
+        self.ocrs = {}
+        self.decoder = None
+
         if self.run_layout_parser:
-            self.layout_parsers = []
-            for i in range(1, 10):
-                if config.has_section('LAYOUT_PARSER_{}'.format(i)):
-                    self.layout_parsers.append(layout_parser_factory(config, self.device, config_path=config_path, order=i))
+            self.layout_parsers = self.init_config_sections(config, config_path, 'LAYOUT_PARSER', layout_parser_factory)
         if self.run_line_cropper:
-            self.line_cropper = line_cropper_factory(config, config_path=config_path)
+            self.line_croppers = self.init_config_sections(config, config_path, 'LINE_CROPPER', line_cropper_factory)
         if self.run_ocr:
-            self.ocr = ocr_factory(config, self.device, config_path=config_path)
+            self.ocrs = self.init_config_sections(config, config_path, 'OCR', ocr_factory)
         if self.run_decoder:
             self.decoder = page_decoder_factory(config, self.device, config_path=config_path)
 
@@ -497,10 +671,10 @@ class PageParser(object):
 
     @property
     def provides_ctc_logits(self):
-        if not self.ocr:
+        if not self.ocrs:
             return False
 
-        return self.ocr.provides_ctc_logits
+        return any(ocr.provides_ctc_logits for ocr in self.ocrs.values())
 
     def update_confidences(self, page_layout):
         for line in page_layout.lines_iterator():
@@ -514,12 +688,15 @@ class PageParser(object):
 
     def process_page(self, image, page_layout):
         if self.run_layout_parser:
-            for layout_parser in self.layout_parsers:
+            for _, layout_parser in sorted(self.layout_parsers.items()):
                 page_layout = layout_parser.process_page(image, page_layout)
-        if self.run_line_cropper:
-            page_layout = self.line_cropper.process_page(image, page_layout)
-        if self.run_ocr:
-            page_layout = self.ocr.process_page(image, page_layout)
+
+        merged_keys = set(self.line_croppers.keys()) | set(self.ocrs.keys())
+        for key in sorted(merged_keys):
+            if self.run_line_cropper and key in self.line_croppers:
+                page_layout = self.line_croppers[key].process_page(image, page_layout)
+            if self.run_ocr and key in self.ocrs:
+                page_layout = self.ocrs[key].process_page(image, page_layout)
         if self.run_decoder:
             page_layout = self.decoder.process_page(page_layout)
 
@@ -529,3 +706,37 @@ class PageParser(object):
             page_layout = self.filter_confident_lines(page_layout)
 
         return page_layout
+
+    def init_config_sections(self, config, config_path, section_name, section_factory) -> dict:
+        """Return dict of sections.
+
+        Naming convention: section_name_[0-9]+.
+            Also accepts other names, but logges warning.
+            e.g. for OCR section: OCR, OCR_0, OCR_42_asdf, OCR_99_last_one..."""
+        sections = {}
+        if section_name in config.sections():
+            sections['-1'] = section_name
+
+        section_names = [config_section for config_section in config.sections()
+                         if re.match(rf'{section_name}_(\d+)', config_section)]
+        section_names = sorted(section_names)
+
+        for config_section in section_names:
+            section_id = config_section.replace(section_name + '_', '')
+            try:
+                int(section_id)
+            except ValueError:
+                logger.warning(
+                    f'Warning: section name {config_section} does not follow naming convention. '
+                    f'Use only {section_name}_[0-9]+.')
+            sections[section_id] = config_section
+
+        if 0 in sections.keys() and -1 in sections.keys():
+            logger.warning(f'Warning: sections {sections[0]} and {sections[-1]} are both present. '
+                           f'Use only names following {section_name}_[0-9]+ convention.')
+
+        for section_id, section_full_name in sections.items():
+            sections[section_id] = section_factory(config[section_full_name],
+                                                   config_path=config_path, device=self.device)
+
+        return sections
