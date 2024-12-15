@@ -135,7 +135,6 @@ def render_image(source_image_path: str, source_root: ET.Element, output_image_p
     paragraph_colors = random.sample(paragraph_colors, len(paragraphs))
     for color, paragraph in zip(paragraph_colors, paragraphs):
         color = tuple(int(x * 255) for x in color)
-        print(color)
         x = int(paragraph.attrib['HPOS'])
         y = int(paragraph.attrib['VPOS'])
         width = int(paragraph.attrib['WIDTH'])
@@ -163,10 +162,10 @@ def main():
     merge_root = merge_tree.getroot()
     merge_text_lines = parse_text_lines(merge_root)
 
-    if args.image:
-        image_base_bame = os.path.basename(args.image)
-        render_image(args.image, source_root, args.output_image_path, f'{image_base_bame}_source')
-        render_image(args.image, merge_root, args.output_image_path, f'{image_base_bame}_merge')
+    #if args.image:
+    #    image_base_bame = os.path.basename(args.image)
+    #    render_image(args.image, source_root, args.output_image_path, f'{image_base_bame}_source')
+    #    render_image(args.image, merge_root, args.output_image_path, f'{image_base_bame}_merge')
     for merge_text_line in tqdm(merge_text_lines):
         source_text_lines = parse_text_lines(source_root)
         iou = find_best_iou(source_text_lines, merge_text_line)
