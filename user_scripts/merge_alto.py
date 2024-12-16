@@ -79,11 +79,13 @@ def find_closest_line(source_text_lines: list[Textline], merge_text_line: Textli
 def split_string_to_charachters(line: Textline) -> Textline:
     new_children = []
     for word in line.element:
-        if word.tag != 'String':
+        if word.tag != '{http://www.loc.gov/standards/alto/ns-v2#}String':
             new_children.append(word)
+            continue
         text = word.attrib['CONTENT']
         if len(text) == 1:
             new_children.append(word)
+            continue
 
         x = int(word.attrib['HPOS'])
         y = int(word.attrib['VPOS'])
@@ -99,7 +101,9 @@ def split_string_to_charachters(line: Textline) -> Textline:
             new_word.attrib['HEIGHT'] = str(height)
             new_children.append(new_word)
 
-    line.element.clear()
+    # remove only children
+    for child in line.element:
+        line.element.remove(child)
     for child in new_children:
         line.element.append(child)
 
