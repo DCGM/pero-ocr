@@ -81,10 +81,10 @@ def split_string_to_charachters(line: Textline) -> Textline:
     for word in line.element:
         if word.tag != 'String':
             new_children.append(word)
+        text = word.attrib['CONTENT']
         if len(text) == 1:
             new_children.append(word)
 
-        text = word.attrib['CONTENT']
         x = int(word.attrib['HPOS'])
         y = int(word.attrib['VPOS'])
         width = int(word.attrib['WIDTH']) / len(text)
@@ -95,7 +95,7 @@ def split_string_to_charachters(line: Textline) -> Textline:
             new_word.attrib['CONTENT'] = char
             new_word.attrib['HPOS'] = str(int(x + i * width + 0.5))
             new_word.attrib['VPOS'] = str(y)
-            new_word.attrib['WIDTH'] = str(width)
+            new_word.attrib['WIDTH'] = str(max(int(width + 0.5), 1))
             new_word.attrib['HEIGHT'] = str(height)
             new_children.append(new_word)
 
@@ -194,8 +194,8 @@ def main():
     merge_text_lines = parse_text_lines(merge_root)
     image_base_bame = os.path.basename(args.image)
 
-    #if args.image:
-    #    image_base_bame = os.path.basename(args.image)
+    if args.image:
+        image_base_bame = os.path.basename(args.image)
     #    render_image(args.image, source_root, args.output_image_path, f'{image_base_bame}_source')
     #    render_image(args.image, merge_root, args.output_image_path, f'{image_base_bame}_merge')
     for merge_text_line in tqdm(merge_text_lines):
