@@ -76,6 +76,36 @@ def find_closest_line(source_text_lines: list[Textline], merge_text_line: Textli
     return closest_line
 
 
+def split_string_to_charachters(line: Textline) -> Textline:
+    new_children = []
+    for word in line.element:
+        if word.tag != 'String':
+            new_children.append(word)
+        if len(text) == 1:
+            new_children.append(word)
+
+        text = word.attrib['CONTENT']
+        x = int(word.attrib['HPOS'])
+        y = int(word.attrib['VPOS'])
+        width = int(word.attrib['WIDTH']) / len(text)
+        height = int(word.attrib['HEIGHT'])
+
+        for i, char in enumerate(text):
+            new_word = ET.Element('String')
+            new_word.attrib['CONTENT'] = char
+            new_word.attrib['HPOS'] = str(int(x + i * width + 0.5))
+            new_word.attrib['VPOS'] = str(y)
+            new_word.attrib['WIDTH'] = str(width)
+            new_word.attrib['HEIGHT'] = str(height)
+            new_children.append(new_word)
+
+    line.element.clear()
+    for child in new_children:
+        line.element.append(child)
+
+    return line
+
+
 def find_parent(root: ET.Element, target: ET.Element) -> tuple[int, ET.Element]:
     """Recursively find the parent of a target element."""
     for paragaraph in root.findall('.//{*}TextBlock'):
@@ -173,13 +203,14 @@ def main():
         iou = find_best_iou(source_text_lines, merge_text_line)
         if iou > args.iou_threshold:
             continue
+        merge_text_line = split_string_to_charachters(merge_text_line)
         closest_line = find_closest_line(source_text_lines, merge_text_line)
         if closest_line:
             add_line_to_paragraph(merge_text_line, closest_line, source_root)
         else:
             add_line_as_new_paragraph(merge_text_line, source_root)
 
-    source_tree.write(args.output_file)
+    source_tree.write(args.output_file, encoding='utf-8', xml_declaration=True)
     if args.image:
         source_tree = ET.parse(args.output_file)
         source_root = source_tree.getroot()
