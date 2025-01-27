@@ -4,6 +4,7 @@ import typing
 
 from pero_ocr.core.force_alignment import align_text
 
+global_confidence_quantile = 0.33
 
 def get_letter_confidence(logits: np.ndarray, alignment: typing.List[int], blank_ind: int) -> typing.List[float]:
     """Function which estimates confidence of characters as the maximal log-prob aligned to them.
@@ -70,14 +71,40 @@ def squeeze(sequence):
     return result
 
 
-def get_line_confidence(line, labels=None, aligned_letters=None, log_probs=None):
-    # There is the same number of outputs as labels (probably transformer model was used) --> each letter has only one
-    # possible frame in logits thus it is not needed to align them
+def get_page_confidence_from_transcription_confidences(transcription_confidences):
+    if len(transcription_confidences) == 0:
+        return 0
+    return np.quantile(transcription_confidences, global_confidence_quantile)
+
+
+def get_transcription_confidence_from_characters(character_confidences) -> float:
+    if len(character_confidences) == 0:
+        return 0
+    return np.quantile(character_confidences, global_confidence_quantile)
+
+
+def get_transcription_confidence(line, labels=None, aligned_letters=None, log_probs=None):
+    character_confidences = get_character_confidences(line, labels, aligned_letters, log_probs)
+    transcription_confidence = get_transcription_confidence_from_characters(character_confidences)
+    return transcription_confidence
+
+
+def get_word_confidence_from_characters(word_character_confidences):
+    return np.quantile(word_character_confidences, global_confidence_quantile)
+
+
+def get_character_confidences(line, labels=None, aligned_letters=None, log_probs=None) -> np.ndarray:
     if labels is None:
         labels = line.get_labels()
 
+    if len(labels) == 0:
+        return np.array([])
+
+
+    # There is the same number of outputs as labels (probably transformer model was used) --> each letter has only one
+    # possible frame in logits thus it is not needed to align them
     if line.logits.shape[0] == len(labels):
-        return get_line_confidence_transformer(line, labels)
+        return get_character_confidences_transformer(line, labels)
 
     if log_probs is None:
         log_probs = line.get_full_logprobs()
@@ -107,7 +134,7 @@ def get_line_confidence(line, labels=None, aligned_letters=None, log_probs=None)
     return confidences
 
 
-def get_line_confidence_transformer(line, labels):
+def get_character_confidences_transformer(line, labels):
     probs = np.exp(line.get_full_logprobs())
     confidences = probs[np.arange(len(labels)), labels]
     return confidences
