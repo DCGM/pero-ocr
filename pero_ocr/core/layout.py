@@ -191,7 +191,7 @@ class TextLine(object):
         text_line.set("HEIGHT", str(int(text_line_height)))
         text_line.set("WIDTH", str(int(text_line_width)))
 
-        if self.category == 'text':
+        if self.category in (None, 'text'):
             self.to_altoxml_text(text_line, arabic_helper,
                                  text_line_height, text_line_width, text_line_vpos, text_line_hpos)
         else:
