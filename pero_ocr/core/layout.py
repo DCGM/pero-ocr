@@ -83,7 +83,7 @@ class TextLine(object):
         return log_softmax(dense_logits)
 
     def calculate_confidences(self, default_transcription_confidence=None):
-        if not self.logits:
+        if self.logits is None:
             logger.warning(f'Error: Unable to calculate confidences for line {self.id} due to missing logits.')
             self.character_confidences = None
             self.transcription_confidence = None
