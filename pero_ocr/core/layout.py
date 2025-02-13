@@ -42,6 +42,75 @@ def export_id(id, validate_change_id):
     return 'id_' + id if validate_change_id else id
 
 
+class Word(object):
+    def __init__(self, id: str = None,
+                 polygon: Optional[np.ndarray] = None,
+                 transcription: Optional[str] = None,
+                 transcription_confidence: Optional[Num] = None):
+        self.id = id
+        assert polygon.shape[1] == 2, f'Polygon has wrong shape: {polygon.shape}, expected (n, 2)'
+        self.polygon = polygon
+        self.transcription = transcription
+        self.transcription_confidence = transcription_confidence
+
+    def to_pagexml(self, line_element: ET.SubElement, fallback_id: int, validate_id: bool = False):
+        word_element = ET.SubElement(line_element, "Word")
+        word_element.set("id", export_id(self.id, validate_id))
+
+        coords = ET.SubElement(word_element, "Coords")
+        coords.set("points", coords_to_pagexml_points(self.polygon))
+
+        text_element = ET.SubElement(word_element, "TextEquiv")
+        if self.transcription_confidence is not None:
+            text_element.set("conf", f"{self.transcription_confidence:.3f}")
+
+        text_element = ET.SubElement(text_element, "Unicode")
+
+        text_element.text = self.transcription
+
+    @classmethod
+    def from_pagexml(cls, word_element: ET.SubElement, schema):
+        coords = word_element.find(schema + 'Coords')
+        polygon = get_coords_from_pagexml(coords, schema)
+
+        word = cls(id=word_element.attrib['id'], polygon=polygon)
+
+        transcription = word_element.find(schema + 'TextEquiv')
+
+        if transcription is not None:
+
+            word.transcription = transcription.find(schema + 'Unicode').text
+            if word.transcription is None:
+                word.transcription = ''
+
+            conf = transcription.get('conf', None)
+            word.transcription_confidence = float(conf) if conf is not None else None
+
+        return word
+
+    def to_altoxml(self, text_line, arabic_helper, add_space: bool):
+        string = ET.SubElement(text_line, "String")
+
+        if arabic_helper.is_arabic_line(self.transcription):
+            string.set("CONTENT", arabic_helper.label_form_to_string(self.transcription))
+        else:
+            string.set("CONTENT", self.transcription)
+
+        h, w, vpos, hpos = get_hwvh(self.polygon)
+        string.set("HEIGHT", str(int(h)))
+        string.set("WIDTH", str(int(w)))
+        string.set("VPOS", str(int(vpos)))
+        string.set("HPOS", str(int(hpos)))
+
+        if self.transcription_confidence is not None:
+            string.set("WC", str(round(self.transcription_confidence, 2)))
+
+        if add_space:
+            space = ET.SubElement(text_line, "SP")
+            space.set("WIDTH", str(4))
+            space.set("VPOS", str(int(vpos)))
+            space.set("HPOS", str(int(hpos + w)))
+
 class TextLine(object):
     def __init__(self, id: str = None,
                  baseline: Optional[np.ndarray] = None,
@@ -67,6 +136,8 @@ class TextLine(object):
         self.logit_coords = logit_coords
         self.transcription_confidence = transcription_confidence
         self.category = category
+
+        self.words: List[Word] = []  # words are not required for text line, but can be added using align_words()
 
     def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
@@ -102,6 +173,9 @@ class TextLine(object):
         if self.baseline is not None:
             baseline_element = ET.SubElement(text_line, "Baseline")
             baseline_element.set("points", coords_to_pagexml_points(self.baseline))
+
+        for word in self.words:
+            word.to_pagexml(text_line, fallback_id=fallback_id, validate_id=validate_id)
 
         if self.transcription is not None:
             text_element = ET.SubElement(text_line, "TextEquiv")
@@ -148,6 +222,11 @@ class TextLine(object):
             new_textline.transcription = t_unicode
             conf = transcription.get('conf', None)
             new_textline.transcription_confidence = float(conf) if conf is not None else None
+
+        for word in line_element.iter(schema + 'Word'):
+            new_word = Word.from_pagexml(word, schema)
+            new_textline.words.append(new_word)
+
         return new_textline
 
     def from_pagexml_parse_custom(self, custom_str):
@@ -192,9 +271,14 @@ class TextLine(object):
         text_line.set("WIDTH", str(int(text_line_width)))
 
         if self.category in (None, 'text'):
-            self.to_altoxml_text(text_line, arabic_helper,
-                                 text_line_height, text_line_width, text_line_vpos, text_line_hpos)
+            if not self.words:
+                self.align_words()
+
+            for i, word in enumerate(self.words):
+                add_space = i < len(self.words) - 1
+                word.to_altoxml(text_line, arabic_helper=arabic_helper, add_space=add_space)
         else:
+            # export text line of other categories as a single string
             string = ET.SubElement(text_line, "String")
             string.set("CONTENT", self.transcription)
 
@@ -223,12 +307,7 @@ class TextLine(object):
                 labels.append(0)
         return np.array(labels)
 
-    def to_altoxml_text(self, text_line, arabic_helper,
-                        text_line_height, text_line_width, text_line_vpos, text_line_hpos):
-        arabic_line = False
-        if arabic_helper.is_arabic_line(self.transcription):
-            arabic_line = True
-
+    def align_words(self):
         logits = None
         logprobs = None
         aligned_letters = None
@@ -252,15 +331,18 @@ class TextLine(object):
             else:
                 self.transcription_confidence = 0.0
 
-            average_word_width = (text_line_hpos + text_line_width) / len(self.transcription.split())
-            for w, word in enumerate(self.transcription.split()):
-                string = ET.SubElement(text_line, "String")
-                string.set("CONTENT", word)
+            line_h, line_w, line_vpos, line_hpos = get_hwvh(self.polygon)
 
-                string.set("HEIGHT", str(int(text_line_height)))
-                string.set("WIDTH", str(int(average_word_width)))
-                string.set("VPOS", str(int(text_line_vpos)))
-                string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
+            average_word_width = (line_w / len(self.transcription.split()))
+            for w, word_transciption in enumerate(self.transcription.split()):
+                # create new word with average width
+                new_word_hpos = line_hpos + (w * average_word_width)
+                new_word_polygon = hwvh_to_polygon(line_h, average_word_width, line_vpos, new_word_hpos)
+                print(f'\tnew averaged word polygon shape: {new_word_polygon.shape}')
+
+                new_word = Word(id=f'{self.id}_w{w:03d}', transcription=word_transciption,
+                                polygon=new_word_polygon)
+                self.words.append(new_word)
         else:
             crop_engine = EngineLineCropper(poly=2)
             line_coords = crop_engine.get_crop_inputs(self.baseline, self.heights, 16)
@@ -305,27 +387,16 @@ class TextLine(object):
                         word_confidence = np.quantile(
                             confidences[letter_counter:letter_counter + len(splitted_transcription[w])], .50)
 
-                string = ET.SubElement(text_line, "String")
+                new_word_hpos = np.min(all_x)
+                new_word_vpos = np.min(all_y)
+                new_word_height = np.max(all_y) - np.min(all_y)
+                new_word_width = np.max(all_x) - np.min(all_x)
+                new_word_polygon = hwvh_to_polygon(new_word_height, new_word_width, new_word_vpos, new_word_hpos)
 
-                if arabic_line:
-                    string.set("CONTENT", arabic_helper.label_form_to_string(splitted_transcription[w]))
-                else:
-                    string.set("CONTENT", splitted_transcription[w])
+                new_word = Word(id=f'{self.id}_w{w:03d}', transcription=splitted_transcription[w],
+                                polygon=new_word_polygon, transcription_confidence=word_confidence)
 
-                string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
-                string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
-                string.set("VPOS", str(int(np.min(all_y))))
-                string.set("HPOS", str(int(np.min(all_x))))
-
-                if word_confidence is not None:
-                    string.set("WC", str(round(word_confidence, 2)))
-
-                if w != (len(self.transcription.split()) - 1):
-                    space = ET.SubElement(text_line, "SP")
-
-                    space.set("WIDTH", str(4))
-                    space.set("VPOS", str(int(np.min(all_y))))
-                    space.set("HPOS", str(int(np.max(all_x))))
+                self.words.append(new_word)
                 letter_counter += len(splitted_transcription[w]) + 1
 
     def to_altoxml_baseline(self, version: ALTOVersion) -> str:
@@ -923,7 +994,8 @@ class PageLayout(object):
                 line.logit_coords = logit_coords[line.id]
 
     def render_to_image(self, image, thickness: int = 2, circles: bool = True,
-                        render_order: bool = False, render_category: bool = False, render_baseline: bool = True):
+                        render_order: bool = False, render_category: bool = False,
+                        render_baseline: bool = True, render_words: bool = True):
         """Render layout into image.
         :param image: image to render layout into
         :param render_order: render region order number given by enumerate(regions) to the middle of given region
@@ -932,6 +1004,13 @@ class PageLayout(object):
         :param render_baseline: render region baseline as a red line
         """
         for region_layout in self.regions:
+            if render_words:
+                for line in region_layout.lines:
+                    for word in line.words:
+                        image = draw_lines(
+                            image,
+                            [word.polygon], color=(0, 0, 0), close=True, thickness=thickness // 2)
+
             if render_baseline:
                 image = draw_lines(
                     image,
@@ -1123,6 +1202,14 @@ def get_hwvh(polygon):
 
     return height, width, vpos, hpos
 
+def hwvh_to_polygon(height: int, width: int, vpos: int, hpos: int) -> np.ndarray:
+    """Convert height, width, vpos, hpos to polygon."""
+    return np.array([
+        [hpos, vpos], 
+        [hpos + width, vpos], 
+        [hpos + width, vpos + height], 
+        [hpos, vpos + height]
+    ])
 
 def create_ocr_processing_element(id: str = "IdOcr",
                                   software_creator_str: str = "Project PERO",
