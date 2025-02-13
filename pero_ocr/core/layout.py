@@ -923,17 +923,20 @@ class PageLayout(object):
                 line.logit_coords = logit_coords[line.id]
 
     def render_to_image(self, image, thickness: int = 2, circles: bool = True,
-                        render_order: bool = False, render_category: bool = False):
+                        render_order: bool = False, render_category: bool = False, render_baseline: bool = True):
         """Render layout into image.
         :param image: image to render layout into
         :param render_order: render region order number given by enumerate(regions) to the middle of given region
         :param render_region_id: render region id to the upper left corner of given region
+        :param render_category: render region category above the upper left corner of given region
+        :param render_baseline: render region baseline as a red line
         """
         for region_layout in self.regions:
-            image = draw_lines(
-                image,
-                [line.baseline for line in region_layout.lines if line.baseline is not None], color=(0, 0, 255),
-                circles=(circles, circles, False), thickness=thickness)
+            if render_baseline:
+                image = draw_lines(
+                    image,
+                    [line.baseline for line in region_layout.lines if line.baseline is not None], color=(0, 0, 255),
+                    circles=(circles, circles, False), thickness=thickness)
             image = draw_lines(
                 image,
                 [line.polygon for line in region_layout.lines if line.polygon is not None], color=(0, 255, 0),
