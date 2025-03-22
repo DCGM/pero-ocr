@@ -1000,13 +1000,17 @@ class PageLayout(object):
 
     def render_to_image(self, image, thickness: int = 2, circles: bool = True,
                         render_order: bool = False, render_category: bool = False,
-                        render_baseline: bool = True, render_words: bool = True):
+                        render_baseline: bool = True, render_words: bool = True
+                        ) -> np.ndarray:
         """Render layout into image.
         :param image: image to render layout into
+        :param thickness: thickness of lines
+        :param circles: render circles at polygon vertices
         :param render_order: render region order number given by enumerate(regions) to the middle of given region
-        :param render_region_id: render region id to the upper left corner of given region
         :param render_category: render region category above the upper left corner of given region
         :param render_baseline: render region baseline as a red line
+        :param render_words: render region words as black polygons
+        :return: image with rendered layout as numpy array
         """
         for region_layout in self.regions:
             if render_words:
