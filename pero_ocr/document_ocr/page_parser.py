@@ -529,6 +529,7 @@ class PageOCR:
         self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
         self.substitute_output = config.getboolean('SUBSTITUTE_OUTPUT', fallback=True)
         self.substitute_output_atomic = config.getboolean('SUBSTITUTE_OUTPUT_ATOMIC', fallback=True)
+        self.align_words = config.getboolean('ALIGN_WORDS', fallback=False)
         self.update_transcription_by_confidence = config.getboolean(
             'UPDATE_TRANSCRIPTION_BY_CONFIDENCE', fallback=False)
 
@@ -566,6 +567,10 @@ class PageOCR:
 
         if self.substitute_output and self.ocr_engine.output_substitution is not None:
             self.substitute_transcriptions(lines_to_process)
+
+        if self.align_words:
+            for line in page_layout.lines_iterator():
+                line.align_words()
 
         return page_layout
 
