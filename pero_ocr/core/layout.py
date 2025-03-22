@@ -33,6 +33,10 @@ class ALTOVersion(Enum):
     ALTO_v2_x = 1
     ALTO_v4_4 = 2
 
+class WordAlignmentOrigin(Enum):
+    FROM_LOGITS = 'from_logits'
+    MEAN_WIDTH = 'mean_width'
+
 def log_softmax(x):
     a = np.logaddexp.reduce(x, axis=1)[:, np.newaxis]
     return x - a
@@ -138,6 +142,7 @@ class TextLine(object):
         self.category = category
 
         self.words: List[Word] = []  # words are not required for text line, but can be added using align_words()
+        self.word_alignment_origin = None
 
     def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
@@ -162,6 +167,8 @@ class TextLine(object):
             custom['heights'] = list(np.round(heights_out, decimals=1))
         if self.category is not None:
             custom['category'] = self.category
+        if self.word_alignment_origin is not None:
+            custom['word_alignment_origin'] = self.word_alignment_origin.value
         if len(custom) > 0:
             text_line.set("custom", json.dumps(custom))
 
@@ -235,6 +242,9 @@ class TextLine(object):
             custom = json.loads(custom_str)
             self.category = custom.get('category', None)
             self.heights = custom.get('heights', None)
+            word_alignment_origin = custom.get('word_alignment_origin', None)
+            if word_alignment_origin is not None:
+                self.word_alignment_origin = WordAlignmentOrigin(word_alignment_origin)
         except json.decoder.JSONDecodeError:
             if 'heights_v2' in custom_str:
                 for word in custom_str.split():
@@ -324,7 +334,7 @@ class TextLine(object):
             logprobs = self.get_full_logprobs()[self.logit_coords[0]:self.logit_coords[1]]
             aligned_letters = align_text(-logprobs, np.array(label), blank_idx)
         except (ValueError, IndexError, TypeError) as e:
-            logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}.')
+            logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}. (Fallback: every word has the same width.)')
 
             if logits is not None and logits.shape[0] > 0:
                 max_val = np.max(logits, axis=1)
@@ -338,16 +348,19 @@ class TextLine(object):
 
             line_h, line_w, line_vpos, line_hpos = get_hwvh(self.polygon)
 
+            if len(self.transcription.split()) == 0:
+                return
             average_word_width = (line_w / len(self.transcription.split()))
+
             for w, word_transciption in enumerate(self.transcription.split()):
                 # create new word with average width
                 new_word_hpos = line_hpos + (w * average_word_width)
                 new_word_polygon = hwvh_to_polygon(line_h, average_word_width, line_vpos, new_word_hpos)
-                print(f'\tnew averaged word polygon shape: {new_word_polygon.shape}')
 
                 new_word = Word(id=f'{self.id}_w{w:03d}', transcription=word_transciption,
                                 polygon=new_word_polygon)
                 self.words.append(new_word)
+            self.word_alignment_origin = WordAlignmentOrigin.MEAN_WIDTH
         else:
             crop_engine = EngineLineCropper(poly=2)
             line_coords = crop_engine.get_crop_inputs(self.baseline, self.heights, 16)
@@ -403,6 +416,7 @@ class TextLine(object):
 
                 self.words.append(new_word)
                 letter_counter += len(splitted_transcription[w]) + 1
+            self.word_alignment_origin = WordAlignmentOrigin.FROM_LOGITS
 
     def to_altoxml_baseline(self, version: ALTOVersion) -> str:
         if version == ALTOVersion.ALTO_v2_x:
