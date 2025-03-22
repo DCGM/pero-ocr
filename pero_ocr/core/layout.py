@@ -174,8 +174,9 @@ class TextLine(object):
             baseline_element = ET.SubElement(text_line, "Baseline")
             baseline_element.set("points", coords_to_pagexml_points(self.baseline))
 
-        for word in self.words:
-            word.to_pagexml(text_line, fallback_id=fallback_id, validate_id=validate_id)
+        if self.words:
+            for word in self.words:
+                word.to_pagexml(text_line, fallback_id=fallback_id, validate_id=validate_id)
 
         if self.transcription is not None:
             text_element = ET.SubElement(text_line, "TextEquiv")
@@ -307,7 +308,11 @@ class TextLine(object):
                 labels.append(0)
         return np.array(labels)
 
-    def align_words(self):
+    def align_words(self, force_new: bool = False):
+        if self.words and not force_new:
+            return
+
+        self.words = []
         logits = None
         logprobs = None
         aligned_letters = None
