@@ -16,7 +16,10 @@ import scipy
 
 from pero_ocr.core.crop_engine import EngineLineCropper
 from pero_ocr.core.force_alignment import align_text
-from pero_ocr.core.confidence_estimation import get_line_confidence
+from pero_ocr.core.confidence_estimation import (get_character_confidences, get_transcription_confidence,
+                                                 get_transcription_confidence_from_characters,
+                                                 get_word_confidence_from_characters,
+                                                 get_page_confidence_from_transcription_confidences)
 from pero_ocr.core.arabic_helper import ArabicHelper
 
 Num = Union[int, float]
@@ -52,6 +55,7 @@ class TextLine(object):
                  crop: Optional[np.ndarray] = None,
                  characters: Optional[List[str]] = None,
                  logit_coords: Optional[Union[List[Tuple[int]], List[Tuple[None]]]] = None,
+                 character_confidences: Optional[List[Num]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None,
                  category: Optional[str] = None):
@@ -65,6 +69,7 @@ class TextLine(object):
         self.crop = crop
         self.characters = characters
         self.logit_coords = logit_coords
+        self.character_confidences = character_confidences
         self.transcription_confidence = transcription_confidence
         self.category = category
 
@@ -76,6 +81,28 @@ class TextLine(object):
     def get_full_logprobs(self, zero_logit_value: int = -80):
         dense_logits = self.get_dense_logits(zero_logit_value)
         return log_softmax(dense_logits)
+
+    def calculate_confidences(self, default_transcription_confidence=None):
+        if self.logits is None:
+            logger.warning(f'Error: Unable to calculate confidences for line {self.id} due to missing logits.')
+            self.character_confidences = None
+            self.transcription_confidence = None
+            return
+
+        try:
+            # logit cropping should not be done for confidence calculation - only for word alignment
+            log_probs = self.get_full_logprobs()
+            self.character_confidences = get_character_confidences(self, log_probs=log_probs)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            logger.warning(f'Error: Unable to calculate confidences for line {self.id} due to exception: {e}.')
+            self.character_confidences = None
+
+        if self.character_confidences is not None:
+            self.transcription_confidence = get_transcription_confidence_from_characters(self.character_confidences)
+        else:
+            self.transcription_confidence = default_transcription_confidence
 
     def to_pagexml(self, region_element: ET.SubElement, fallback_id: int, validate_id: bool = False):
         text_line = ET.SubElement(region_element, "TextLine")
@@ -176,7 +203,11 @@ class TextLine(object):
                         heights = heights_array
                     self.heights = heights.tolist()
 
-    def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion):
+    def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion, next_line=None,
+                   previous_line=None, word_splitters=["-"]):
+        if self.character_confidences is None or self.transcription_confidence is None:
+            self.calculate_confidences()
+
         if self.transcription_confidence is not None and self.transcription_confidence < min_line_confidence:
             return
 
@@ -191,9 +222,10 @@ class TextLine(object):
         text_line.set("HEIGHT", str(int(text_line_height)))
         text_line.set("WIDTH", str(int(text_line_width)))
 
-        if self.category in (None, 'text'):
-            self.to_altoxml_text(text_line, arabic_helper,
-                                 text_line_height, text_line_width, text_line_vpos, text_line_hpos)
+        if self.category is None or self.category == 'text':
+            self.to_altoxml_text(text_line, arabic_helper, text_line_height, text_line_width, text_line_vpos,
+                                 text_line_hpos, next_line=next_line, previous_line=previous_line,
+                                 word_splitters=word_splitters)
         else:
             string = ET.SubElement(text_line, "String")
             string.set("CONTENT", self.transcription)
@@ -223,15 +255,12 @@ class TextLine(object):
                 labels.append(0)
         return np.array(labels)
 
-    def to_altoxml_text(self, text_line, arabic_helper,
-                        text_line_height, text_line_width, text_line_vpos, text_line_hpos):
+    def to_altoxml_text(self, text_line, arabic_helper, text_line_height, text_line_width, text_line_vpos,
+                        text_line_hpos, next_line=None, previous_line=None, word_splitters=["-"]):
         arabic_line = False
         if arabic_helper.is_arabic_line(self.transcription):
             arabic_line = True
 
-        logits = None
-        logprobs = None
-        aligned_letters = None
         try:
             label = self.get_labels()
             blank_idx = self.logits.shape[1] - 1
@@ -242,18 +271,9 @@ class TextLine(object):
         except (ValueError, IndexError, TypeError) as e:
             logger.warning(f'Error: Alto export, unable to align line {self.id} due to exception: {e}.')
 
-            if logits is not None and logits.shape[0] > 0:
-                max_val = np.max(logits, axis=1)
-                logits = logits - max_val[:, np.newaxis]
-                probs = np.exp(logits)
-                probs = probs / np.sum(probs, axis=1, keepdims=True)
-                probs = np.max(probs, axis=1)
-                self.transcription_confidence = np.quantile(probs, .50)
-            else:
-                self.transcription_confidence = 0.0
-
-            average_word_width = (text_line_hpos + text_line_width) / len(self.transcription.split())
-            for w, word in enumerate(self.transcription.split()):
+            words = self.transcription.split()
+            average_word_width = (text_line_hpos + text_line_width) / len(words)
+            for w, word in enumerate(words):
                 string = ET.SubElement(text_line, "String")
                 string.set("CONTENT", word)
 
@@ -261,6 +281,24 @@ class TextLine(object):
                 string.set("WIDTH", str(int(average_word_width)))
                 string.set("VPOS", str(int(text_line_vpos)))
                 string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
+
+                if word_splitters is not None:
+                    if w == 0 and previous_line is not None and previous_line.transcription is not None:
+                        previous_word = previous_line.transcription.split()[-1]
+                        last_char = previous_word[-1]
+                        if last_char in word_splitters:
+                            subs_word = previous_word[:-1] + word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart2")
+
+                    elif w == len(words) - 1 and next_line is not None and next_line.transcription is not None:
+                        last_char = word[-1]
+                        if last_char in word_splitters:
+                            next_line_first_word = next_line.transcription.split()[0]
+                            subs_word = word[:-1] + next_line_first_word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart1")
+
         else:
             crop_engine = EngineLineCropper(poly=2)
             line_coords = crop_engine.get_crop_inputs(self.baseline, self.heights, 16)
@@ -274,9 +312,6 @@ class TextLine(object):
             splitted_transcription = self.transcription.split()
             lm_const = line_coords.shape[1] / logits.shape[0]
             letter_counter = 0
-            confidences = get_line_confidence(self, np.array(label), aligned_letters, logprobs)
-            # if self.transcription_confidence is None:
-            self.transcription_confidence = np.quantile(confidences, .50)
             for w, word in enumerate(words):
                 extension = 2
                 while line_coords.size > 0 and extension < 40:
@@ -301,9 +336,9 @@ class TextLine(object):
                 if self.transcription_confidence == 1:
                     word_confidence = 1
                 else:
-                    if confidences.size != 0:
-                        word_confidence = np.quantile(
-                            confidences[letter_counter:letter_counter + len(splitted_transcription[w])], .50)
+                    if self.character_confidences.size != 0:
+                        word_character_confidences = self.character_confidences[letter_counter:letter_counter + len(splitted_transcription[w])]
+                        word_confidence = get_word_confidence_from_characters(word_character_confidences)
 
                 string = ET.SubElement(text_line, "String")
 
@@ -319,6 +354,24 @@ class TextLine(object):
 
                 if word_confidence is not None:
                     string.set("WC", str(round(word_confidence, 2)))
+
+                if word_splitters is not None:
+                    current_word = splitted_transcription[w]
+                    if w == 0 and previous_line is not None and previous_line.transcription:
+                        previous_word = previous_line.transcription.split()[-1]
+                        last_char = previous_word[-1]
+                        if last_char in word_splitters:
+                            subs_word = previous_word[:-1] + current_word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart2")
+
+                    elif w == len(words) - 1 and next_line is not None and next_line.transcription:
+                        last_char = current_word[-1]
+                        if last_char in word_splitters:
+                            next_line_first_word = next_line.transcription.split()[0]
+                            subs_word = current_word[:-1] + next_line_first_word
+                            string.set("SUBS_CONTENT", subs_word)
+                            string.set("SUBS_TYPE", "HypPart1")
 
                 if w != (len(self.transcription.split()) - 1):
                     space = ET.SubElement(text_line, "SP")
@@ -497,8 +550,8 @@ class RegionLayout(object):
 
         return layout_region
 
-    def to_altoxml(self, print_space, arabic_helper, min_line_confidence, 
-                   print_space_coords: Tuple[int, int, int, int], version: ALTOVersion) -> Tuple[int, int, int, int]:
+    def to_altoxml(self, print_space, arabic_helper, min_line_confidence,  print_space_coords: Tuple[int, int, int, int],
+                   version: ALTOVersion, word_splitters=["-"]) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
         text_block = ET.SubElement(print_space, "TextBlock")
@@ -517,10 +570,14 @@ class RegionLayout(object):
         print_space_height = print_space_height - print_space_vpos
         print_space_width = print_space_width - print_space_hpos
 
-        for line in self.lines:
+        for i, line in enumerate(self.lines):
             if not line.transcription or line.transcription.strip() == "":
                 continue
-            line.to_altoxml(text_block, arabic_helper, min_line_confidence, version)
+
+            previous_line = self.lines[i - 1] if i > 0 else None
+            next_line = self.lines[i + 1] if i + 1 < len(self.lines) else None
+            line.to_altoxml(text_block, arabic_helper, min_line_confidence, version, next_line=next_line,
+                            previous_line=previous_line, word_splitters=word_splitters)
         return print_space_height, print_space_width, print_space_vpos, print_space_hpos
 
     @classmethod
@@ -667,12 +724,18 @@ class PageLayout(object):
         self.page_size = page_size  # (height, width)
         self.regions: List[RegionLayout] = []
         self.reading_order = None
+        self.confidence = None
 
         if file is not None:
             self.from_pagexml(file)
 
         if self.reading_order is not None and len(self.regions) > 0:
             self.sort_regions_by_reading_order()
+
+    def calculate_confidence(self):
+        transcription_confidences = [line.transcription_confidence for line in self.lines_iterator([None, 'text'])
+                                     if line.transcription_confidence is not None]
+        self.confidence = get_page_confidence_from_transcription_confidences(transcription_confidences)
 
     def from_pagexml_string(self, pagexml_string: str):
         self.from_pagexml(BytesIO(pagexml_string.encode('utf-8')))
@@ -737,7 +800,8 @@ class PageLayout(object):
             out_f.write(xml_string)
 
     def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x):
+                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
+                          word_splitters=["-"]):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -782,7 +846,8 @@ class PageLayout(object):
         print_space_coords = (print_space_height, print_space_width, print_space_vpos, print_space_hpos)
 
         for block in self.regions:
-            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords, version)
+            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords,
+                                                  version, word_splitters=word_splitters)
 
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
@@ -814,8 +879,9 @@ class PageLayout(object):
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                   version: ALTOVersion = ALTOVersion.ALTO_v2_x):
-        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid, version=version)
+                   version: ALTOVersion = ALTOVersion.ALTO_v2_x, word_splitters=["-"]):
+        alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid,
+                                             version=version, word_splitters=word_splitters)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
@@ -973,7 +1039,7 @@ class PageLayout(object):
     def lines_iterator(self, categories: list = None):
         for region in self.regions:
             for line in region.lines:
-                if not categories or line.category in categories:
+                if not categories or not line.category or line.category in categories:
                     yield line
 
     def get_quality(self, x: int = None, y: int = None, width: int = None, height: int = None, power: int = 6):
@@ -1021,8 +1087,6 @@ class PageLayout(object):
                             counter += 1
 
                     lm_const = line_coords.shape[1] / logits.shape[0]
-                    confidences = get_line_confidence(line, np.array(label), aligned_letters, logprobs)
-                    line.transcription_confidence = np.quantile(confidences, .50)
                     for w, word in enumerate(words):
                         extension = 2
                         while True:
@@ -1038,9 +1102,9 @@ class PageLayout(object):
                         hpos = int(np.min(all_x))
                         if x and y and height and width:
                             if vpos >= y and vpos <= (y+height) and hpos >= x and hpos <= (x+width):
-                                bbox_confidences.append(confidences[only_letters[w]])
+                                bbox_confidences.append(line.character_confidences[only_letters[w]])
                         else:
-                            bbox_confidences.append(confidences[only_letters[w]])
+                            bbox_confidences.append(line.character_confidences[only_letters[w]])
 
         if len(bbox_confidences) != 0:
             return (1 / len(bbox_confidences) * (np.power(bbox_confidences, power).sum())) ** (1 / power)

@@ -12,7 +12,6 @@ import torch.cuda
 from pero_ocr.utils import compose_path, config_get_list
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 import pero_ocr.core.crop_engine as cropper
-from pero_ocr.core.confidence_estimation import get_line_confidence
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from pero_ocr.layout_engines.simple_region_engine import SimpleThresholdRegion
@@ -555,7 +554,7 @@ class PageOCR:
                                 logits=line_logits,
                                 characters=self.ocr_engine.characters,
                                 logit_coords=line_logit_coords)
-            new_line.transcription_confidence = self.get_line_confidence(new_line)
+            new_line.calculate_confidences(default_transcription_confidence=self.default_confidence)
 
             if not self.update_transcription_by_confidence:
                 self.update_line(line, new_line)
@@ -584,17 +583,6 @@ class PageOCR:
         for line, transcription_substituted in zip(lines_to_process, transcriptions_substituted):
             line.transcription = transcription_substituted
 
-    def get_line_confidence(self, line):
-        if line.transcription:
-            try:
-                log_probs = line.get_full_logprobs()[line.logit_coords[0]:line.logit_coords[1]]
-                confidences = get_line_confidence(line, log_probs=log_probs)
-                return np.quantile(confidences, .50)
-            except (ValueError, IndexError) as e:
-                logger.warning(f'PageOCR is unable to get confidence of line {line.id} due to exception: {e}.')
-                return self.default_confidence
-        return self.default_confidence
-
     @property
     def provides_ctc_logits(self):
         return isinstance(self.ocr_engine, PytorchEngineLineOCR) or isinstance(self.ocr_engine, TransformerEngineLineOCR)
@@ -605,6 +593,7 @@ class PageOCR:
         line.logits = new_line.logits
         line.characters = new_line.characters
         line.logit_coords = new_line.logit_coords
+        line.character_confidences = new_line.character_confidences
         line.transcription_confidence = new_line.transcription_confidence
 
 
@@ -656,19 +645,6 @@ class PageParser(object):
         if self.run_decoder:
             self.decoder = page_decoder_factory(config, self.device, config_path=config_path)
 
-    @staticmethod
-    def compute_line_confidence(line, threshold=None):
-        logits = line.get_dense_logits()
-        log_probs = logits - np.logaddexp.reduce(logits, axis=1)[:, np.newaxis]
-        best_ids = np.argmax(log_probs, axis=-1)
-        best_probs = np.exp(np.max(log_probs, axis=-1))
-        worst_best_prob = get_prob(best_ids, best_probs)
-        # print(worst_best_prob, np.sum(np.exp(best_probs) < threshold), best_probs.shape, np.nonzero(np.exp(best_probs) < threshold))
-        # for i in np.nonzero(np.exp(best_probs) < threshold)[0]:
-        #     print(best_probs[i-1:i+2], best_ids[i-1:i+2])
-
-        return worst_best_prob
-
     @property
     def provides_ctc_logits(self):
         if not self.ocrs:
@@ -676,14 +652,10 @@ class PageParser(object):
 
         return any(ocr.provides_ctc_logits for ocr in self.ocrs.values())
 
-    def update_confidences(self, page_layout):
-        for line in page_layout.lines_iterator():
-            if line.logits is not None:
-                line.transcription_confidence = self.compute_line_confidence(line)
-
     def filter_confident_lines(self, page_layout):
         for region in page_layout.regions:
-            region.lines = [line for line in region.lines if line.transcription_confidence > self.filter_confident_lines_threshold]
+            region.lines = [line for line in region.lines if line.transcription_confidence is None or
+                            line.transcription_confidence > self.filter_confident_lines_threshold]
         return page_layout
 
     def process_page(self, image, page_layout):
@@ -697,13 +669,17 @@ class PageParser(object):
                 page_layout = self.line_croppers[key].process_page(image, page_layout)
             if self.run_ocr and key in self.ocrs:
                 page_layout = self.ocrs[key].process_page(image, page_layout)
+
         if self.run_decoder:
             page_layout = self.decoder.process_page(page_layout)
 
-        self.update_confidences(page_layout)
+        for line in page_layout.lines_iterator():
+            line.calculate_confidences()
 
         if self.filter_confident_lines_threshold > 0:
             page_layout = self.filter_confident_lines(page_layout)
+
+        page_layout.calculate_confidence()
 
         return page_layout
 

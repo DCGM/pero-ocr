@@ -8,7 +8,7 @@ import traceback
 import sys
 
 from pero_ocr.core.layout import PageLayout
-from pero_ocr.core.confidence_estimation import get_line_confidence
+from pero_ocr.core.confidence_estimation import get_character_confidences
 
 
 def parse_arguments():
@@ -39,7 +39,7 @@ def get_confidences(line):
         char_map = dict([(c, i) for i, c in enumerate(line.characters)])
         c_idx = np.asarray([char_map[c] for c in line.transcription])
         try:
-            confidences = get_line_confidence(line, c_idx)
+            confidences = get_character_confidences(line, c_idx)
         except ValueError:
             print('ERROR: Known error in get_line_confidence() - Please, fix it. Logit slice has zero length.')
             confidences = np.ones(len(line.transcription)) * 0.5
