@@ -651,7 +651,8 @@ class PageParser(object):
 
     def filter_confident_lines(self, page_layout):
         for region in page_layout.regions:
-            region.lines = [line for line in region.lines if line.transcription_confidence > self.filter_confident_lines_threshold]
+            region.lines = [line for line in region.lines if line.transcription_confidence is None or
+                            line.transcription_confidence > self.filter_confident_lines_threshold]
         return page_layout
 
     def process_page(self, image, page_layout):
