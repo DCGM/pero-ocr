@@ -551,7 +551,7 @@ class RegionLayout(object):
         return layout_region
 
     def to_altoxml(self, print_space, arabic_helper, min_line_confidence,  print_space_coords: Tuple[int, int, int, int],
-                   version: ALTOVersion, word_splitters=None) -> Tuple[int, int, int, int]:
+                   version: ALTOVersion, word_splitters=["-"]) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
         text_block = ET.SubElement(print_space, "TextBlock")
@@ -801,7 +801,7 @@ class PageLayout(object):
 
     def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
                           min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
-                          word_splitters=None):
+                          word_splitters=["-"]):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -879,7 +879,7 @@ class PageLayout(object):
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                   version: ALTOVersion = ALTOVersion.ALTO_v2_x, word_splitters=None):
+                   version: ALTOVersion = ALTOVersion.ALTO_v2_x, word_splitters=["-"]):
         alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid,
                                              version=version, word_splitters=word_splitters)
         with open(file_name, 'w', encoding='utf-8') as out_f:
