@@ -204,7 +204,7 @@ class TextLine(object):
                     self.heights = heights.tolist()
 
     def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion, next_line=None,
-                   previous_line=None, word_splitters=None):
+                   previous_line=None, word_splitters=["-"]):
         if self.character_confidences is None or self.transcription_confidence is None:
             self.calculate_confidences()
 
@@ -256,7 +256,7 @@ class TextLine(object):
         return np.array(labels)
 
     def to_altoxml_text(self, text_line, arabic_helper, text_line_height, text_line_width, text_line_vpos,
-                        text_line_hpos, next_line=None, previous_line=None, word_splitters=None):
+                        text_line_hpos, next_line=None, previous_line=None, word_splitters=["-"]):
         arabic_line = False
         if arabic_helper.is_arabic_line(self.transcription):
             arabic_line = True
