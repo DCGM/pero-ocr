@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from tqdm import tqdm
 import cv2
 import os
+from typing import Tuple, List
 
 
 def parse_args():
@@ -42,7 +43,7 @@ class Textline:
         return intersection / union
 
 
-def parse_text_lines(root: ET.Element) -> list[Textline]:
+def parse_text_lines(root: ET.Element) -> List[Textline]:
     lines = root.findall('.//{*}TextLine')
     text_lines = []
     for line in lines:
@@ -54,7 +55,7 @@ def parse_text_lines(root: ET.Element) -> list[Textline]:
     return text_lines
 
 
-def find_best_iou(source_text_lines: list[Textline], merge_text_line: Textline) -> float:
+def find_best_iou(source_text_lines: List[Textline], merge_text_line: Textline) -> float:
     best_iou = 0
     for source_text_line in source_text_lines:
         iou = source_text_line.intersection_over_union(merge_text_line)
@@ -62,7 +63,7 @@ def find_best_iou(source_text_lines: list[Textline], merge_text_line: Textline) 
     return best_iou
 
 
-def find_closest_line(source_text_lines: list[Textline], merge_text_line: Textline, iou_threshold: float = 0.2) -> Textline:
+def find_closest_line(source_text_lines: List[Textline], merge_text_line: Textline, iou_threshold: float = 0.2) -> Textline:
     closest_line = None
     best_distance = 1000000
     max_distance = 6 * merge_text_line.height
@@ -110,7 +111,7 @@ def split_string_to_charachters(line: Textline) -> Textline:
     return line
 
 
-def find_parent(root: ET.Element, target: ET.Element) -> tuple[int, ET.Element]:
+def find_parent(root: ET.Element, target: ET.Element) -> Tuple[int, ET.Element]:
     """Recursively find the parent of a target element."""
     for paragaraph in root.findall('.//{*}TextBlock'):
         for i, child in enumerate(paragaraph):

@@ -479,7 +479,7 @@ class RegionLayout(object):
 
     def get_polygon_bounding_box(self) -> Tuple[int, int, int, int]:
         """Get bounding box of region polygon which includes all polygon points.
-        :return: tuple[int, int, int, int]: (x_min, y_min, x_max, y_max)
+        :return: Tuple[int, int, int, int]: (x_min, y_min, x_max, y_max)
         """
         x_min = min(self.polygon[:, 0])
         x_max = max(self.polygon[:, 0])

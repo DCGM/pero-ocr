@@ -11,6 +11,7 @@ import numpy as np
 
 from pero_ocr.core.layout import PageLayout
 from pero_ocr.utils import compose_path
+from typing import Tuple, List
 
 
 class QueryType(Enum):
@@ -52,7 +53,7 @@ def parse_regions(
 def page_layout_to_model_inputs(
     page_layout: PageLayout,
     max_bbox_count: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray]:
     region_bboxes = parse_regions(
         layout=page_layout,
         max_len=max_bbox_count,
@@ -73,7 +74,7 @@ def page_layout_to_model_inputs(
 def find_shortest_path(
     cost_mat: np.ndarray,
     max_nodes: int = 8,
-) -> list[int]:
+) -> List[int]:
     merged_nodes = [([i], 0) for i in range(cost_mat.shape[0])]
     np.fill_diagonal(cost_mat, 9)
 
