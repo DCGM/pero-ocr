@@ -530,12 +530,16 @@ class PageOCR:
         self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
         self.substitute_output = config.getboolean('SUBSTITUTE_OUTPUT', fallback=True)
         self.substitute_output_atomic = config.getboolean('SUBSTITUTE_OUTPUT_ATOMIC', fallback=True)
-        self.update_transcription_by_confidence = config.getboolean(
-            'UPDATE_TRANSCRIPTION_BY_CONFIDENCE', fallback=False)
+        self.update_transcription_by_confidence = config.getboolean('UPDATE_TRANSCRIPTION_BY_CONFIDENCE', fallback=False)
+
+        self.beam_size = config.getint('BEAM_SIZE', fallback=1)
+        self.beam_merging = config["BEAM_MERGING"] if 'BEAM_MERGING' in config else "best"
 
         if 'METHOD' in config and config['METHOD'] == "pytorch_ocr-transformer":
             self.ocr_engine = TransformerEngineLineOCR(json_file, self.device,
-                                                       substitute_output_atomic=self.substitute_output_atomic)
+                                                       substitute_output_atomic=self.substitute_output_atomic,
+                                                       beam_size=self.beam_size,
+                                                       beam_merging=self.beam_merging)
         else:
             self.ocr_engine = PytorchEngineLineOCR(json_file, self.device,
                                                    substitute_output_atomic=self.substitute_output_atomic)
