@@ -141,6 +141,7 @@ class TextLine(object):
         self.transcription_confidence = transcription_confidence
         self.category = category
 
+        self.custom = {}
         self.words: List[Word] = []  # words are not required for text line, but can be added using align_words()
         self.word_alignment_origin = None
 
@@ -169,6 +170,12 @@ class TextLine(object):
             custom['category'] = self.category
         if self.word_alignment_origin is not None:
             custom['word_alignment_origin'] = self.word_alignment_origin.value
+        if self.custom is not None:
+            new_custom = self.custom.copy()
+            # overwrite possible existing keys in self.custom by textline attributes
+            # as they have benn updated more probably during computation
+            new_custom.update(custom)
+            custom = new_custom
         if len(custom) > 0:
             text_line.set("custom", json.dumps(custom))
 
@@ -193,7 +200,7 @@ class TextLine(object):
             text_element.text = self.transcription
 
     @classmethod
-    def from_pagexml(cls, line_element: ET.SubElement, schema, fallback_index: int):
+    def from_pagexml(cls, line_element: ET.SubElement, schema, fallback_index: int, fake_baseline_if_needed: bool = False):
         new_textline = cls(id=line_element.attrib['id'])
         if 'custom' in line_element.attrib:
             new_textline.from_pagexml_parse_custom(line_element.attrib['custom'])
@@ -207,19 +214,22 @@ class TextLine(object):
         if new_textline.index is None:
             new_textline.index = fallback_index
 
-        baseline = line_element.find(schema + 'Baseline')
-        if baseline is not None:
-            new_textline.baseline = get_coords_from_pagexml(baseline, schema)
-        else:
-            logger.warning(f'Warning: Baseline is missing in TextLine. '
-                           f'Skipping this line during import. Line ID: {new_textline.id}')
-            return None
-
         textline = line_element.find(schema + 'Coords')
         if textline is not None:
             new_textline.polygon = get_coords_from_pagexml(textline, schema)
 
-        if not new_textline.heights:
+        baseline = line_element.find(schema + 'Baseline')
+        if baseline is not None:
+            new_textline.baseline = get_coords_from_pagexml(baseline, schema)
+        else:
+            if fake_baseline_if_needed:
+                new_textline.baseline = fake_baseline(new_textline.polygon)
+            else:
+                logger.warning(f'Warning: Baseline is missing in TextLine. '
+                            f'Skipping this line during import. Line ID: {new_textline.id}')
+                return None
+
+        if not new_textline.heights:  # and load_baseline
             guess_line_heights_from_polygon(new_textline, use_center=False, n=len(new_textline.baseline))
 
         transcription = line_element.find(schema + 'TextEquiv')
@@ -240,11 +250,13 @@ class TextLine(object):
     def from_pagexml_parse_custom(self, custom_str):
         try:
             custom = json.loads(custom_str)
-            self.category = custom.get('category', None)
-            self.heights = custom.get('heights', None)
-            word_alignment_origin = custom.get('word_alignment_origin', None)
+            self.category = custom.pop('category', None)
+            self.heights = custom.pop('heights', None)
+            word_alignment_origin = custom.pop('word_alignment_origin', None)
             if word_alignment_origin is not None:
                 self.word_alignment_origin = WordAlignmentOrigin(word_alignment_origin)
+            if len(custom) > 0:
+                self.custom = custom
         except json.decoder.JSONDecodeError:
             if 'heights_v2' in custom_str:
                 for word in custom_str.split():
@@ -1240,6 +1252,16 @@ def hwvh_to_polygon(height: int, width: int, vpos: int, hpos: int) -> np.ndarray
         [hpos + width, vpos + height], 
         [hpos, vpos + height]
     ])
+
+def fake_baseline(polygon: np.ndarray, ratio: float = 4) -> np.ndarray:
+    """Create a fake baseline for the given polygon (to 1/4 height by default) from the bottom of the polygon."""
+    height, width, vpos, hpos = get_hwvh(polygon)
+    new_height = height // ratio
+
+    return np.array([
+        [hpos, vpos + height - new_height],
+        [hpos + width, vpos + height - new_height]
+    ], dtype=np.int32)
 
 def create_ocr_processing_element(id: str = "IdOcr",
                                   software_creator_str: str = "Project PERO",
