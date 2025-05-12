@@ -75,7 +75,10 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         return decoded, logits
 
     def transcribe_batch_exported(self, inputs):
-        lines = torch.from_numpy(inputs).to(self.device).float() / 255.0
+        state_dict = self.net.state_dict()
+        net_dtype = state_dict[list(state_dict.keys())[0]].dtype
+
+        lines = torch.from_numpy(inputs).to(self.device).to(net_dtype) / 255.0
 
         encoded_lines = self.net.encode(lines)
         encoded_lines = self.net.adapt(encoded_lines)
@@ -106,7 +109,7 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
             partial_transcriptions = torch.cat([partial_transcriptions, sampled_characters.unsqueeze(1)], dim=1)
 
         outs = self.postprocess_decoded(partial_transcriptions[:, 1:], self.ignore_ind, self.sentence_boundary_ind)
-        logits = torch.stack(logits).permute(1, 0, 2)
+        logits = torch.stack(logits).float().permute(1, 0, 2)
 
         return outs, logits
 
@@ -141,7 +144,10 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         return line_labels
 
     def transcribe_line_beam_search_exported(self, inputs):
-        lines = torch.from_numpy(inputs).to(self.device).float() / 255.0
+        state_dict = self.net.state_dict()
+        net_dtype = state_dict[list(state_dict.keys())[0]].dtype
+
+        lines = torch.from_numpy(inputs).to(self.device).to(net_dtype) / 255.0
 
         encoded_lines = self.net.encode(lines)
         encoded_lines = self.net.adapt(encoded_lines)
@@ -182,7 +188,7 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
             partial_transcriptions = torch.cat([partial_transcriptions, logit_idxs.unsqueeze(1)], dim=1)
 
         labels = self.postprocess_decoded(partial_transcriptions[:, 1:], self.ignore_ind, self.sentence_boundary_ind)
-        logits = torch.stack(line_logits)
+        logits = torch.stack(line_logits).float()
 
         return labels, logits, beam_logprobs
 
