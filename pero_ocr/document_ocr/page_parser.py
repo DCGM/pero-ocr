@@ -218,6 +218,7 @@ class LayoutExtractor(object):
         self.multi_orientation = config.getboolean('MULTI_ORIENTATION')
         self.adjust_baselines = config.getboolean('ADJUST_BASELINES')
         self.categories = config_get_list(config, key='CATEGORIES', fallback=[])
+        self.detection_threshold = config.getfloat('DETECTION_THRESHOLD', fallback=0.3)
 
         use_cpu = config.getboolean('USE_CPU')
         self.device = device if not use_cpu else torch.device("cpu")
@@ -306,7 +307,8 @@ class LayoutExtractor(object):
             crop_engine = cropper.EngineLineCropper(
                 line_height=32, poly=0, scale=1)
             for line in page_layout.lines_iterator(self.categories):
-                line.baseline = refine_baseline(line.baseline, line.heights, maps, ds, crop_engine)
+                line.baseline = refine_baseline(line.baseline, line.heights, maps, ds, crop_engine,
+                                                detection_threshold=self.detection_threshold)
                 line.polygon = helpers.baseline_to_textline(line.baseline, line.heights)
         page_layout = helpers.merge_page_layouts(page_layout, page_layout_no_text)
         return page_layout
