@@ -50,15 +50,6 @@ def layout_parser_factory(config, device, config_path=''):
         layout_parser = NaiveRegionSorter(config, config_path=config_path)
     elif config['METHOD'] == 'REGION_SORTER_SMART':
         layout_parser = SmartRegionSorter(config, config_path=config_path)
-    elif config['METHOD'] == 'DUMMY_IMAGE_CAPTIONING_SIMPLE':
-        from orbis_pictus.anno_page.captioning import DummyImageCaptioningSimple
-        layout_parser = DummyImageCaptioningSimple(config, config_path=config_path)
-    elif config['METHOD'] == 'DUMMY_IMAGE_CAPTIONING_RICH':
-        from orbis_pictus.anno_page.captioning import DummyImageCaptioningRich
-        layout_parser = DummyImageCaptioningRich(config, config_path=config_path)
-    elif config['METHOD'] == 'CHAT_GPT_IMAGE_CAPTIONING':
-        from orbis_pictus.anno_page.captioning import ChatGPTImageCaptioning
-        layout_parser = ChatGPTImageCaptioning(config, config_path=config_path)
     else:
         raise ValueError('Unknown layout parser method: {}'.format(config['METHOD']))
     return layout_parser
@@ -85,6 +76,16 @@ def page_decoder_factory(config, device, config_path=''):
     categories = config_get_list(config['DECODER'], key='CATEGORIES', fallback=[])
     return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over,
                        categories=categories)
+
+
+def operations_factory(config, device, config_path=''):
+    if config['METHOD'] == 'CHATGPT_IMAGE_CAPTIONING':
+        from anno_page.engines.captioning import ChatGPTImageCaptioning
+        operation_engine = ChatGPTImageCaptioning(config, device, config_path=config_path)
+    else:
+        raise ValueError(f"Unknown operation method: {config['METHOD']}")
+
+    return operation_engine
 
 
 class MissingLogits(Exception):
@@ -647,6 +648,7 @@ class PageParser(object):
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
         self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER', fallback=False)
+        self.run_operations = config['PAGE_PARSER'].getboolean('RUN_OPERATIONS', fallback=False)
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
                                                                                fallback=-1)
 
@@ -656,6 +658,7 @@ class PageParser(object):
         self.line_croppers = {}
         self.ocrs = {}
         self.decoder = None
+        self.operations = {}
 
         if self.run_layout_parser:
             self.layout_parsers = self.init_config_sections(config, config_path, 'LAYOUT_PARSER', layout_parser_factory)
@@ -665,6 +668,8 @@ class PageParser(object):
             self.ocrs = self.init_config_sections(config, config_path, 'OCR', ocr_factory)
         if self.run_decoder:
             self.decoder = page_decoder_factory(config, self.device, config_path=config_path)
+        if self.run_operations:
+            self.operations = self.init_config_sections(config, config_path, 'OPERATION', operations_factory)
 
     @staticmethod
     def compute_line_confidence(line, threshold=None):
@@ -714,6 +719,10 @@ class PageParser(object):
 
         if self.filter_confident_lines_threshold > 0:
             page_layout = self.filter_confident_lines(page_layout)
+
+        if self.run_operations:
+            for _, operation_engine in sorted(self.operations.items()):
+                page_layout = operation_engine.process_page(image, page_layout)
 
         return page_layout
 
