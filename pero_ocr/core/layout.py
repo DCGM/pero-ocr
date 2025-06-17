@@ -211,16 +211,7 @@ class TextLine(object):
         if self.metadata is not None:
             tag_references = []
             for metadata in self.metadata:
-                tag_references.append(metadata.metadata_id)
-
-                exist = False
-                for child in tags.getchildren():
-                    if "ID" in child.attrib and child.attrib["ID"] == metadata.metadata_id:
-                        exist = True
-                        break
-
-                if not exist:
-                    metadata.to_altoxml(tags, mods_namespace)
+                tag_references.append(metadata.tag_id)
 
             text_line.set("TAGREFS", ' '.join(tag_references))
 
@@ -530,7 +521,7 @@ class RegionLayout(object):
                 block.set("ID", self.id)
 
         else:
-            from orbis_pictus.anno_page.layout import region_to_altoxml
+            from anno_page.core.layout import region_to_altoxml
             block = region_to_altoxml(self, print_space)
 
         block_height, block_width, block_vpos, block_hpos = get_hwvh(self.polygon)
