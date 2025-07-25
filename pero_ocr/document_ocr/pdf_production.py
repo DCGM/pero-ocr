@@ -6,6 +6,7 @@ import tempfile
 
 import PIL
 import fpdf
+import logging
 
 from pero_ocr.core.layout import PageLayout, element_schema
 
@@ -19,16 +20,22 @@ class Merger:
 
         with tempfile.TemporaryDirectory() as tmp_dir_fn:
             resolution = 72.0
+            logging.info(f'Reading image {img_path}')
             img = PIL.Image.open(img_path)
             img_pdf_fn = os.path.join(tmp_dir_fn, 'img.pdf')
+            logging.info(f'Saving image as PDF {img_pdf_fn}')
             img.save(img_pdf_fn, 'PDF', resolution=resolution)
 
+            logging.info(f'Processing XML {xml_path}')
             xml_pdf = xml_processor(xml_path)
             xml_pdf_fn = os.path.join(tmp_dir_fn, 'ocr.pdf')
-            xml_pdf_fn = 'ocr.pdf'
+            #xml_pdf_fn = 'ocr.pdf'
+            logging.info(f'Saving XML as PDF {xml_pdf_fn}')
             xml_pdf.output(xml_pdf_fn)
 
+            logging.info(f'Merging PDFs to {out_path}')
             merge_2_pdfs(img_pdf_fn, xml_pdf_fn, out_path, tmp_dir_fn)
+            logging.info(f'Merge finished, output PDF: {out_path}')
 
     def get_xml_processor(self, xml_path):
         page_tree = ET.parse(xml_path)
@@ -82,11 +89,10 @@ def pdf_from_alto_xml(xml_path):
     pdf_writer = PDFWriter(width, height)
 
     print_space = page.findall(schema + 'PrintSpace')[0]
-    lines = []
     for region in print_space.iter(schema + 'TextBlock'):
         for line in region.iter(schema + 'TextLine'):
             line_left = int(line.attrib['HPOS'])
-            line_bottom = int(line.attrib['BASELINE'])
+            line_bottom = int(line.attrib['VPOS'])
             line_width = int(line.attrib['WIDTH'])
             line_height = int(line.attrib['HEIGHT'])
 
@@ -99,7 +105,7 @@ def pdf_from_alto_xml(xml_path):
 class PDFWriter:
     def __init__(self, width, height):
         self.pdf = fpdf.FPDF(orientation='Portrait', unit='pt', format=(width, height))
-        self.pdf.add_font('DeJavu', '', '/usr/share/fonts/dejavu/DejaVuSans.ttf', uni=True)
+        self.pdf.add_font('DeJavu', '', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', uni=True)
         self.pdf.add_page()
 
         self.font = 'dejavu'
@@ -150,11 +156,12 @@ def merge_2_pdfs(img_pdf_fn, xml_pdf_fn, out, tmp_dir_fn):
         f.write(print_page_with_overlay(img_pdf_fn, xml_pdf_fn))
         f.write(DOCUMENT_END)
 
+    logging.info(f'Compiling LaTeX to PDF in subprocess: {tex_fn}')
     subprocess.run(
         [shutil.which('pdflatex'), '-output-directory', f'{tmp_dir_fn}', tex_fn],
         stdout=subprocess.DEVNULL
     )
-
+    logging.info(f'LaTeX compilation finished, output PDF: {os.path.join(tmp_dir_fn, f"{core_fn}.pdf")}')
     shutil.copyfile(os.path.join(tmp_dir_fn, f'{core_fn}.pdf'), out)
 
 

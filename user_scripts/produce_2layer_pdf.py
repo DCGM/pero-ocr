@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+
 import argparse
 import os
-import logging
 import re
 from pero_ocr.document_ocr import pdf_production
 
@@ -51,6 +58,8 @@ def main():
     else:
         xml_dict = discover_files(args.xml, lambda fn: fn.endswith('.xml'), lambda fn: fn.removesuffix(args.xml_drop_suffix))
         img_dict = discover_files(args.image, lambda fn: img_regex.fullmatch(fn) is not None)
+        #print(xml_dict)
+        #print(img_dict)
 
         matched_keys = intersect_keys(xml_dict, img_dict)
 
@@ -58,10 +67,14 @@ def main():
 
         for k in matched_keys:
             logging.info(f'Merging {k}')
+            output_path = os.path.join(args.out, f'{k}.pdf')
+            if os.path.exists(output_path):
+                logging.warning(f'Output file {output_path} already exists, skipping.')
+                continue
             merger.merge(
                 xml_dict[k],
                 img_dict[k],
-                os.path.join(args.out, f'{k}.pdf'),
+                output_path
             )
 
 
