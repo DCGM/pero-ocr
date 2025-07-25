@@ -5,6 +5,8 @@ import typing
 from pero_ocr.core.force_alignment import align_text
 
 global_confidence_quantile = 0.33
+soft_min_power = -2.5
+
 
 def get_letter_confidence(logits: np.ndarray, alignment: typing.List[int], blank_ind: int) -> typing.List[float]:
     """Function which estimates confidence of characters as the maximal log-prob aligned to them.
@@ -90,7 +92,11 @@ def get_transcription_confidence(line, labels=None, aligned_letters=None, log_pr
 
 
 def get_word_confidence_from_characters(word_character_confidences):
-    return np.quantile(word_character_confidences, global_confidence_quantile)
+    if len(word_character_confidences) == 0:
+        return 0.0
+
+    word_character_confidences = np.clip(word_character_confidences, 0.0, 1.0)
+    return np.mean(word_character_confidences ** soft_min_power) ** (1 / soft_min_power)
 
 
 def get_character_confidences(line, labels=None, aligned_letters=None, log_probs=None) -> np.ndarray:
