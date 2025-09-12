@@ -84,6 +84,18 @@ def operations_factory(config, device, config_path=''):
     if config['METHOD'] == 'CHATGPT_IMAGE_CAPTIONING':
         from anno_page.engines.captioning import ChatGPTImageCaptioning
         operation_engine = ChatGPTImageCaptioning(config, device, config_path=config_path)
+    elif config['METHOD'] == 'CLIP_EMBEDDING':
+        from anno_page.engines.embedding import ClipEmbeddingEngine
+        operation_engine = ClipEmbeddingEngine(config, device, config_path=config_path)
+    elif config['METHOD'] == 'CAPTION_YOLO_NEAREST':
+        from anno_page.engines.captioning import CaptionYoloNearestEngine
+        operation_engine = CaptionYoloNearestEngine(config, device, config_path=config_path)
+    elif config['METHOD'] == 'CAPTION_YOLO_ORGANIZER':
+        from anno_page.engines.captioning import CaptionYoloOrganizerEngine
+        operation_engine = CaptionYoloOrganizerEngine(config, device, config_path=config_path)
+    elif config['METHOD'] == 'CAPTION_YOLO_KEYPOINTS':
+        from anno_page.engines.captioning import CaptionYoloKeypointsEngine
+        operation_engine = CaptionYoloKeypointsEngine(config, device, config_path=config_path)
     else:
         raise ValueError(f"Unknown operation method: {config['METHOD']}")
 
