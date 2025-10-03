@@ -529,9 +529,13 @@ class RegionLayout(object):
         category = None
         detection_confidence = None
         if "custom" in region_element.attrib:
-            custom = json.loads(region_element.attrib["custom"])
-            category = custom.get('category', None)
-            detection_confidence = custom.get('detection_confidence', None)
+            try:
+                custom = json.loads(region_element.attrib["custom"])
+                category = custom.get('category', None)
+                detection_confidence = custom.get('detection_confidence', None)
+            except json.decoder.JSONDecodeError:
+                logging.warning(f'Warning: Unable to parse custom attribute of region {region_element.attrib["id"]}.')
+                pass
 
         layout_region = cls(region_element.attrib['id'], region_coords, region_type,
                             category=category,
