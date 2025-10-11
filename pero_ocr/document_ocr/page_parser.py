@@ -1,11 +1,11 @@
 import numpy as np
-
 import logging
 from multiprocessing import Pool
 import math
 import time
 import re
 from typing import Union, Tuple, List
+from collections import defaultdict
 
 import torch.cuda
 
@@ -78,6 +78,28 @@ def page_decoder_factory(config, device, config_path=''):
     categories = config_get_list(config['DECODER'], key='CATEGORIES', fallback=[])
     return PageDecoder(decoder, line_confidence_threshold=confidence_threshold, carry_h_over=carry_h_over,
                        categories=categories)
+
+
+def operations_factory(config, device, config_path=''):
+    if config['METHOD'] == 'CHATGPT_IMAGE_CAPTIONING':
+        from anno_page.engines.captioning import ChatGPTImageCaptioning
+        operation_engine = ChatGPTImageCaptioning(config, device, config_path=config_path)
+    elif config['METHOD'] == 'CLIP_EMBEDDING':
+        from anno_page.engines.embedding import ClipEmbeddingEngine
+        operation_engine = ClipEmbeddingEngine(config, device, config_path=config_path)
+    elif config['METHOD'] == 'CAPTION_YOLO_NEAREST':
+        from anno_page.engines.captioning import CaptionYoloNearestEngine
+        operation_engine = CaptionYoloNearestEngine(config, device, config_path=config_path)
+    elif config['METHOD'] == 'CAPTION_YOLO_ORGANIZER':
+        from anno_page.engines.captioning import CaptionYoloOrganizerEngine
+        operation_engine = CaptionYoloOrganizerEngine(config, device, config_path=config_path)
+    elif config['METHOD'] == 'CAPTION_YOLO_KEYPOINTS':
+        from anno_page.engines.captioning import CaptionYoloKeypointsEngine
+        operation_engine = CaptionYoloKeypointsEngine(config, device, config_path=config_path)
+    else:
+        raise ValueError(f"Unknown operation method: {config['METHOD']}")
+
+    return operation_engine
 
 
 class MissingLogits(Exception):
@@ -341,12 +363,13 @@ class LayoutExtractorYolo(object):
         page_layout.regions = []
 
         result = self.engine.detect(img)
-        start_id = self.get_start_id([region.id for region in page_layout_text.regions])
+
+        category_counts = defaultdict(int)
+        for region in page_layout_text.regions:
+            category_counts[region.category] += 1
 
         boxes = result.boxes.data.cpu()
         for box_id, box in enumerate(boxes):
-            id_str = 'r{:03d}'.format(start_id + box_id)
-
             x_min, y_min, x_max, y_max, conf, class_id = box.tolist()
             polygon = np.array([[x_min, y_min], [x_min, y_max], [x_max, y_max], [x_max, y_min], [x_min, y_min]])
             baseline_y = y_min + (y_max - y_min) / 2
@@ -357,6 +380,9 @@ class LayoutExtractorYolo(object):
             if self.categories and category not in self.categories:
                 continue
 
+            category_counts[category] += 1
+
+            id_str = f'{helpers.normalize_category_name(category)}_{category_counts[category]:03d}'.lower()
             region = RegionLayout(id_str, polygon, category=category, detection_confidence=conf)
 
             if category in self.line_categories:
@@ -632,6 +658,7 @@ class PageParser(object):
         self.run_line_cropper = config['PAGE_PARSER'].getboolean('RUN_LINE_CROPPER', fallback=False)
         self.run_ocr = config['PAGE_PARSER'].getboolean('RUN_OCR', fallback=False)
         self.run_decoder = config['PAGE_PARSER'].getboolean('RUN_DECODER', fallback=False)
+        self.run_operations = config['PAGE_PARSER'].getboolean('RUN_OPERATIONS', fallback=False)
         self.filter_confident_lines_threshold = config['PAGE_PARSER'].getfloat('FILTER_CONFIDENT_LINES_THRESHOLD',
                                                                                fallback=-1)
 
@@ -641,6 +668,7 @@ class PageParser(object):
         self.line_croppers = {}
         self.ocrs = {}
         self.decoder = None
+        self.operations = {}
 
         if self.run_layout_parser:
             self.layout_parsers = self.init_config_sections(config, config_path, 'LAYOUT_PARSER', layout_parser_factory)
@@ -650,6 +678,8 @@ class PageParser(object):
             self.ocrs = self.init_config_sections(config, config_path, 'OCR', ocr_factory)
         if self.run_decoder:
             self.decoder = page_decoder_factory(config, self.device, config_path=config_path)
+        if self.run_operations:
+            self.operations = self.init_config_sections(config, config_path, 'OPERATION', operations_factory)
 
     @property
     def provides_ctc_logits(self):
@@ -684,6 +714,10 @@ class PageParser(object):
 
         if self.filter_confident_lines_threshold > 0:
             page_layout = self.filter_confident_lines(page_layout)
+
+        if self.run_operations:
+            for _, operation_engine in sorted(self.operations.items()):
+                page_layout = operation_engine.process_page(image, page_layout)
 
         page_layout.calculate_confidence()
 

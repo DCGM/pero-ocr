@@ -489,3 +489,26 @@ def merge_page_layouts(page_layout_positive: PageLayout, page_layout_negative: P
             page_layout_positive.regions.append(region)
 
     return page_layout_positive
+
+
+def insert_line_to_page_layout(page_layout: PageLayout, region: RegionLayout, line: TextLine) -> PageLayout:
+    """Insert line to page layout given region of origin. Find if region already exists by ID."""
+    existing_region = find_region_by_id(page_layout, region.id)
+
+    if existing_region is not None:
+        existing_region.lines.append(line)
+    else:
+        region.lines = [line]
+        page_layout.regions.append(region)
+    return page_layout
+
+
+def find_region_by_id(page_layout: PageLayout, region_id: str) -> Optional[RegionLayout]:
+    for region in page_layout.regions:
+        if region.id == region_id:
+            return region
+    return None
+
+
+def normalize_category_name(category):
+    return category.lower().replace(' ', '_').replace(',', '')

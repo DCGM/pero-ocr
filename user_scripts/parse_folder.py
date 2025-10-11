@@ -19,7 +19,7 @@ import torch
 from safe_gpu import safe_gpu
 
 from pero_ocr import utils  # noqa: F401 -- there is code executed upon import here.
-from pero_ocr.core.layout import PageLayout
+from pero_ocr.core.layout import PageLayout, ALTOVersion
 from pero_ocr.document_ocr.page_parser import PageParser
 
 
@@ -47,6 +47,8 @@ def parse_arguments():
     parser.add_argument('--gpu-id', type=int, default=None, help='If set, the computation runs of the specified GPU, otherwise safe-gpu is used to allocate first unused GPU.')
 
     parser.add_argument('--process-count', type=int, default=1, help='Number of parallel processes (this works mostly only for line cropping and it probably fails and crashes for most other uses cases).')
+
+    parser.add_argument('--alto-v4', action='store_true', help='If set, the output ALTO XML will be in version 4.')
     args = parser.parse_args()
     return args
 
@@ -147,7 +149,7 @@ class LMDB_writer(object):
 class Computator:
     def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
                  output_render_category, output_logit_path, output_alto_path, output_xml_path, output_line_path,
-                 word_splitters=None):
+                 word_splitters=None, alto_version=ALTOVersion.ALTO_v2_x):
         self.page_parser = page_parser
         self.input_image_path = input_image_path
         self.input_xml_path = input_xml_path
@@ -159,6 +161,7 @@ class Computator:
         self.output_xml_path = output_xml_path
         self.output_line_path = output_line_path
         self.word_splitters = word_splitters
+        self.alto_version = alto_version
 
     def __call__(self, image_file_name, file_id, index, ids_count):
         print(f"Processing {file_id}")
@@ -196,7 +199,7 @@ class Computator:
 
             if self.output_alto_path is not None:
                 page_layout.to_altoxml(os.path.join(self.output_alto_path, file_id + '.xml'),
-                                       word_splitters=self.word_splitters)
+                                       word_splitters=self.word_splitters, version=self.alto_version)
 
             if self.output_line_path is not None and page_layout is not None:
                 if 'lmdb' in self.output_line_path:
@@ -348,11 +351,12 @@ def main():
         ids_to_process = filtered_ids_to_process
         images_to_process = filtered_images_to_process
 
+    alto_version = ALTOVersion.ALTO_v4_4 if args.alto_v4 else ALTOVersion.ALTO_v2_x
     word_splitters = set(list(args.word_splitters)) if args.word_splitters else None
 
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
                             output_render_category, output_logit_path, output_alto_path, output_xml_path,
-                            output_line_path, word_splitters=word_splitters)
+                            output_line_path, word_splitters=word_splitters, alto_version=alto_version)
 
     t_start = time.time()
     results = []
