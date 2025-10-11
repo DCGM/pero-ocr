@@ -167,6 +167,11 @@ class TextLine(object):
         if not new_textline.heights:
             guess_line_heights_from_polygon(new_textline, use_center=False, n=len(new_textline.baseline))
 
+        if new_textline.polygon is None:
+            logger.warning(f'Warning: TextLine {new_textline.id} is missing polygon, estimating it from baseline and heights.')
+            from pero_ocr.layout_engines.layout_helpers import baseline_to_textline
+            new_textline.polygon = baseline_to_textline(new_textline.baseline, new_textline.heights)
+
         transcription = line_element.find(schema + 'TextEquiv')
         if transcription is not None:
             t_unicode = transcription.find(schema + 'Unicode').text
@@ -518,9 +523,12 @@ class RegionLayout(object):
         return region_element
 
     @classmethod
-    def from_pagexml(cls, region_element: ET.SubElement, schema):
+    def from_pagexml(cls, region_element: ET.SubElement, schema: str):
         coords_element = region_element.find(schema + 'Coords')
-        region_coords = get_coords_from_pagexml(coords_element, schema)
+        if coords_element is None:
+            region_coords = None
+        else:
+            region_coords = get_coords_from_pagexml(coords_element, schema)
 
         region_type = None
         if "type" in region_element.attrib:
@@ -551,6 +559,15 @@ class RegionLayout(object):
             new_textline = TextLine.from_pagexml(line, schema, fallback_index=i)
             if new_textline is not None:
                 layout_region.lines.append(new_textline)
+
+        if layout_region.polygon is None and layout_region.lines:
+            logging.warning(f'Warning: No polygon in region {region_element.attrib["id"]}. The polygon will be estimated from lines.')
+            # The import is here due to circular imports
+            from pero_ocr.layout_engines.layout_helpers import retrace_region
+            retrace_region(layout_region)
+        else:
+            logging.warning(f'Warning: No polygon in region {region_element.attrib["id"]} and no lines to estimate it from. The region will be skipped.')
+            return None
 
         return layout_region
 
@@ -626,6 +643,12 @@ def guess_line_heights_from_polygon(text_line: TextLine, use_center: bool = Fals
     Guess line heights for line if missing (e.g. import from Transkribus).
     Heights are computed from polygon intersection with baseline normal in the middle of baseline.
     '''
+
+    if text_line.polygon is None:
+        logging.warning(f'Warning: Unable to guess heights for line {text_line.id} due to missing polygon. Using default heights.')
+        text_line.heights = [30, 10]
+        return
+
     try:
         heights_up = []
         heights_down = []
@@ -756,7 +779,8 @@ class PageLayout(object):
 
         for region in page_tree.iter(schema + 'TextRegion'):
             region_layout = RegionLayout.from_pagexml(region, schema)
-            self.regions.append(region_layout)
+            if region_layout is not None:
+                self.regions.append(region_layout)
 
     def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
                           version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
