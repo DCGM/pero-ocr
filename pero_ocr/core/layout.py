@@ -736,12 +736,18 @@ def guess_height_at_point(text_line: TextLine, point):
 def get_reading_order(page_element, schema):
     reading_order = {}
 
-    for reading_order_element in page_element.iter(schema + "ReadingOrder"):
-        for ordered_group_element in reading_order_element.iter(schema + "OrderedGroup"):
-            for indexed_region_element in ordered_group_element.iter(schema + "RegionRefIndexed"):
-                region_index = int(indexed_region_element.attrib["index"])
-                region_id = indexed_region_element.attrib["regionRef"]
-                reading_order[region_id] = region_index
+    try:
+        for reading_order_element in page_element.iter(schema + "ReadingOrder"):
+            for ordered_group_element in reading_order_element.iter(schema + "OrderedGroup"):
+                for indexed_region_element in ordered_group_element.iter(schema + "RegionRefIndexed"):
+                    region_index = int(indexed_region_element.attrib["index"])
+                    region_id = indexed_region_element.attrib["regionRef"]
+                    reading_order[region_id] = region_index
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        logging.warning(f'Warning: Failed to parse reading order due to exception: {e}.')
+        reading_order = {}
 
     return reading_order
 
