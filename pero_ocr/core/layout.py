@@ -560,14 +560,15 @@ class RegionLayout(object):
             if new_textline is not None:
                 layout_region.lines.append(new_textline)
 
-        if layout_region.polygon is None and layout_region.lines:
-            logging.warning(f'Warning: No polygon in region {region_element.attrib["id"]}. The polygon will be estimated from lines.')
-            # The import is here due to circular imports
-            from pero_ocr.layout_engines.layout_helpers import retrace_region
-            retrace_region(layout_region)
-        else:
-            logging.warning(f'Warning: No polygon in region {region_element.attrib["id"]} and no lines to estimate it from. The region will be skipped.')
-            return None
+        if layout_region.polygon is None:
+            if layout_region.lines:
+                logging.warning(f'Warning: No polygon in region {region_element.attrib["id"]}. The polygon will be estimated from lines.')
+                # The import is here due to circular imports
+                from pero_ocr.layout_engines.layout_helpers import retrace_region
+                retrace_region(layout_region)
+            else:
+                logging.warning(f'Warning: No polygon in region {region_element.attrib["id"]} and no lines to estimate it from. The region will be skipped.')
+                return None
 
         return layout_region
 
