@@ -620,7 +620,7 @@ class RegionLayout(object):
         return region_layout
 
 
-def get_coords_from_pagexml(coords_element, schema):
+def get_coords_from_pagexml(coords_element, schema) -> np.ndarray:
     if 'points' in coords_element.attrib:
         coords = points_string_to_array(coords_element.attrib['points'])
     else:
@@ -1185,7 +1185,7 @@ def element_schema(elem):
 
 
 def points_string_to_array(coords):
-    coords = coords.split(' ')
+    coords = coords.strip().split(' ')
     coords = [t.split(",") for t in coords]
     coords = [[int(round(float(x))), int(round(float(y)))] for x, y in coords]
     return np.asarray(coords)
