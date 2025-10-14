@@ -160,7 +160,7 @@ def get_circumradius(a, b, c):
     return circums
 
 
-def alpha_shape(points, alpha):
+def alpha_shape(points: np.ndarray, alpha: float) -> Optional[sg.Polygon]:
     '''
     Get shapely polygon around a point cloud using alpha shape algorithm
     '''

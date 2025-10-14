@@ -167,6 +167,11 @@ class TextLine(object):
         if not new_textline.heights:
             guess_line_heights_from_polygon(new_textline, use_center=False, n=len(new_textline.baseline))
 
+        if new_textline.polygon is None:
+            logger.warning(f'Warning: TextLine {new_textline.id} is missing polygon, estimating it from baseline and heights.')
+            from pero_ocr.layout_engines.layout_helpers import baseline_to_textline
+            new_textline.polygon = baseline_to_textline(new_textline.baseline, new_textline.heights)
+
         transcription = line_element.find(schema + 'TextEquiv')
         if transcription is not None:
             t_unicode = transcription.find(schema + 'Unicode').text
@@ -518,9 +523,12 @@ class RegionLayout(object):
         return region_element
 
     @classmethod
-    def from_pagexml(cls, region_element: ET.SubElement, schema):
+    def from_pagexml(cls, region_element: ET.SubElement, schema: str):
         coords_element = region_element.find(schema + 'Coords')
-        region_coords = get_coords_from_pagexml(coords_element, schema)
+        if coords_element is None:
+            region_coords = None
+        else:
+            region_coords = get_coords_from_pagexml(coords_element, schema)
 
         region_type = None
         if "type" in region_element.attrib:
@@ -551,6 +559,16 @@ class RegionLayout(object):
             new_textline = TextLine.from_pagexml(line, schema, fallback_index=i)
             if new_textline is not None:
                 layout_region.lines.append(new_textline)
+
+        if layout_region.polygon is None:
+            if layout_region.lines:
+                logging.warning(f'Warning: No polygon in region {region_element.attrib["id"]}. The polygon will be estimated from lines.')
+                # The import is here due to circular imports
+                from pero_ocr.layout_engines.layout_helpers import retrace_region
+                retrace_region(layout_region)
+            else:
+                logging.warning(f'Warning: No polygon in region {region_element.attrib["id"]} and no lines to estimate it from. The region will be skipped.')
+                return None
 
         return layout_region
 
@@ -602,7 +620,7 @@ class RegionLayout(object):
         return region_layout
 
 
-def get_coords_from_pagexml(coords_element, schema):
+def get_coords_from_pagexml(coords_element, schema) -> np.ndarray:
     if 'points' in coords_element.attrib:
         coords = points_string_to_array(coords_element.attrib['points'])
     else:
@@ -626,6 +644,12 @@ def guess_line_heights_from_polygon(text_line: TextLine, use_center: bool = Fals
     Guess line heights for line if missing (e.g. import from Transkribus).
     Heights are computed from polygon intersection with baseline normal in the middle of baseline.
     '''
+
+    if text_line.polygon is None:
+        logging.warning(f'Warning: Unable to guess heights for line {text_line.id} due to missing polygon. Using default heights.')
+        text_line.heights = [30, 10]
+        return
+
     try:
         heights_up = []
         heights_down = []
@@ -712,12 +736,18 @@ def guess_height_at_point(text_line: TextLine, point):
 def get_reading_order(page_element, schema):
     reading_order = {}
 
-    for reading_order_element in page_element.iter(schema + "ReadingOrder"):
-        for ordered_group_element in reading_order_element.iter(schema + "OrderedGroup"):
-            for indexed_region_element in ordered_group_element.iter(schema + "RegionRefIndexed"):
-                region_index = int(indexed_region_element.attrib["index"])
-                region_id = indexed_region_element.attrib["regionRef"]
-                reading_order[region_id] = region_index
+    try:
+        for reading_order_element in page_element.iter(schema + "ReadingOrder"):
+            for ordered_group_element in reading_order_element.iter(schema + "OrderedGroup"):
+                for indexed_region_element in ordered_group_element.iter(schema + "RegionRefIndexed"):
+                    region_index = int(indexed_region_element.attrib["index"])
+                    region_id = indexed_region_element.attrib["regionRef"]
+                    reading_order[region_id] = region_index
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        logging.warning(f'Warning: Failed to parse reading order due to exception: {e}.')
+        reading_order = {}
 
     return reading_order
 
@@ -756,7 +786,8 @@ class PageLayout(object):
 
         for region in page_tree.iter(schema + 'TextRegion'):
             region_layout = RegionLayout.from_pagexml(region, schema)
-            self.regions.append(region_layout)
+            if region_layout is not None:
+                self.regions.append(region_layout)
 
     def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
                           version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
@@ -1160,7 +1191,7 @@ def element_schema(elem):
 
 
 def points_string_to_array(coords):
-    coords = coords.split(' ')
+    coords = coords.strip().split(' ')
     coords = [t.split(",") for t in coords]
     coords = [[int(round(float(x))), int(round(float(y)))] for x, y in coords]
     return np.asarray(coords)
