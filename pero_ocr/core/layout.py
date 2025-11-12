@@ -750,6 +750,7 @@ class PageLayout(object):
         self.reading_order = None
         self.confidence = None
         self.embedding_data = None
+        self.metadata = None
 
         if file is not None:
             self.from_pagexml(file)
