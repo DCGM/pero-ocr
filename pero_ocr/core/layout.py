@@ -789,7 +789,7 @@ class PageLayout(object):
             if region_layout is not None:
                 self.regions.append(region_layout)
 
-    def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
+    def to_pagexml_tree(self, creator: str = 'Pero OCR', validate_id: bool = False,
                           version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
         if version == PAGEVersion.PAGE_2019_07_15:
             attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
@@ -826,6 +826,11 @@ class PageLayout(object):
         for region_layout in self.regions:
             region_layout.to_pagexml(page, validate_id=validate_id)
 
+        return root
+
+    def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
+                          version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
+        root = self.to_pagexml_tree(creator=creator, validate_id=validate_id, version=version)
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_pagexml(self, file_name: str, creator: str = 'Pero OCR',
