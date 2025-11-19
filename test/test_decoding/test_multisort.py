@@ -23,22 +23,22 @@ class MultisortTests(unittest.TestCase):
         arr = np.asarray([[2, 3, 1], [4, 0, 5]])
         retval = top_k(arr, k=1)
 
-        self.assertEquals(arr[retval], 0)
+        self.assertEqual(arr[retval], 0)
 
     def test_k2_2d(self):
         arr = np.asarray([[2, 3, 1], [4, 0, 5]])
         retval = top_k(arr, k=2)
 
-        self.assertEquals(set(arr[retval].tolist()), set([0, 1]))
+        self.assertEqual(set(arr[retval].tolist()), set([0, 1]))
 
     def test_k2_2d_reverse(self):
         arr = np.asarray([[2, 3, 1], [4, 0, 5]])
         retval = top_k(arr, k=2, reverse=True)
 
-        self.assertEquals(set(arr[retval].tolist()), set([4, 5]))
+        self.assertEqual(set(arr[retval].tolist()), set([4, 5]))
 
     def test_k2_2d_reverse_duplicit_top(self):
         arr = np.asarray([[2, 5, 1], [4, 0, 5]])
         retval = top_k(arr, k=2, reverse=True)
 
-        self.assertEquals(Counter(arr[retval].tolist()), Counter([5, 5]))
+        self.assertEqual(Counter(arr[retval].tolist()), Counter([5, 5]))
