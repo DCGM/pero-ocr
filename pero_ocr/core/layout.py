@@ -1173,6 +1173,14 @@ class PageLayout(object):
         else:
             raise ValueError(f'Region with id {old_id} not found.')
 
+    def get_all_embeddings(self):
+        embeddings = []
+        for region in self.regions:
+            embeddings += region.get_all_embeddings()
+
+        embeddings += self.embeddings
+        return embeddings
+
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):
     """Draw a line into image.
