@@ -58,8 +58,7 @@ class TextLine(object):
                  character_confidences: Optional[List[Num]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None,
-                 category: Optional[str] = None,
-                 metadata: Optional[list[object]] = None):
+                 category: Optional[str] = None):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -73,7 +72,10 @@ class TextLine(object):
         self.character_confidences = character_confidences
         self.transcription_confidence = transcription_confidence
         self.category = category
-        self.metadata = metadata
+
+        self.embeddings = []
+        self.metadata = {}
+        self.graphical_metadata = None
 
     def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
@@ -462,8 +464,7 @@ class RegionLayout(object):
                  polygon: np.ndarray,
                  region_type: Optional[str] = None,
                  category: Optional[str] = None,
-                 detection_confidence: Optional[float] = None,
-                 metadata: Optional[object] = None):
+                 detection_confidence: Optional[float] = None):
         self.id = id  # ID string
         self.polygon = polygon  # bounding polygon
         self.region_type = region_type
@@ -471,7 +472,10 @@ class RegionLayout(object):
         self.lines: List[TextLine] = []
         self.transcription = None
         self.detection_confidence = detection_confidence
-        self.metadata = metadata
+
+        self.embeddings = []
+        self.metadata = {}
+        self.graphical_metadata = None
 
     def get_lines_of_category(self, categories: Union[str, list]):
         if isinstance(categories, str):
@@ -587,12 +591,12 @@ class RegionLayout(object):
         print_space_height = print_space_height - print_space_vpos
         print_space_width = print_space_width - print_space_hpos
 
-        if self.metadata is not None:
-            self.metadata.to_altoxml(tags,
-                                     category=self.category,
-                                     bounding_box=self.get_polygon_bounding_box(),
-                                     confidence=self.detection_confidence,
-                                     mods_namespace=mods_namespace)
+        if self.graphical_metadata is not None:
+            self.graphical_metadata.to_altoxml(tags,
+                                               category=self.category,
+                                               bounding_box=self.get_polygon_bounding_box(),
+                                               confidence=self.detection_confidence,
+                                               mods_namespace=mods_namespace)
 
         for i, line in enumerate(self.lines):
             if not line.transcription or line.transcription.strip() == "":
@@ -620,6 +624,14 @@ class RegionLayout(object):
             region_layout.lines.append(new_textline)
 
         return region_layout
+
+    def get_all_embeddings(self):
+        embeddings = []
+        for line in self.lines:
+            embeddings += line.embeddings
+
+        embeddings += self.embeddings
+        return embeddings
 
 
 def get_coords_from_pagexml(coords_element, schema):
@@ -749,8 +761,9 @@ class PageLayout(object):
         self.regions: List[RegionLayout] = []
         self.reading_order = None
         self.confidence = None
-        self.embedding_data = None
-        self.metadata = None
+
+        self.embeddings = []
+        self.metadata = {}
 
         if file is not None:
             self.from_pagexml(file)
