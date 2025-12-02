@@ -868,6 +868,9 @@ class PageLayout(object):
         else:
             ocr_processing_element = create_ocr_processing_element()
             description.append(ocr_processing_element)
+
+        self._add_styles(root)
+
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
         if page_uuid is not None:
@@ -961,6 +964,27 @@ class PageLayout(object):
             indexed_region_element = ET.SubElement(ordered_group_element, "RegionRefIndexed")
             indexed_region_element.set("regionRef", region_id)
             indexed_region_element.set("index", str(region_index))
+
+    def _add_styles(self, root: ET.SubElement):
+        lines_fonts = [line.fonts for line in self.lines_iterator(['text', None]) if line.fonts is not None]
+        fonts = {}
+        for line_fonts in lines_fonts:
+            for line_font in line_fonts:
+                fonts[line_font['font']] = line_font
+
+        text_styles_element = ET.SubElement(root, "Styles")
+
+        for font_name, font in fonts.items():
+            text_style_element = ET.SubElement(text_styles_element, "TextStyle")
+            text_style_element.set("ID", font_name)
+
+            font_family = font["family"] if 'family' in font else None
+            if font_family:
+                text_style_element.set("FONTFAMILY", font_family)
+
+            font_styles = " ".join(font['styles']) if 'styles' in font else None
+            if font_styles:
+                text_style_element.set("FONTSTYLE", font_styles)
 
     def _gen_logits(self, missing_line_logits_ok=False):
         """
