@@ -58,7 +58,8 @@ class TextLine(object):
                  character_confidences: Optional[List[Num]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None,
-                 category: Optional[str] = None):
+                 category: Optional[str] = None,
+                 fonts: Optional[List[dict[str,str]]] = None):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -72,6 +73,7 @@ class TextLine(object):
         self.character_confidences = character_confidences
         self.transcription_confidence = transcription_confidence
         self.category = category
+        self.fonts = fonts
 
     def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
@@ -287,6 +289,10 @@ class TextLine(object):
                 string.set("VPOS", str(int(text_line_vpos)))
                 string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
 
+                word_font = self.fonts[w] if self.fonts is not None and w < len(self.fonts) else None
+                if word_font:
+                    string.set("STYLEREFS", word_font["font"])
+
                 if word_splitters is not None:
                     if w == 0 and previous_line is not None and previous_line.transcription and previous_line.transcription.strip():
                         previous_word = previous_line.transcription.split()[-1]
@@ -356,6 +362,10 @@ class TextLine(object):
                 string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                 string.set("VPOS", str(int(np.min(all_y))))
                 string.set("HPOS", str(int(np.min(all_x))))
+
+                word_font = self.fonts[w] if self.fonts is not None and w < len(self.fonts) else None
+                if word_font:
+                    string.set("STYLEREFS", word_font["font"])
 
                 if word_confidence is not None:
                     string.set("WC", str(round(word_confidence, 2)))
