@@ -24,6 +24,7 @@ from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
 from pero_ocr.layout_engines.baseline_refiner import refine_baseline
 from pero_ocr.layout_engines import layout_helpers as helpers
+from pero_ocr.ocr_engine.font_recognition import FontRecognitionEngine
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,12 @@ def line_cropper_factory(config, config_path='', device=None):
 
 
 def ocr_factory(config, device, config_path=''):
-    return PageOCR(config, device, config_path=config_path)
+    if config['METHOD'] == 'FONT_RECOGNITION':
+        engine = FontRecognizer(config, device, config_path=config_path)
+    else:
+        engine = PageOCR(config, device, config_path=config_path)
+
+    return engine
 
 
 def page_decoder_factory(config, device, config_path=''):
@@ -517,6 +523,29 @@ class LineCropper(object):
                     (self.crop_engine.line_height, self.crop_engine.line_height, 3))
                 print(f"WARNING: Failed to crop line {line.id}. Probably contain vertical line. "
                       f"Contanct Olda Kodym to fix this bug!")
+
+
+class FontRecognizer:
+    def __init__(self, config, device, config_path=''):
+        json_file = compose_path(config['OCR_JSON'], config_path)
+        use_cpu = config.getboolean('USE_CPU')
+
+        self.device = device if not use_cpu else torch.device("cpu")
+        self.font_recognizer = FontRecognitionEngine(json_file, self.device)
+
+    def process_page(self, image, page_layout: PageLayout):
+        lines_to_process = []
+        for line in page_layout.lines_iterator(categories=['text', None]):
+            if line.crop is None:
+                raise Exception(f'Missing crop in line {line.id}.')
+            lines_to_process.append(line)
+
+        font_predictions = self.font_recognizer.process_lines([(line.crop, line.transcription) for line in lines_to_process])
+
+        for line, font_prediction in zip(lines_to_process, font_predictions):
+            line.fonts = font_prediction
+
+        return page_layout
 
 
 class PageOCR:
