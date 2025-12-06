@@ -533,6 +533,8 @@ class FontRecognizer:
         self.device = device if not use_cpu else torch.device("cpu")
         self.font_recognizer = FontRecognitionEngine(json_file, self.device)
 
+        self.provides_ctc_logits = False
+
     def process_page(self, image, page_layout: PageLayout):
         lines_to_process = []
         for line in page_layout.lines_iterator(categories=['text', None]):
