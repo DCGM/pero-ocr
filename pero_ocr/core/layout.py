@@ -239,11 +239,8 @@ class TextLine(object):
             if self.transcription_confidence is not None:
                 string.set("WC", str(round(self.transcription_confidence, 2)))
 
-        if self.metadata is not None:
-            tag_references = []
-            for metadata in self.metadata:
-                tag_references.append(metadata.tag_id)
-
+        if self.graphical_metadata is not None:
+            tag_references = [metadata.tag_id for metadata in self.graphical_metadata]
             text_line.set("TAGREFS", ' '.join(tag_references))
 
     def get_labels(self):
