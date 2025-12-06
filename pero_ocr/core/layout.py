@@ -73,6 +73,10 @@ class TextLine(object):
         self.transcription_confidence = transcription_confidence
         self.category = category
 
+        self.embeddings = []
+        self.metadata = {}
+        self.graphical_metadata = None
+
     def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
         dense_logits[dense_logits == 0] = zero_logit_value
@@ -208,11 +212,8 @@ class TextLine(object):
                         heights = heights_array
                     self.heights = heights.tolist()
 
-    def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion, next_line=None,
-                   previous_line=None, word_splitters=["-"]):
-        if self.character_confidences is None or self.transcription_confidence is None:
-            self.calculate_confidences()
-
+    def to_altoxml(self, text_block, tags, mods_namespace, arabic_helper, min_line_confidence, version: ALTOVersion,
+                   next_line=None, previous_line=None, word_splitters=["-"]):
         if self.transcription_confidence is not None and self.transcription_confidence < min_line_confidence:
             return
 
@@ -242,6 +243,10 @@ class TextLine(object):
 
             if self.transcription_confidence is not None:
                 string.set("WC", str(round(self.transcription_confidence, 2)))
+
+        if self.graphical_metadata is not None:
+            tag_references = [metadata.tag_id for metadata in self.graphical_metadata]
+            text_line.set("TAGREFS", ' '.join(tag_references))
 
     def get_labels(self):
         chars = [i for i in range(len(self.characters))]
@@ -470,6 +475,10 @@ class RegionLayout(object):
         self.transcription = None
         self.detection_confidence = detection_confidence
 
+        self.embeddings = []
+        self.metadata = {}
+        self.graphical_metadata = None
+
     def get_lines_of_category(self, categories: Union[str, list]):
         if isinstance(categories, str):
             categories = [categories]
@@ -486,10 +495,10 @@ class RegionLayout(object):
         """Get bounding box of region polygon which includes all polygon points.
         :return: Tuple[int, int, int, int]: (x_min, y_min, x_max, y_max)
         """
-        x_min = min(self.polygon[:, 0])
-        x_max = max(self.polygon[:, 0])
-        y_min = min(self.polygon[:, 1])
-        y_max = max(self.polygon[:, 1])
+        x_min = round(min(self.polygon[:, 0]))
+        x_max = round(max(self.polygon[:, 0]))
+        y_min = round(min(self.polygon[:, 1]))
+        y_max = round(max(self.polygon[:, 1]))
 
         return x_min, y_min, x_max, y_max
 
@@ -572,25 +581,41 @@ class RegionLayout(object):
 
         return layout_region
 
-    def to_altoxml(self, print_space, arabic_helper, min_line_confidence,  print_space_coords: Tuple[int, int, int, int],
-                   version: ALTOVersion, word_splitters=["-"]) -> Tuple[int, int, int, int]:
+    def to_altoxml(self, print_space, tags, mods_namespace, arabic_helper, min_line_confidence,
+                   print_space_coords: Tuple[int, int, int, int], version: ALTOVersion, word_splitters=["-"]) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
-        text_block = ET.SubElement(print_space, "TextBlock")
-        text_block.set("ID", 'block_{}'.format(self.id))
+        if self.category is None or self.category == 'text':
+            block = ET.SubElement(print_space, "TextBlock")
 
-        text_block_height, text_block_width, text_block_vpos, text_block_hpos = get_hwvh(self.polygon)
-        text_block.set("HEIGHT", str(int(text_block_height)))
-        text_block.set("WIDTH", str(int(text_block_width)))
-        text_block.set("VPOS", str(int(text_block_vpos)))
-        text_block.set("HPOS", str(int(text_block_hpos)))
+            if self.category is None or self.category == 'text':
+                block.set("ID", 'block_{}'.format(self.id))
+            else:
+                block.set("ID", self.id)
 
-        print_space_height = max([print_space_vpos + print_space_height, text_block_vpos + text_block_height])
-        print_space_width = max([print_space_hpos + print_space_width, text_block_hpos + text_block_width])
-        print_space_vpos = min([print_space_vpos, text_block_vpos])
-        print_space_hpos = min([print_space_hpos, text_block_hpos])
+        else:
+            from anno_page.core.layout import region_to_altoxml
+            block = region_to_altoxml(self, print_space)
+
+        block_height, block_width, block_vpos, block_hpos = get_hwvh(self.polygon)
+        block.set("HEIGHT", str(int(block_height)))
+        block.set("WIDTH", str(int(block_width)))
+        block.set("VPOS", str(int(block_vpos)))
+        block.set("HPOS", str(int(block_hpos)))
+
+        print_space_height = max([print_space_vpos + print_space_height, block_vpos + block_height])
+        print_space_width = max([print_space_hpos + print_space_width, block_hpos + block_width])
+        print_space_vpos = min([print_space_vpos, block_vpos])
+        print_space_hpos = min([print_space_hpos, block_hpos])
         print_space_height = print_space_height - print_space_vpos
         print_space_width = print_space_width - print_space_hpos
+
+        if self.graphical_metadata is not None:
+            self.graphical_metadata.to_altoxml(tags,
+                                               category=self.category,
+                                               bounding_box=self.get_polygon_bounding_box(),
+                                               confidence=self.detection_confidence,
+                                               mods_namespace=mods_namespace)
 
         for i, line in enumerate(self.lines):
             if not line.transcription or line.transcription.strip() == "":
@@ -598,7 +623,7 @@ class RegionLayout(object):
 
             previous_line = self.lines[i - 1] if i > 0 else None
             next_line = self.lines[i + 1] if i + 1 < len(self.lines) else None
-            line.to_altoxml(text_block, arabic_helper, min_line_confidence, version, next_line=next_line,
+            line.to_altoxml(block, tags, mods_namespace, arabic_helper, min_line_confidence, version, next_line=next_line,
                             previous_line=previous_line, word_splitters=word_splitters)
         return print_space_height, print_space_width, print_space_vpos, print_space_hpos
 
@@ -618,6 +643,14 @@ class RegionLayout(object):
             region_layout.lines.append(new_textline)
 
         return region_layout
+
+    def get_all_embeddings(self):
+        embeddings = []
+        for line in self.lines:
+            embeddings += line.embeddings
+
+        embeddings += self.embeddings
+        return embeddings
 
 
 def get_coords_from_pagexml(coords_element, schema) -> np.ndarray:
@@ -760,6 +793,9 @@ class PageLayout(object):
         self.reading_order = None
         self.confidence = None
 
+        self.embeddings = []
+        self.metadata = {}
+
         if file is not None:
             self.from_pagexml(file)
 
@@ -838,7 +874,11 @@ class PageLayout(object):
                           min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
                           word_splitters=["-"]):
         arabic_helper = ArabicHelper()
+
+        mods_namespace_url = "http://www.loc.gov/mods/v3"
+
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
+                 "mods": mods_namespace_url,
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
 
@@ -856,8 +896,9 @@ class PageLayout(object):
         if ocr_processing_element is not None:
             description.append(ocr_processing_element)
         else:
-            ocr_processing_element = create_ocr_processing_element()
+            ocr_processing_element = create_ocr_processing_element(alto_version=version)
             description.append(ocr_processing_element)
+        tags = ET.SubElement(root, "Tags")
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
         if page_uuid is not None:
@@ -880,9 +921,19 @@ class PageLayout(object):
         print_space_hpos = self.page_size[1]
         print_space_coords = (print_space_height, print_space_width, print_space_vpos, print_space_hpos)
 
-        for block in self.regions:
-            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords,
-                                                  version, word_splitters=word_splitters)
+        text_regions = []
+        nontext_regions = []
+        for region in self.regions:
+            if region.category is None or region.category == 'text':
+                text_regions.append(region)
+            else:
+                nontext_regions.append(region)
+
+        for region in nontext_regions:
+            print_space_coords = region.to_altoxml(print_space, tags, mods_namespace_url, arabic_helper, min_line_confidence, print_space_coords, version)
+
+        for region in text_regions:
+            print_space_coords = region.to_altoxml(print_space, tags, mods_namespace_url, arabic_helper, min_line_confidence, print_space_coords, version, word_splitters=word_splitters)
 
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
@@ -1154,6 +1205,14 @@ class PageLayout(object):
         else:
             raise ValueError(f'Region with id {old_id} not found.')
 
+    def get_all_embeddings(self):
+        embeddings = []
+        for region in self.regions:
+            embeddings += region.get_all_embeddings()
+
+        embeddings += self.embeddings
+        return embeddings
+
 
 def draw_lines(img, lines, color=(255, 0, 0), circles=(False, False, False), close=False, thickness=2):
     """Draw a line into image.
@@ -1224,10 +1283,16 @@ def create_ocr_processing_element(id: str = "IdOcr",
                                   software_creator_str: str = "Project PERO",
                                   software_name_str: str = "PERO OCR",
                                   software_version_str: str = "v0.1.0",
-                                  processing_datetime=None):
-    ocr_processing = ET.Element("OCRProcessing")
+                                  processing_datetime=None,
+                                  alto_version: ALTOVersion = ALTOVersion.ALTO_v2_x):
+    if alto_version == ALTOVersion.ALTO_v4_4:
+        ocr_processing = ET.Element("Processing")
+        ocr_processing_step = ocr_processing
+    else:
+        ocr_processing = ET.Element("OCRProcessing")
+        ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
+
     ocr_processing.set("ID", id)
-    ocr_processing_step = ET.SubElement(ocr_processing, "ocrProcessingStep")
     processing_date_time = ET.SubElement(ocr_processing_step, "processingDateTime")
     if processing_datetime is not None:
         processing_date_time.text = processing_datetime
