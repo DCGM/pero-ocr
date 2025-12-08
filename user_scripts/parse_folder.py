@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 import numpy as np
 import os
 import configparser
 import argparse
 import cv2
+import unicodedata
 import logging
 import logging.handlers
 import re
@@ -39,6 +39,7 @@ def parse_arguments():
     parser.add_argument('--output-logit-path', help='')
     parser.add_argument('--output-alto-path', help='')
     parser.add_argument('--output-transcriptions-file-path', help='')
+    parser.add_argument('--output-nfc', action='store_true', help='If set, the output transcriptions are normalized to NFC form.')
     parser.add_argument('--skipp-missing-xml', action='store_true', help='Skipp images which have missing xml.')
 
     parser.add_argument('--word-splitters', default=None, type=str, help='Word splitters for ALTO XML export.')
@@ -146,7 +147,9 @@ class LMDB_writer(object):
 
 class Computator:
     def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                 output_render_category, output_logit_path, output_alto_path, output_xml_path, output_line_path,
+                 output_render_category, output_logit_path, output_alto_path, output_xml_path,
+                 output_nfc,
+                 output_line_path,
                  word_splitters=None):
         self.page_parser = page_parser
         self.input_image_path = input_image_path
@@ -157,6 +160,7 @@ class Computator:
         self.output_logit_path = output_logit_path
         self.output_alto_path = output_alto_path
         self.output_xml_path = output_xml_path
+        self.output_nfc = output_nfc
         self.output_line_path = output_line_path
         self.word_splitters = word_splitters
 
@@ -184,7 +188,7 @@ class Computator:
 
             if self.output_xml_path is not None:
                 page_layout.to_pagexml(
-                    os.path.join(self.output_xml_path, file_id + '.xml'))
+                    os.path.join(self.output_xml_path, file_id + '.xml'), output_nfc=self.output_nfc)
 
             if self.output_render_path is not None:
                 page_layout.render_to_image(image, render_category=self.output_render_category)
@@ -196,7 +200,7 @@ class Computator:
 
             if self.output_alto_path is not None:
                 page_layout.to_altoxml(os.path.join(self.output_alto_path, file_id + '.xml'),
-                                       word_splitters=self.word_splitters)
+                                       word_splitters=self.word_splitters, output_nfc=self.output_nfc)
 
             if self.output_line_path is not None and page_layout is not None:
                 if 'lmdb' in self.output_line_path:
@@ -216,7 +220,11 @@ class Computator:
             for line in all_lines:
                 if line.transcription:
                     key = f'{file_id}-{line.id}.jpg'
-                    annotations.append(key + " " + line.transcription)
+                    if self.output_nfc:
+                        norm_transcription = unicodedata.normalize('NFC', line.transcription)
+                    else:
+                        norm_transcription = line.transcription
+                    annotations.append(key + " " + norm_transcription)
 
         except KeyboardInterrupt:
             traceback.print_exc()
@@ -285,6 +293,7 @@ def main():
     output_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_XML_PATH')
     output_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LOGIT_PATH')
     output_alto_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_ALTO_PATH')
+    output_nfc = config['PAGE_PARSER'].getboolean('OUTPUT_NFC', fallback=False)
 
     if not page_parser.provides_ctc_logits and not input_logit_path and output_alto_path:
         logging.error(f'Cannot create ALTO with current PageParser (transformer outputs are incompatible)')
@@ -352,6 +361,7 @@ def main():
 
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
                             output_render_category, output_logit_path, output_alto_path, output_xml_path,
+                            output_nfc,
                             output_line_path, word_splitters=word_splitters)
 
     t_start = time.time()
