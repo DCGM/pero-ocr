@@ -182,7 +182,7 @@ class FontRecognitionEngine:
                     print("Warning: padding index found in family labels during decoding.")
 
                 if label == self.transcription_end_token_index and i > start_index:
-                    end_index = i - 1
+                    end_index = i
                     break
 
             line_family_outputs = line_family_labels[start_index:end_index].cpu().numpy()
