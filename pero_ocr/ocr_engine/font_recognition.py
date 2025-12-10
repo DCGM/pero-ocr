@@ -1,5 +1,6 @@
 import os
 import re
+import cv2
 import json
 import torch
 import einops
@@ -19,18 +20,21 @@ class FontRecognitionEngine:
         else:
             self.model_path = os.path.realpath(os.path.join(os.path.dirname(json_def), self.config['checkpoint']))
 
-        self.characters = list(self.config['characters']) + ['<BOUNDARY>', '<PAD>']
+        self.characters = list(self.config['characters'])
         self.joker_index = 0
-        self.transcription_padding_index = len(self.characters) - 1
-        self.transcription_start_token_index = len(self.characters) - 2
-        self.transcription_end_token_index = len(self.characters) - 2
+        self.transcription_padding_index = len(self.characters)
+        self.transcription_start_token_index = len(self.characters) + 1
+        self.transcription_end_token_index = len(self.characters) + 1
 
-        self.font_families = list(self.config['font_families']) + ['<BOUNDARY>', '<PAD>']
-        self.font_family_padding_index = len(self.font_families) - 1
-        self.font_family_end_token_index = len(self.font_families) - 2
+        self.font_families = list(self.config['font_families'])
+        self.font_family_padding_index = len(self.font_families)
+        self.font_family_end_token_index = len(self.font_families) + 1
 
         self.font_styles = self.config['font_styles']
         self.style_threshold = self.config['font_styles_threshold']
+
+        self.preprocessing = self.config.get('preprocessing', {})
+        self.postprocessing = self.config.get('postprocessing', {})
 
         self.model = self.load_model(self.model_path)
         self.batch_padding_coefficient = 32
@@ -53,15 +57,105 @@ class FontRecognitionEngine:
             batch_lines = lines[:self.batch_size]
             lines = lines[self.batch_size:]
 
-            images = [line[0] for line in batch_lines]
+            images = [self.preprocess(line[0]) for line in batch_lines]
             transcriptions = [line[1] for line in batch_lines]
 
             batch_images, batch_transcriptions = self.create_batch(images, transcriptions)
-            font_families, font_styles = self.process_batch(batch_images, batch_transcriptions)
+
+            # import IPython; IPython.embed(); exit(1)
+
+            with torch.no_grad():
+                font_families, font_styles = self.process_batch(batch_images, batch_transcriptions)
+            
             fonts = self.postprocess_batch(transcriptions, font_families, font_styles)
+            fonts = self.postprocess(fonts)
             recognized_fonts.extend(fonts)
 
         return recognized_fonts
+
+    @staticmethod
+    def gaussian_blur(image: np.ndarray, kernel_size: int = 5, sigma: float = 0) -> np.ndarray:
+        """
+        Apply Gaussian blur to the image.
+        Args:
+            image (np.ndarray): Input image.
+            kernel_size (int): Size of the Gaussian kernel.
+            sigma (float): Standard deviation of the Gaussian kernel.
+        Returns:
+            np.ndarray: Blurred image.
+        """
+        blurred_image = cv2.GaussianBlur(image, (kernel_size, kernel_size), sigma)        
+        return blurred_image
+
+    @staticmethod
+    def threshold_image(image: np.ndarray, threshold: int = 200) -> np.ndarray:
+        """
+        Apply thresholding to the image to enhance contrast.
+        Args:
+            image (np.ndarray): Input image.
+            threshold (int): Threshold value.
+        Returns:
+            np.ndarray: Thresholded image.
+        """
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        _, binary_image = cv2.threshold(gray_image, threshold, 255, cv2.THRESH_BINARY_INV)
+        binary_image = cv2.cvtColor(binary_image, cv2.COLOR_GRAY2BGR)
+        return binary_image
+
+    def preprocess(self, image: np.ndarray) -> np.ndarray:
+        """
+        Preprocess the image according to the configuration.
+        Args:
+            image (np.ndarray): Input image.
+        Returns:
+            np.ndarray: Preprocessed image.
+        """
+        is_active = self.preprocessing.get('active', True)
+        if not is_active:
+            return image
+
+        gaussian_blurring = self.preprocessing.get('gaussian_blur', False)
+        if gaussian_blurring:
+            kernel_size = int(gaussian_blurring.get('kernel_size', 5))
+            sigma = float(gaussian_blurring.get('sigma', 0))
+            image = self.gaussian_blur(image, kernel_size, sigma)
+
+        thresholding = self.preprocessing.get('thresholding', False)
+        if thresholding:
+            threshold = int(thresholding.get('threshold_value', 164))
+            image = self.threshold_image(image, threshold)
+
+        return image
+
+    @staticmethod
+    def filter_styles_by_family(fonts: list, style_families: list) -> list:
+        for line_fonts in fonts:
+            for word_font in line_fonts:
+                family = word_font['family']
+                if family not in style_families:
+                    word_font['styles'] = []
+                    word_font['font'] = family.replace(" ", "-").lower()
+
+        return fonts
+
+
+    def postprocess(self, fonts: list) -> list:
+        """
+        Postprocess the recognized fonts according to the configuration.
+        Args:
+            fonts (list): List of recognized fonts.
+        Returns:
+            list: Postprocessed recognized fonts.
+        """
+        is_active = self.postprocessing.get('active', True)
+        if not is_active:
+            return fonts
+
+        style_families = self.postprocessing.get('styles_families', None)
+        if style_families is not None:
+            fonts = self.filter_styles_by_family(fonts, style_families)
+
+        return fonts
 
     def create_batch(self, images: list[np.ndarray], transcriptions: list[str]) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -224,7 +318,11 @@ class FontRecognitionEngine:
                 word_style_labels /= len(word_style_labels)
                 style_labels = [i for i, v in enumerate(word_style_labels) if v > 0.5]
 
-                family_name = self.font_families[family_label]
+                if family_label < len(self.font_families):
+                    family_name = self.font_families[family_label]
+                else:
+                    family_name = "Unknown"
+
                 styles = sorted([self.font_styles[i] for i in style_labels])
 
                 font_name = family_name.replace(" ", "-").lower()
