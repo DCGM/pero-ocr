@@ -42,7 +42,8 @@ dependencies = [
     "imgaug",
     "arabic_reshaper",
     "ultralytics",
-    "music21"
+    "music21",
+    "einops"
 ]
 
 
