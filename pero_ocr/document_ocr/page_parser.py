@@ -533,6 +533,7 @@ class FontRecognizer:
         self.device = device if not use_cpu else torch.device("cpu")
         self.font_recognizer = FontRecognitionEngine(json_file, self.device)
         self.mode = config.get('MODE', fallback=None)
+        self.styles_families = config_get_list(config, key='STYLES_FAMILIES', fallback=[]) if "STYLES_FAMILIES" in config else None
 
         self.provides_ctc_logits = False
 
@@ -547,6 +548,11 @@ class FontRecognizer:
 
         if self.mode is None:
             for line, font_prediction in zip(lines_to_process, font_predictions):
+                if self.styles_families is not None:
+                    for font in font_prediction:
+                        if font['family'] not in self.styles_families:
+                            font['styles'] = []
+
                 line.fonts = font_prediction
 
         elif self.mode == "font_family_only":
@@ -564,7 +570,13 @@ class FontRecognizer:
                     continue
 
                 for existing_font, predicted_font in zip(line.fonts, font_prediction):
-                    existing_font['styles'] = predicted_font['styles']
+                    if self.styles_families is not None:
+                        if existing_font['family'] in self.styles_families:
+                            existing_font['styles'] = predicted_font['styles']
+                        else:
+                            existing_font['styles'] = []
+                    else:
+                        existing_font['styles'] = predicted_font['styles']
 
                     font_name = existing_font['family'].replace(" ", "-").lower()
                     if existing_font['styles']:
