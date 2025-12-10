@@ -275,6 +275,8 @@ def main():
         config['PARSE_FOLDER']['OUTPUT_LOGIT_PATH'] = args.output_logit_path
     if args.output_alto_path is not None:
         config['PARSE_FOLDER']['OUTPUT_ALTO_PATH'] = args.output_alto_path
+    if args.output_nfc:
+        config['PAGE_PARSER']['OUTPUT_NFC'] = 'yes'
 
     setup_logging(config['PARSE_FOLDER'])
     logger = logging.getLogger()
