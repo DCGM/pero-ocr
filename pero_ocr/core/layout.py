@@ -120,6 +120,8 @@ class TextLine(object):
             custom['heights'] = list(np.round(heights_out, decimals=1))
         if self.category is not None:
             custom['category'] = self.category
+        if self.fonts is not None:
+            custom['fonts'] = self.fonts
         if len(custom) > 0:
             text_line.set("custom", json.dumps(custom))
 
@@ -189,6 +191,7 @@ class TextLine(object):
             custom = json.loads(custom_str)
             self.category = custom.get('category', None)
             self.heights = custom.get('heights', None)
+            self.fonts = custom.get('fonts', None)
         except json.decoder.JSONDecodeError:
             if 'heights_v2' in custom_str:
                 for word in custom_str.split():
