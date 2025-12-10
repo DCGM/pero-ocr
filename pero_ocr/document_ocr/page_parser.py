@@ -532,6 +532,7 @@ class FontRecognizer:
 
         self.device = device if not use_cpu else torch.device("cpu")
         self.font_recognizer = FontRecognitionEngine(json_file, self.device)
+        self.mode = config.get('MODE', fallback=None)
 
         self.provides_ctc_logits = False
 
@@ -544,8 +545,37 @@ class FontRecognizer:
 
         font_predictions = self.font_recognizer.process_lines([(line.crop, line.transcription) for line in lines_to_process])
 
-        for line, font_prediction in zip(lines_to_process, font_predictions):
-            line.fonts = font_prediction
+        if self.mode is None:
+            for line, font_prediction in zip(lines_to_process, font_predictions):
+                line.fonts = font_prediction
+
+        elif self.mode == "font_family_only":
+            for line, font_predictions in zip(lines_to_process, font_predictions):
+                for font in font_predictions:
+                    font['styles'] = []
+                    font['font'] = font['family'].replace(" ", "-").lower()
+
+                line.fonts = font_predictions
+
+        elif self.mode == "font_styles_update":
+            for line, font_prediction in zip(lines_to_process, font_predictions):
+                if not line.fonts:
+                    line.fonts = font_prediction
+                    continue
+
+                for existing_font, predicted_font in zip(line.fonts, font_prediction):
+                    existing_font['styles'] = predicted_font['styles']
+
+                    font_name = existing_font['family'].replace(" ", "-").lower()
+                    if existing_font['styles']:
+                        styles_name = "-".join(existing_font['styles'])
+                        font_name += f"_{styles_name}"
+
+                    existing_font['font'] = font_name
+
+        else:
+            raise ValueError(f"Unknown FontRecognizer mode: {self.mode}")
+
 
         return page_layout
 
