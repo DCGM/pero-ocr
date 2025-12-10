@@ -58,7 +58,8 @@ class TextLine(object):
                  character_confidences: Optional[List[Num]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None,
-                 category: Optional[str] = None):
+                 category: Optional[str] = None,
+                 fonts: Optional[List[dict[str,str]]] = None):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -72,6 +73,7 @@ class TextLine(object):
         self.character_confidences = character_confidences
         self.transcription_confidence = transcription_confidence
         self.category = category
+        self.fonts = fonts
 
     def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
@@ -119,6 +121,8 @@ class TextLine(object):
             custom['heights'] = list(np.round(heights_out, decimals=1))
         if self.category is not None:
             custom['category'] = self.category
+        if self.fonts is not None:
+            custom['fonts'] = self.fonts
         if len(custom) > 0:
             text_line.set("custom", json.dumps(custom))
 
@@ -191,6 +195,7 @@ class TextLine(object):
             custom = json.loads(custom_str)
             self.category = custom.get('category', None)
             self.heights = custom.get('heights', None)
+            self.fonts = custom.get('fonts', None)
         except json.decoder.JSONDecodeError:
             if 'heights_v2' in custom_str:
                 for word in custom_str.split():
@@ -297,6 +302,10 @@ class TextLine(object):
                 string.set("VPOS", str(int(text_line_vpos)))
                 string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
 
+                word_font = self.fonts[w] if self.fonts is not None and w < len(self.fonts) else None
+                if word_font:
+                    string.set("STYLEREFS", word_font["font"])
+
                 if word_splitters is not None:
                     if w == 0 and previous_line is not None and previous_line.transcription and previous_line.transcription.strip():
                         previous_word = previous_line.transcription.split()[-1]
@@ -378,6 +387,10 @@ class TextLine(object):
                 string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                 string.set("VPOS", str(int(np.min(all_y))))
                 string.set("HPOS", str(int(np.min(all_x))))
+
+                word_font = self.fonts[w] if self.fonts is not None and w < len(self.fonts) else None
+                if word_font:
+                    string.set("STYLEREFS", word_font["font"])
 
                 if word_confidence is not None:
                     string.set("WC", str(round(word_confidence, 2)))
@@ -891,6 +904,9 @@ class PageLayout(object):
         else:
             ocr_processing_element = create_ocr_processing_element()
             description.append(ocr_processing_element)
+
+        self._add_styles(root)
+
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
         if page_uuid is not None:
@@ -984,6 +1000,27 @@ class PageLayout(object):
             indexed_region_element = ET.SubElement(ordered_group_element, "RegionRefIndexed")
             indexed_region_element.set("regionRef", region_id)
             indexed_region_element.set("index", str(region_index))
+
+    def _add_styles(self, root: ET.SubElement):
+        lines_fonts = [line.fonts for line in self.lines_iterator(['text', None]) if line.fonts is not None]
+        fonts = {}
+        for line_fonts in lines_fonts:
+            for line_font in line_fonts:
+                fonts[line_font['font']] = line_font
+
+        text_styles_element = ET.SubElement(root, "Styles")
+
+        for font_name, font in fonts.items():
+            text_style_element = ET.SubElement(text_styles_element, "TextStyle")
+            text_style_element.set("ID", font_name)
+
+            font_family = font["family"] if 'family' in font else None
+            if font_family:
+                text_style_element.set("FONTFAMILY", font_family)
+
+            font_styles = " ".join(font['styles']) if 'styles' in font else None
+            if font_styles:
+                text_style_element.set("FONTSTYLE", font_styles)
 
     def _gen_logits(self, missing_line_logits_ok=False):
         """
