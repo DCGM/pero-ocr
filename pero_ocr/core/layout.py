@@ -839,7 +839,7 @@ class PageLayout(object):
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
+    def to_altoxml_tree(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
                           min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
                           word_splitters=["-"]):
         arabic_helper = ArabicHelper()
@@ -916,6 +916,14 @@ class PageLayout(object):
         print_space.set("VPOS", str(int(print_space_vpos)))
         print_space.set("HPOS", str(int(print_space_hpos)))
 
+        return root
+
+    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
+                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
+                          word_splitters=["-"]):
+        root = self.to_altoxml_tree(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid,
+                                   min_line_confidence=min_line_confidence, version=version,
+                                   word_splitters=word_splitters)
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
