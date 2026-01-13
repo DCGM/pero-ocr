@@ -1059,7 +1059,7 @@ class PageLayout(object):
 
         if render_order or render_category:
             font = cv2.FONT_HERSHEY_DUPLEX
-            font_scale = 1
+            font_scale = 1.5
             font_thickness = 1
 
             for idx, region in enumerate(self.regions):
@@ -1069,10 +1069,11 @@ class PageLayout(object):
                 if render_order:
                     text = f"{idx}"
                     text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
-                    mid_x = int((min_p[0] + max_p[0]) // 2 - text_w // 2)
-                    mid_y = int((min_p[1] + max_p[1]) // 2 + text_h // 2)
-                    cv2.putText(image, text, (mid_x, mid_y), font, font_scale,
-                                color=(0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                    start_point = (int(max_p[0] - text_w / 2), int(min_p[1] + text_h / 2))
+                    end_point = (int(max_p[0] + text_w / 2), int(min_p[1] - text_h / 2))
+                    cv2.rectangle(image, start_point, end_point, color=(255, 0, 0), thickness=-1)
+                    cv2.putText(image, text, start_point, font, font_scale,
+                                color=(255, 255, 255), thickness=font_thickness, lineType=cv2.LINE_AA)
                 if render_category and region.category not in [None, 'text']:
                     text = f"{normalize_text(region.category)}"
                     text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]

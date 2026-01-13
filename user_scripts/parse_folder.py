@@ -33,6 +33,8 @@ def parse_arguments():
     parser.add_argument('--input-logit-path', help='')
     parser.add_argument('--output-xml-path', help='')
     parser.add_argument('--output-render-path', help='')
+    parser.add_argument('--output-render-order', default=False, action='store_true',
+                        help='Render the order numbers for regions and lines.')
     parser.add_argument('--output-render-category', default=False, action='store_true',
                         help='Render category tags for every non-text region.')
     parser.add_argument('--output-line-path', help='')
@@ -146,7 +148,7 @@ class LMDB_writer(object):
 
 class Computator:
     def __init__(self, page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
-                 output_render_category, output_logit_path, output_alto_path, output_xml_path, output_line_path,
+                 output_render_category, output_logit_path, output_alto_path, output_xml_path, output_line_path, output_render_order,
                  word_splitters=None):
         self.page_parser = page_parser
         self.input_image_path = input_image_path
@@ -158,6 +160,7 @@ class Computator:
         self.output_alto_path = output_alto_path
         self.output_xml_path = output_xml_path
         self.output_line_path = output_line_path
+        self.output_render_order = output_render_order
         self.word_splitters = word_splitters
 
     def __call__(self, image_file_name, file_id, index, ids_count):
@@ -187,7 +190,11 @@ class Computator:
                     os.path.join(self.output_xml_path, file_id + '.xml'))
 
             if self.output_render_path is not None:
-                page_layout.render_to_image(image, render_category=self.output_render_category)
+                page_layout.render_to_image(
+                    image,
+                    render_category=self.output_render_category,
+                    render_order=self.output_render_order
+                )
                 render_file = str(os.path.join(self.output_render_path, file_id + '.jpg'))
                 cv2.imwrite(render_file, image, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
 
@@ -259,6 +266,8 @@ def main():
         config['PARSE_FOLDER']['OUTPUT_XML_PATH'] = args.output_xml_path
     if args.output_render_path is not None:
         config['PARSE_FOLDER']['OUTPUT_RENDER_PATH'] = args.output_render_path
+    if args.output_render_order is not None:
+        config['PARSE_FOLDER']['OUTPUT_RENDER_ORDER'] = 'yes' if args.output_render_order else 'no'
     if args.output_render_category is not None:
         config['PARSE_FOLDER']['OUTPUT_RENDER_CATEGORY'] = 'yes' if args.output_render_category else 'no'
     if args.output_line_path is not None:
@@ -285,6 +294,7 @@ def main():
     output_xml_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_XML_PATH')
     output_logit_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_LOGIT_PATH')
     output_alto_path = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_ALTO_PATH')
+    output_render_order = get_value_or_none(config, 'PARSE_FOLDER', 'OUTPUT_RENDER_ORDER', True)
 
     if not page_parser.provides_ctc_logits and not input_logit_path and output_alto_path:
         logging.error(f'Cannot create ALTO with current PageParser (transformer outputs are incompatible)')
@@ -352,7 +362,7 @@ def main():
 
     computator = Computator(page_parser, input_image_path, input_xml_path, input_logit_path, output_render_path,
                             output_render_category, output_logit_path, output_alto_path, output_xml_path,
-                            output_line_path, word_splitters=word_splitters)
+                            output_line_path, output_render_order, word_splitters=word_splitters)
 
     t_start = time.time()
     results = []
