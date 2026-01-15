@@ -833,9 +833,8 @@ class PageLayout(object):
             if region_layout is not None:
                 self.regions.append(region_layout)
 
-    def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
-                          version: PAGEVersion = PAGEVersion.PAGE_2019_07_15,
-                          output_nfc: bool = False) -> str:
+    def to_pagexml_tree(self, creator: str = 'Pero OCR', validate_id: bool = False,
+                        version: PAGEVersion = PAGEVersion.PAGE_2019_07_15, output_nfc: bool = False):
         if version == PAGEVersion.PAGE_2019_07_15:
             attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
             root = ET.Element(
@@ -871,18 +870,24 @@ class PageLayout(object):
         for region_layout in self.regions:
             region_layout.to_pagexml(page, validate_id=validate_id, output_nfc=output_nfc)
 
+        return root
+
+    def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
+                          version: PAGEVersion = PAGEVersion.PAGE_2019_07_15, output_nfc: bool = False):
+        root = self.to_pagexml_tree(creator=creator, validate_id=validate_id, version=version, output_nfc=output_nfc)
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_pagexml(self, file_name: str, creator: str = 'Pero OCR',
                    validate_id: bool = False, version: PAGEVersion = PAGEVersion.PAGE_2019_07_15,
                    output_nfc: bool = False):
-        xml_string = self.to_pagexml_string(version=version, creator=creator, validate_id=validate_id, output_nfc=output_nfc)
+        xml_string = self.to_pagexml_tree(creator=creator, validate_id=validate_id, version=version,
+                                          output_nfc=output_nfc)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
-    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
-                          word_splitters=["-"], output_nfc: bool = False):
+    def to_altoxml_tree(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
+                        min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
+                        word_splitters=["-"], output_nfc: bool = False):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -960,6 +965,14 @@ class PageLayout(object):
         print_space.set("VPOS", str(int(print_space_vpos)))
         print_space.set("HPOS", str(int(print_space_hpos)))
 
+        return root
+
+    def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
+                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
+                          word_splitters=["-"], output_nfc: bool = False):
+        root = self.to_altoxml_tree(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid,
+                                   min_line_confidence=min_line_confidence, version=version,
+                                   word_splitters=word_splitters)
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
@@ -1116,7 +1129,7 @@ class PageLayout(object):
 
         if render_order or render_category:
             font = cv2.FONT_HERSHEY_DUPLEX
-            font_scale = 1
+            font_scale = 1.5
             font_thickness = 1
 
             for idx, region in enumerate(self.regions):
@@ -1126,10 +1139,11 @@ class PageLayout(object):
                 if render_order:
                     text = f"{idx}"
                     text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
-                    mid_x = int((min_p[0] + max_p[0]) // 2 - text_w // 2)
-                    mid_y = int((min_p[1] + max_p[1]) // 2 + text_h // 2)
-                    cv2.putText(image, text, (mid_x, mid_y), font, font_scale,
-                                color=(0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                    start_point = (int(max_p[0] - text_w / 2), int(min_p[1] + text_h / 2))
+                    end_point = (int(max_p[0] + text_w / 2), int(min_p[1] - text_h / 2))
+                    cv2.rectangle(image, start_point, end_point, color=(255, 0, 0), thickness=-1)
+                    cv2.putText(image, text, start_point, font, font_scale,
+                                color=(255, 255, 255), thickness=font_thickness, lineType=cv2.LINE_AA)
                 if render_category and region.category not in [None, 'text']:
                     text = f"{normalize_text(region.category)}"
                     text_w, text_h = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
