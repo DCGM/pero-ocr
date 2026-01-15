@@ -880,7 +880,7 @@ class PageLayout(object):
     def to_pagexml(self, file_name: str, creator: str = 'Pero OCR',
                    validate_id: bool = False, version: PAGEVersion = PAGEVersion.PAGE_2019_07_15,
                    output_nfc: bool = False):
-        xml_string = self.to_pagexml_tree(creator=creator, validate_id=validate_id, version=version,
+        xml_string = self.to_pagexml_string(creator=creator, validate_id=validate_id, version=version,
                                           output_nfc=output_nfc)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
@@ -972,7 +972,7 @@ class PageLayout(object):
                           word_splitters=["-"], output_nfc: bool = False):
         root = self.to_altoxml_tree(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid,
                                    min_line_confidence=min_line_confidence, version=version,
-                                   word_splitters=word_splitters)
+                                   word_splitters=word_splitters, output_nfc=output_nfc)
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
