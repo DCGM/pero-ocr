@@ -24,6 +24,7 @@ from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
 from pero_ocr.layout_engines.baseline_refiner import refine_baseline
 from pero_ocr.layout_engines import layout_helpers as helpers
+from pero_ocr.ocr_engine.font_recognition import FontRecognitionEngine
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,12 @@ def line_cropper_factory(config, config_path='', device=None):
 
 
 def ocr_factory(config, device, config_path=''):
-    return PageOCR(config, device, config_path=config_path)
+    if config['METHOD'] == 'FONT_RECOGNITION':
+        engine = FontRecognizer(config, device, config_path=config_path)
+    else:
+        engine = PageOCR(config, device, config_path=config_path)
+
+    return engine
 
 
 def page_decoder_factory(config, device, config_path=''):
@@ -517,6 +523,73 @@ class LineCropper(object):
                     (self.crop_engine.line_height, self.crop_engine.line_height, 3))
                 print(f"WARNING: Failed to crop line {line.id}. Probably contain vertical line. "
                       f"Contanct Olda Kodym to fix this bug!")
+
+
+class FontRecognizer:
+    def __init__(self, config, device, config_path=''):
+        json_file = compose_path(config['OCR_JSON'], config_path)
+        use_cpu = config.getboolean('USE_CPU')
+
+        self.device = device if not use_cpu else torch.device("cpu")
+        self.font_recognizer = FontRecognitionEngine(json_file, self.device)
+        self.mode = config.get('MODE', fallback=None)
+        self.styles_families = config_get_list(config, key='STYLES_FAMILIES', fallback=[]) if "STYLES_FAMILIES" in config else None
+
+        self.provides_ctc_logits = False
+
+    def process_page(self, image, page_layout: PageLayout):
+        lines_to_process = []
+        for line in page_layout.lines_iterator(categories=['text', None]):
+            if line.crop is None:
+                raise Exception(f'Missing crop in line {line.id}.')
+            lines_to_process.append(line)
+
+        font_predictions = self.font_recognizer.process_lines([(line.crop, line.transcription) for line in lines_to_process])
+
+        if self.mode is None:
+            for line, font_prediction in zip(lines_to_process, font_predictions):
+                if self.styles_families is not None:
+                    for font in font_prediction:
+                        if font['family'] not in self.styles_families:
+                            font['styles'] = []
+
+                line.fonts = font_prediction
+
+        elif self.mode == "font_family_only":
+            for line, font_predictions in zip(lines_to_process, font_predictions):
+                for font in font_predictions:
+                    font['styles'] = []
+                    font['font'] = font['family'].replace(" ", "-").lower()
+
+                line.fonts = font_predictions
+
+        elif self.mode == "font_styles_update":
+            for line, font_prediction in zip(lines_to_process, font_predictions):
+                if not line.fonts:
+                    line.fonts = font_prediction
+                    continue
+
+                for existing_font, predicted_font in zip(line.fonts, font_prediction):
+                    if self.styles_families is not None:
+                        if existing_font['family'] in self.styles_families:
+                            existing_font['styles'] = predicted_font['styles']
+                        else:
+                            existing_font['styles'] = []
+                    else:
+                        existing_font['styles'] = predicted_font['styles']
+
+                    font_name = existing_font['family'].replace(" ", "-").lower()
+                    if existing_font['styles']:
+                        styles_name = "-".join(existing_font['styles'])
+                        font_name += f"_{styles_name}"
+
+                    existing_font['font'] = font_name
+
+        else:
+            raise ValueError(f"Unknown FontRecognizer mode: {self.mode}")
+
+
+        return page_layout
 
 
 class PageOCR:

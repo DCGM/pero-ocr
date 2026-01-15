@@ -58,7 +58,8 @@ class TextLine(object):
                  character_confidences: Optional[List[Num]] = None,
                  transcription_confidence: Optional[Num] = None,
                  index: Optional[int] = None,
-                 category: Optional[str] = None):
+                 category: Optional[str] = None,
+                 fonts: Optional[List[dict[str,str]]] = None):
         self.id = id
         self.index = index
         self.baseline = baseline
@@ -72,6 +73,7 @@ class TextLine(object):
         self.character_confidences = character_confidences
         self.transcription_confidence = transcription_confidence
         self.category = category
+        self.fonts = fonts
 
     def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
@@ -104,7 +106,8 @@ class TextLine(object):
         else:
             self.transcription_confidence = default_transcription_confidence
 
-    def to_pagexml(self, region_element: ET.SubElement, fallback_id: int, validate_id: bool = False):
+    def to_pagexml(self, region_element: ET.SubElement, fallback_id: int, validate_id: bool = False,
+                   output_nfc: bool = False):
         text_line = ET.SubElement(region_element, "TextLine")
         text_line.set("id", export_id(self.id, validate_id))
         if self.index is not None:
@@ -118,6 +121,8 @@ class TextLine(object):
             custom['heights'] = list(np.round(heights_out, decimals=1))
         if self.category is not None:
             custom['category'] = self.category
+        if self.fonts is not None:
+            custom['fonts'] = self.fonts
         if len(custom) > 0:
             text_line.set("custom", json.dumps(custom))
 
@@ -135,7 +140,10 @@ class TextLine(object):
             if self.transcription_confidence is not None:
                 text_element.set("conf", f"{self.transcription_confidence:.3f}")
             text_element = ET.SubElement(text_element, "Unicode")
-            text_element.text = self.transcription
+            if output_nfc:
+                text_element.text = unicodedata.normalize('NFC', self.transcription)
+            else:
+                text_element.text = self.transcription
 
     @classmethod
     def from_pagexml(cls, line_element: ET.SubElement, schema, fallback_index: int):
@@ -187,6 +195,7 @@ class TextLine(object):
             custom = json.loads(custom_str)
             self.category = custom.get('category', None)
             self.heights = custom.get('heights', None)
+            self.fonts = custom.get('fonts', None)
         except json.decoder.JSONDecodeError:
             if 'heights_v2' in custom_str:
                 for word in custom_str.split():
@@ -209,7 +218,7 @@ class TextLine(object):
                     self.heights = heights.tolist()
 
     def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion, next_line=None,
-                   previous_line=None, word_splitters=["-"]):
+                   previous_line=None, word_splitters=["-"], output_nfc: bool = False):
         if self.character_confidences is None or self.transcription_confidence is None:
             self.calculate_confidences()
 
@@ -230,10 +239,13 @@ class TextLine(object):
         if self.category is None or self.category == 'text':
             self.to_altoxml_text(text_line, arabic_helper, text_line_height, text_line_width, text_line_vpos,
                                  text_line_hpos, next_line=next_line, previous_line=previous_line,
-                                 word_splitters=word_splitters)
+                                 word_splitters=word_splitters, output_nfc=output_nfc)
         else:
             string = ET.SubElement(text_line, "String")
-            string.set("CONTENT", self.transcription)
+            if output_nfc:
+                string.set("CONTENT", unicodedata.normalize('NFC', self.transcription))
+            else:
+                string.set("CONTENT", self.transcription)
 
             string.set("HEIGHT", str(int(text_line_height)))
             string.set("WIDTH", str(int(text_line_width)))
@@ -261,7 +273,7 @@ class TextLine(object):
         return np.array(labels)
 
     def to_altoxml_text(self, text_line, arabic_helper, text_line_height, text_line_width, text_line_vpos,
-                        text_line_hpos, next_line=None, previous_line=None, word_splitters=["-"]):
+                        text_line_hpos, next_line=None, previous_line=None, word_splitters=["-"], output_nfc: bool = False):
         arabic_line = False
         if arabic_helper.is_arabic_line(self.transcription):
             arabic_line = True
@@ -280,12 +292,19 @@ class TextLine(object):
             average_word_width = (text_line_hpos + text_line_width) / len(words)
             for w, word in enumerate(words):
                 string = ET.SubElement(text_line, "String")
-                string.set("CONTENT", word)
+                if output_nfc:
+                    string.set("CONTENT", unicodedata.normalize('NFC', word))
+                else:
+                    string.set("CONTENT", word)
 
                 string.set("HEIGHT", str(int(text_line_height)))
                 string.set("WIDTH", str(int(average_word_width)))
                 string.set("VPOS", str(int(text_line_vpos)))
                 string.set("HPOS", str(int(text_line_hpos + (w * average_word_width))))
+
+                word_font = self.fonts[w] if self.fonts is not None and w < len(self.fonts) else None
+                if word_font:
+                    string.set("STYLEREFS", word_font["font"])
 
                 if word_splitters is not None:
                     if w == 0 and previous_line is not None and previous_line.transcription and previous_line.transcription.strip():
@@ -293,7 +312,10 @@ class TextLine(object):
                         last_char = previous_word[-1]
                         if last_char in word_splitters:
                             subs_word = previous_word[:-1] + word
-                            string.set("SUBS_CONTENT", subs_word)
+                            if output_nfc:
+                                string.set("SUBS_CONTENT", unicodedata.normalize('NFC', subs_word))
+                            else:
+                                string.set("SUBS_CONTENT", subs_word)
                             string.set("SUBS_TYPE", "HypPart2")
 
                     elif w == len(words) - 1 and next_line is not None and next_line.transcription and next_line.transcription.strip():
@@ -301,7 +323,10 @@ class TextLine(object):
                         if last_char in word_splitters:
                             next_line_first_word = next_line.transcription.split()[0]
                             subs_word = word[:-1] + next_line_first_word
-                            string.set("SUBS_CONTENT", subs_word)
+                            if output_nfc:
+                                string.set("SUBS_CONTENT", unicodedata.normalize('NFC', subs_word))
+                            else:
+                                string.set("SUBS_CONTENT", subs_word)
                             string.set("SUBS_TYPE", "HypPart1")
 
         else:
@@ -348,14 +373,24 @@ class TextLine(object):
                 string = ET.SubElement(text_line, "String")
 
                 if arabic_line:
-                    string.set("CONTENT", arabic_helper.label_form_to_string(splitted_transcription[w]))
+                    if output_nfc:
+                        string.set("CONTENT", unicodedata.normalize('NFC', arabic_helper.label_form_to_string(splitted_transcription[w])))
+                    else:
+                        string.set("CONTENT", arabic_helper.label_form_to_string(splitted_transcription[w]))
                 else:
-                    string.set("CONTENT", splitted_transcription[w])
+                    if output_nfc:
+                        string.set("CONTENT", unicodedata.normalize('NFC', splitted_transcription[w]))
+                    else:
+                        string.set("CONTENT", splitted_transcription[w])
 
                 string.set("HEIGHT", str(int((np.max(all_y) - np.min(all_y)))))
                 string.set("WIDTH", str(int((np.max(all_x) - np.min(all_x)))))
                 string.set("VPOS", str(int(np.min(all_y))))
                 string.set("HPOS", str(int(np.min(all_x))))
+
+                word_font = self.fonts[w] if self.fonts is not None and w < len(self.fonts) else None
+                if word_font:
+                    string.set("STYLEREFS", word_font["font"])
 
                 if word_confidence is not None:
                     string.set("WC", str(round(word_confidence, 2)))
@@ -367,7 +402,10 @@ class TextLine(object):
                         last_char = previous_word[-1]
                         if last_char in word_splitters:
                             subs_word = previous_word[:-1] + current_word
-                            string.set("SUBS_CONTENT", subs_word)
+                            if output_nfc:
+                                string.set("SUBS_CONTENT", unicodedata.normalize('NFC', subs_word))
+                            else:
+                                string.set("SUBS_CONTENT", subs_word)
                             string.set("SUBS_TYPE", "HypPart2")
 
                     elif w == len(words) - 1 and next_line is not None and next_line.transcription and next_line.transcription.strip():
@@ -375,7 +413,10 @@ class TextLine(object):
                         if last_char in word_splitters:
                             next_line_first_word = next_line.transcription.split()[0]
                             subs_word = current_word[:-1] + next_line_first_word
-                            string.set("SUBS_CONTENT", subs_word)
+                            if output_nfc:
+                                string.set("SUBS_CONTENT", unicodedata.normalize('NFC', subs_word))
+                            else:
+                                string.set("SUBS_CONTENT", subs_word)
                             string.set("SUBS_TYPE", "HypPart1")
 
                 if w != (len(self.transcription.split()) - 1):
@@ -493,7 +534,7 @@ class RegionLayout(object):
 
         return x_min, y_min, x_max, y_max
 
-    def to_pagexml(self, page_element: ET.SubElement, validate_id: bool = False):
+    def to_pagexml(self, page_element: ET.SubElement, validate_id: bool = False, output_nfc: bool = False) -> ET.SubElement:
         region_element = ET.SubElement(page_element, "TextRegion")
         coords = ET.SubElement(region_element, "Coords")
         region_element.set("id", export_id(self.id, validate_id))
@@ -515,10 +556,13 @@ class RegionLayout(object):
         if self.transcription is not None:
             text_element = ET.SubElement(region_element, "TextEquiv")
             text_element = ET.SubElement(text_element, "Unicode")
-            text_element.text = self.transcription
+            if output_nfc:
+                text_element.text = unicodedata.normalize('NFC', self.transcription)
+            else:
+                text_element.text = self.transcription
 
         for i, line in enumerate(self.lines):
-            line.to_pagexml(region_element, fallback_id=i, validate_id=validate_id)
+            line.to_pagexml(region_element, fallback_id=i, validate_id=validate_id, output_nfc=output_nfc)
 
         return region_element
 
@@ -573,7 +617,7 @@ class RegionLayout(object):
         return layout_region
 
     def to_altoxml(self, print_space, arabic_helper, min_line_confidence,  print_space_coords: Tuple[int, int, int, int],
-                   version: ALTOVersion, word_splitters=["-"]) -> Tuple[int, int, int, int]:
+                   version: ALTOVersion, word_splitters=["-"], output_nfc: bool = False) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
         text_block = ET.SubElement(print_space, "TextBlock")
@@ -599,7 +643,7 @@ class RegionLayout(object):
             previous_line = self.lines[i - 1] if i > 0 else None
             next_line = self.lines[i + 1] if i + 1 < len(self.lines) else None
             line.to_altoxml(text_block, arabic_helper, min_line_confidence, version, next_line=next_line,
-                            previous_line=previous_line, word_splitters=word_splitters)
+                            previous_line=previous_line, word_splitters=word_splitters, output_nfc=output_nfc)
         return print_space_height, print_space_width, print_space_vpos, print_space_hpos
 
     @classmethod
@@ -790,7 +834,7 @@ class PageLayout(object):
                 self.regions.append(region_layout)
 
     def to_pagexml_tree(self, creator: str = 'Pero OCR', validate_id: bool = False,
-                          version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
+                        version: PAGEVersion = PAGEVersion.PAGE_2019_07_15, output_nfc: bool = False):
         if version == PAGEVersion.PAGE_2019_07_15:
             attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
             root = ET.Element(
@@ -824,24 +868,26 @@ class PageLayout(object):
             self.reading_order_to_pagexml(page)
 
         for region_layout in self.regions:
-            region_layout.to_pagexml(page, validate_id=validate_id)
+            region_layout.to_pagexml(page, validate_id=validate_id, output_nfc=output_nfc)
 
         return root
 
     def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
-                          version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
-        root = self.to_pagexml_tree(creator=creator, validate_id=validate_id, version=version)
+                          version: PAGEVersion = PAGEVersion.PAGE_2019_07_15, output_nfc: bool = False):
+        root = self.to_pagexml_tree(creator=creator, validate_id=validate_id, version=version, output_nfc=output_nfc)
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_pagexml(self, file_name: str, creator: str = 'Pero OCR',
-                   validate_id: bool = False, version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
-        xml_string = self.to_pagexml_string(version=version, creator=creator, validate_id=validate_id)
+                   validate_id: bool = False, version: PAGEVersion = PAGEVersion.PAGE_2019_07_15,
+                   output_nfc: bool = False):
+        xml_string = self.to_pagexml_string(creator=creator, validate_id=validate_id, version=version,
+                                            output_nfc=output_nfc)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(xml_string)
 
     def to_altoxml_tree(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                          min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
-                          word_splitters=["-"]):
+                        min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
+                        word_splitters=["-"], output_nfc: bool = False):
         arabic_helper = ArabicHelper()
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -863,6 +909,9 @@ class PageLayout(object):
         else:
             ocr_processing_element = create_ocr_processing_element()
             description.append(ocr_processing_element)
+
+        self._add_styles(root)
+
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
         if page_uuid is not None:
@@ -887,7 +936,7 @@ class PageLayout(object):
 
         for block in self.regions:
             print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords,
-                                                  version, word_splitters=word_splitters)
+                                                  version, word_splitters=word_splitters, output_nfc=output_nfc)
 
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
@@ -920,16 +969,16 @@ class PageLayout(object):
 
     def to_altoxml_string(self, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
                           min_line_confidence: float = 0, version: ALTOVersion = ALTOVersion.ALTO_v2_x,
-                          word_splitters=["-"]):
+                          word_splitters=["-"], output_nfc: bool = False):
         root = self.to_altoxml_tree(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid,
-                                   min_line_confidence=min_line_confidence, version=version,
-                                   word_splitters=word_splitters)
+                                    min_line_confidence=min_line_confidence, version=version,
+                                    word_splitters=word_splitters, output_nfc=output_nfc)
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
     def to_altoxml(self, file_name: str, ocr_processing_element: ET.SubElement = None, page_uuid: str = None,
-                   version: ALTOVersion = ALTOVersion.ALTO_v2_x, word_splitters=["-"]):
+                   version: ALTOVersion = ALTOVersion.ALTO_v2_x, word_splitters=["-"], output_nfc: bool = False):
         alto_string = self.to_altoxml_string(ocr_processing_element=ocr_processing_element, page_uuid=page_uuid,
-                                             version=version, word_splitters=word_splitters)
+                                             version=version, word_splitters=word_splitters, output_nfc=output_nfc)
         with open(file_name, 'w', encoding='utf-8') as out_f:
             out_f.write(alto_string)
 
@@ -964,6 +1013,27 @@ class PageLayout(object):
             indexed_region_element = ET.SubElement(ordered_group_element, "RegionRefIndexed")
             indexed_region_element.set("regionRef", region_id)
             indexed_region_element.set("index", str(region_index))
+
+    def _add_styles(self, root: ET.SubElement):
+        lines_fonts = [line.fonts for line in self.lines_iterator(['text', None]) if line.fonts is not None]
+        fonts = {}
+        for line_fonts in lines_fonts:
+            for line_font in line_fonts:
+                fonts[line_font['font']] = line_font
+
+        text_styles_element = ET.SubElement(root, "Styles")
+
+        for font_name, font in fonts.items():
+            text_style_element = ET.SubElement(text_styles_element, "TextStyle")
+            text_style_element.set("ID", font_name)
+
+            font_family = font["family"] if 'family' in font else None
+            if font_family:
+                text_style_element.set("FONTFAMILY", font_family)
+
+            font_styles = " ".join(font['styles']) if 'styles' in font else None
+            if font_styles:
+                text_style_element.set("FONTSTYLE", font_styles)
 
     def _gen_logits(self, missing_line_logits_ok=False):
         """
