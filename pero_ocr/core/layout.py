@@ -2,6 +2,7 @@ import logging
 import re
 import pickle
 import json
+import uuid
 from io import BytesIO
 from datetime import datetime, timezone
 from enum import Enum
@@ -405,10 +406,14 @@ class TextLine(object):
         vpos = int(line.attrib['VPOS'])
         width = int(line.attrib['WIDTH'])
         height = int(line.attrib['HEIGHT'])
-        baseline_str = line.attrib['BASELINE']
+        baseline_str = line.attrib.get('BASELINE', "")
         baseline, heights, polygon = cls.from_altoxml_polygon(baseline_str, hpos, vpos, width, height)
 
-        new_textline = cls(id=line.attrib['ID'], baseline=baseline, heights=heights, polygon=polygon)
+        line_id = line.attrib.get('ID', None)
+        if line_id is None:
+            line_id = uuid.uuid4().hex
+
+        new_textline = cls(id=line_id, baseline=baseline, heights=heights, polygon=polygon)
 
         word = ''
         start = True
