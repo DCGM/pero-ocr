@@ -401,7 +401,7 @@ class TextLine(object):
             return ""
 
     @classmethod
-    def from_altoxml(cls, line: ET.SubElement, schema):
+    def from_altoxml(cls, line: ET.SubElement, schema, generated_line_id=None):
         hpos = int(line.attrib['HPOS'])
         vpos = int(line.attrib['VPOS'])
         width = int(line.attrib['WIDTH'])
@@ -411,7 +411,7 @@ class TextLine(object):
 
         line_id = line.attrib.get('ID', None)
         if line_id is None:
-            line_id = uuid.uuid4().hex
+            line_id = generated_line_id if generated_line_id is not None else uuid.uuid4().hex
 
         new_textline = cls(id=line_id, baseline=baseline, heights=heights, polygon=polygon)
 
@@ -611,7 +611,7 @@ class RegionLayout(object):
         return print_space_height, print_space_width, print_space_vpos, print_space_hpos
 
     @classmethod
-    def from_altoxml(cls, text_block: ET.SubElement, schema):
+    def from_altoxml(cls, text_block: ET.SubElement, schema, generated_block_id=None):
         region_coords = list()
         region_coords.append([int(text_block.get('HPOS')), int(text_block.get('VPOS'))])
         region_coords.append([int(text_block.get('HPOS')) + int(text_block.get('WIDTH')), int(text_block.get('VPOS'))])
@@ -619,10 +619,15 @@ class RegionLayout(object):
                               int(text_block.get('VPOS')) + int(text_block.get('HEIGHT'))])
         region_coords.append([int(text_block.get('HPOS')), int(text_block.get('VPOS')) + int(text_block.get('HEIGHT'))])
 
-        region_layout = cls(text_block.attrib['ID'], np.asarray(region_coords).tolist())
+        block_id = text_block.get('ID', None)
+        if block_id is None:
+            block_id = generated_block_id if generated_block_id is not None else uuid.uuid4().hex
 
-        for line in text_block.iter(schema + 'TextLine'):
-            new_textline = TextLine.from_altoxml(line, schema)
+        region_layout = cls(block_id, np.asarray(region_coords).tolist())
+
+        for i, line in enumerate(text_block.iter(schema + 'TextLine')):
+            generated_line_id = f"{block_id}_Line{i}"
+            new_textline = TextLine.from_altoxml(line, schema, generated_line_id=generated_line_id)
             region_layout.lines.append(new_textline)
 
         return region_layout
@@ -957,10 +962,15 @@ class PageLayout(object):
         if "HEIGHT" in page.attrib and "WIDTH" in page.attrib:
             self.page_size = (int(page.attrib['HEIGHT']), int(page.attrib['WIDTH']))
 
-        print_space = page.findall(schema + 'PrintSpace')[0]
-        for region in print_space.iter(schema + 'TextBlock'):
-            region_layout = RegionLayout.from_altoxml(region, schema)
-            self.regions.append(region_layout)
+        print_spaces = page.findall(schema + 'PrintSpace')
+        if len(print_spaces) > 0:
+            print_space = print_spaces[0]
+            for i, region in enumerate(print_space.iter(schema + 'TextBlock')):
+                generated_block_id = f"{self.id}_Block{i}"
+                region_layout = RegionLayout.from_altoxml(region, schema, generated_block_id=generated_block_id)
+                self.regions.append(region_layout)
+        else:
+            logger.warning("No PrintSpace found in ALTO XML.")
 
     def sort_regions_by_reading_order(self):
         self.regions = sorted(self.regions, key=lambda k: self.reading_order[k] if k in self.reading_order else float("inf"))
