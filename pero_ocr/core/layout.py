@@ -953,7 +953,9 @@ class PageLayout(object):
         page = layout.findall(schema + 'Page')[0]
 
         self.id = page.attrib['ID'][3:]
-        self.page_size = (int(page.attrib['HEIGHT']), int(page.attrib['WIDTH']))
+
+        if "HEIGHT" in page.attrib and "WIDTH" in page.attrib:
+            self.page_size = (int(page.attrib['HEIGHT']), int(page.attrib['WIDTH']))
 
         print_space = page.findall(schema + 'PrintSpace')[0]
         for region in print_space.iter(schema + 'TextBlock'):
