@@ -51,10 +51,15 @@ def read_text(path, encoding):
         return None
 
 
+def normalize_whitespace(text):
+    """Replace all whitespace sequences (spaces, tabs, newlines, etc.) with a single space and strip."""
+    return " ".join(text.split())
+
+
 def compute_cer(gt_text, hyp_text):
     """Character Error Rate = edit_distance(gt, hyp) / len(gt)."""
-    gt_chars = gt_text.replace("\n", " ")
-    hyp_chars = hyp_text.replace("\n", " ")
+    gt_chars = normalize_whitespace(gt_text)
+    hyp_chars = normalize_whitespace(hyp_text)
     n = len(gt_chars)
     if n == 0:
         return 0.0, 0
@@ -64,8 +69,8 @@ def compute_cer(gt_text, hyp_text):
 
 def compute_wer(gt_text, hyp_text):
     """Word Error Rate = word-level edit_distance(gt, hyp) / number_of_gt_words."""
-    gt_words = gt_text.split()
-    hyp_words = hyp_text.split()
+    gt_words = normalize_whitespace(gt_text).split()
+    hyp_words = normalize_whitespace(hyp_text).split()
     n = len(gt_words)
     if n == 0:
         return 0.0, 0
