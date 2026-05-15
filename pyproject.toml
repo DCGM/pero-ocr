@@ -1,5 +1,6 @@
 [build-system]
-requires = [ "setuptools>=61" ]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "pero-ocr"
