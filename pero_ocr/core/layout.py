@@ -2,11 +2,9 @@ import logging
 import re
 import pickle
 import json
-import uuid
 from io import BytesIO
-from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Union, List, Tuple
+from typing import Optional, Union, List, Tuple, Callable, Any
 import unicodedata
 
 import numpy as np
@@ -15,6 +13,7 @@ import cv2
 from shapely.geometry import LineString, Polygon
 import scipy
 
+from pero_ocr.core.services import UuidService, DateTimeService
 from pero_ocr.core.crop_engine import EngineLineCropper
 from pero_ocr.core.force_alignment import align_text
 from pero_ocr.core.confidence_estimation import (get_character_confidences, get_transcription_confidence,
@@ -36,6 +35,24 @@ class PAGEVersion(Enum):
 class ALTOVersion(Enum):
     ALTO_v2_x = 1
     ALTO_v4_4 = 2
+
+
+class Event:
+    def __init__(self) -> None:
+        self._handlers: list[Callable[..., Any]] = []
+
+    def __iadd__(self, handler: Callable[..., Any]):
+        self._handlers.append(handler)
+        return self
+
+    def __isub__(self, handler: Callable[..., Any]):
+        self._handlers.remove(handler)
+        return self
+
+    def __call__(self, *args: Any, **kwargs: Any) -> None:
+        for handler in list(self._handlers):
+            handler(*args, **kwargs)
+
 
 def log_softmax(x):
     a = np.logaddexp.reduce(x, axis=1)[:, np.newaxis]
@@ -411,7 +428,7 @@ class TextLine(object):
 
         line_id = line.attrib.get('ID', None)
         if line_id is None:
-            line_id = generated_line_id if generated_line_id is not None else uuid.uuid4().hex
+            line_id = generated_line_id if generated_line_id is not None else UuidService.generate_uuid().hex
 
         new_textline = cls(id=line_id, baseline=baseline, heights=heights, polygon=polygon)
 
@@ -568,17 +585,13 @@ class RegionLayout(object):
                    print_space_coords: Tuple[int, int, int, int], version: ALTOVersion, word_splitters=["-"]) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
+
+        block = ET.SubElement(print_space, "TextBlock")
+
         if self.category is None or self.category == 'text':
-            block = ET.SubElement(print_space, "TextBlock")
-
-            if self.category is None or self.category == 'text':
-                block.set("ID", 'block_{}'.format(self.id))
-            else:
-                block.set("ID", self.id)
-
+            block.set("ID", 'block_{}'.format(self.id))
         else:
-            from anno_page.core.layout import region_to_altoxml
-            block = region_to_altoxml(self, print_space)
+            block.set("ID", self.id)
 
         block_height, block_width, block_vpos, block_hpos = get_hwvh(self.polygon)
         block.set("HEIGHT", str(int(block_height)))
@@ -592,13 +605,6 @@ class RegionLayout(object):
         print_space_hpos = min([print_space_hpos, block_hpos])
         print_space_height = print_space_height - print_space_vpos
         print_space_width = print_space_width - print_space_hpos
-
-        if self.graphical_metadata is not None:
-            self.graphical_metadata.to_altoxml(tags,
-                                               category=self.category,
-                                               bounding_box=self.get_polygon_bounding_box(),
-                                               confidence=self.detection_confidence,
-                                               mods_namespace=mods_namespace)
 
         for i, line in enumerate(self.lines):
             if not line.transcription or line.transcription.strip() == "":
@@ -621,7 +627,7 @@ class RegionLayout(object):
 
         block_id = text_block.get('ID', None)
         if block_id is None:
-            block_id = generated_block_id if generated_block_id is not None else uuid.uuid4().hex
+            block_id = generated_block_id if generated_block_id is not None else UuidService.generate_uuid().hex
 
         region_layout = cls(block_id, np.asarray(region_coords).tolist())
 
@@ -772,6 +778,18 @@ class PageLayout(object):
         self.embeddings = []
         self.metadata = {}
 
+        self.to_pagexml_started = Event()
+        self.to_pagexml_processing_added = Event()
+        self.to_pagexml_regions_started = Event()
+        self.to_pagexml_regions_ended = Event()
+        self.to_pagexml_ended = Event()
+
+        self.to_altoxml_started = Event()
+        self.to_altoxml_processing_added = Event()
+        self.to_altoxml_regions_started = Event()
+        self.to_altoxml_regions_ended = Event()
+        self.to_altoxml_ended = Event()
+
         if file is not None:
             self.from_pagexml(file)
 
@@ -811,19 +829,29 @@ class PageLayout(object):
                     None: 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15',
                     'xsi': 'http://www.w3.org/2001/XMLSchema-instance',
                     })
-
-            metadata = ET.SubElement(root, "Metadata")
-            ET.SubElement(metadata, "Creator").text = creator
-            now = datetime.now(timezone.utc)
-            ET.SubElement(metadata, "Created").text = now.isoformat()
-            ET.SubElement(metadata, "LastChange").text = now.isoformat()
-
         elif version == PAGEVersion.PAGE_2013_07_15:
             root = ET.Element("PcGts")
             root.set("xmlns", "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15")
 
         else:
             raise ValueError(f"Unknown PAGE Version: '{version}'")
+
+        self.to_pagexml_started(self, root)
+
+        if version == PAGEVersion.PAGE_2019_07_15:
+            metadata = ET.SubElement(root, "Metadata")
+            ET.SubElement(metadata, "Creator").text = creator
+            now = DateTimeService.get_datetime_now()
+            ET.SubElement(metadata, "Created").text = now.isoformat()
+            ET.SubElement(metadata, "LastChange").text = now.isoformat()
+
+            metadata_item = ET.SubElement(metadata, "MetadataItem")
+            metadata_item.set("type", "processingStep")
+            metadata_item.set("name", "Layout and text recognition")
+            metadata_item.set("value", creator)
+            metadata_item.set("date", now.isoformat())
+
+            self.to_pagexml_processing_added(self, metadata)
 
         page = ET.SubElement(root, "Page")
         page.set("imageFilename", self.id)
@@ -834,8 +862,14 @@ class PageLayout(object):
             self.sort_regions_by_reading_order()
             self.reading_order_to_pagexml(page)
 
+        self.to_pagexml_regions_started(self, page)
+
         for region_layout in self.regions:
             region_layout.to_pagexml(page, validate_id=validate_id)
+
+        self.to_pagexml_regions_ended(self, page)
+
+        self.to_pagexml_ended(self, root)
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
@@ -862,6 +896,8 @@ class PageLayout(object):
         elif version == ALTOVersion.ALTO_v2_x:
             root.set("xmlns", "http://www.loc.gov/standards/alto/ns-v2#")
 
+        self.to_altoxml_started(self, root, version)
+
         description = ET.SubElement(root, "Description")
         measurement_unit = ET.SubElement(description, "MeasurementUnit")
         measurement_unit.text = "pixel"
@@ -873,6 +909,9 @@ class PageLayout(object):
         else:
             ocr_processing_element = create_ocr_processing_element(alto_version=version)
             description.append(ocr_processing_element)
+
+        self.to_altoxml_processing_added(self, description, version)
+
         tags = ET.SubElement(root, "Tags")
         layout = ET.SubElement(root, "Layout")
         page = ET.SubElement(layout, "Page")
@@ -896,19 +935,12 @@ class PageLayout(object):
         print_space_hpos = self.page_size[1]
         print_space_coords = (print_space_height, print_space_width, print_space_vpos, print_space_hpos)
 
-        text_regions = []
-        nontext_regions = []
+        self.to_altoxml_regions_started(self, print_space, version)
+
         for region in self.regions:
-            if region.category is None or region.category == 'text':
-                text_regions.append(region)
-            else:
-                nontext_regions.append(region)
+            print_space_coords = region.to_altoxml(print_space, tags, mods_namespace_url, arabic_helper, min_line_confidence, print_space_coords, version, word_splitters)
 
-        for region in nontext_regions:
-            print_space_coords = region.to_altoxml(print_space, tags, mods_namespace_url, arabic_helper, min_line_confidence, print_space_coords, version)
-
-        for region in text_regions:
-            print_space_coords = region.to_altoxml(print_space, tags, mods_namespace_url, arabic_helper, min_line_confidence, print_space_coords, version, word_splitters=word_splitters)
+        self.to_altoxml_regions_ended(self, print_space, version)
 
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
@@ -936,6 +968,8 @@ class PageLayout(object):
         print_space.set("WIDTH", str(int(print_space_width)))
         print_space.set("VPOS", str(int(print_space_vpos)))
         print_space.set("HPOS", str(int(print_space_hpos)))
+
+        self.to_altoxml_ended(self, root, version)
 
         return ET.tostring(root, pretty_print=True, encoding="utf-8", xml_declaration=True).decode("utf-8")
 
@@ -1076,6 +1110,24 @@ class PageLayout(object):
                 image,
                 [region_layout.polygon], color=(255, 0, 0), circles=(circles, circles, circles), close=True,
                 thickness=thickness)
+
+            if region_layout.graphical_metadata is not None and region_layout.graphical_metadata.caption_lines_metadata is not None:
+                lines = region_layout.graphical_metadata.caption_lines_metadata.lines
+
+                image_x1 = min(region_layout.polygon[:, 0])
+                image_x2 = max(region_layout.polygon[:, 0])
+                image_y1 = min(region_layout.polygon[:, 1])
+                image_y2 = max(region_layout.polygon[:, 1])
+                image_center = (round((image_x1 + image_x2) / 2), round((image_y1 + image_y2) / 2))
+
+                for line in lines:
+                    caption_x1 = min(line.polygon[:, 0])
+                    caption_x2 = max(line.polygon[:, 0])
+                    caption_y1 = min(line.polygon[:, 1])
+                    caption_y2 = max(line.polygon[:, 1])
+                    caption_center = (round((caption_x1 + caption_x2) / 2), round((caption_y1 + caption_y2) / 2))
+
+                    cv2.line(image, list(caption_center), list(image_center), (255, 0, 255), 2)
 
         if render_order or render_category:
             font = cv2.FONT_HERSHEY_DUPLEX
@@ -1279,7 +1331,7 @@ def create_ocr_processing_element(id: str = "IdOcr",
     if processing_datetime is not None:
         processing_date_time.text = processing_datetime
     else:
-        processing_date_time.text = datetime.utcnow().isoformat()
+        processing_date_time.text = DateTimeService.get_datetime_now().isoformat()
     processing_software = ET.SubElement(ocr_processing_step, "processingSoftware")
     processing_creator = ET.SubElement(processing_software, "softwareCreator")
     processing_creator.text = software_creator_str
