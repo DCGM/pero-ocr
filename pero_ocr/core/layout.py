@@ -786,6 +786,12 @@ class PageLayout(object):
         self.to_altoxml_regions_ended = Event()
         self.to_altoxml_ended = Event()
 
+        self.from_pagexml_started = Event()
+        self.from_pagexml_ended = Event()
+
+        self.from_altoxml_started = Event()
+        self.from_altoxml_ended = Event()
+
         if file is not None:
             self.from_pagexml(file)
 
@@ -804,6 +810,8 @@ class PageLayout(object):
         page_tree = ET.parse(file)
         schema = element_schema(page_tree.getroot())
 
+        self.from_pagexml_started(self, page_tree)
+
         page = page_tree.findall(schema + 'Page')[0]
         self.id = page.attrib['imageFilename']
         self.page_size = (int(page.attrib['imageHeight']), int(page.attrib['imageWidth']))
@@ -813,6 +821,8 @@ class PageLayout(object):
         for region in page_tree.iter(schema + 'TextRegion'):
             region_layout = RegionLayout.from_pagexml(region, schema)
             self.regions.append(region_layout)
+
+        self.from_pagexml_ended(self, page_tree)
 
     def to_pagexml_string(self, creator: str = 'Pero OCR', validate_id: bool = False,
                           version: PAGEVersion = PAGEVersion.PAGE_2019_07_15):
@@ -984,6 +994,8 @@ class PageLayout(object):
         schema = element_schema(page_tree.getroot())
         root = page_tree.getroot()
 
+        self.from_altoxml_started(self, root)
+
         layout = root.findall(schema + 'Layout')[0]
         page = layout.findall(schema + 'Page')[0]
 
@@ -1001,6 +1013,8 @@ class PageLayout(object):
                 self.regions.append(region_layout)
         else:
             logger.warning("No PrintSpace found in ALTO XML.")
+
+        self.from_altoxml_ended(self, root)
 
     def sort_regions_by_reading_order(self):
         self.regions = sorted(self.regions, key=lambda k: self.reading_order[k] if k in self.reading_order else float("inf"))
