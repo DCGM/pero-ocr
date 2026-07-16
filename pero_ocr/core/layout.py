@@ -93,7 +93,6 @@ class TextLine(object):
 
         self.embeddings = []
         self.metadata = {}
-        self.graphical_metadata = None
 
     def get_dense_logits(self, zero_logit_value: int = -80):
         dense_logits = self.logits.toarray()
@@ -490,7 +489,6 @@ class RegionLayout(object):
 
         self.embeddings = []
         self.metadata = {}
-        self.graphical_metadata = None
 
     def get_lines_of_category(self, categories: Union[str, list]):
         if isinstance(categories, str):
