@@ -224,8 +224,8 @@ class TextLine(object):
                         heights = heights_array
                     self.heights = heights.tolist()
 
-    def to_altoxml(self, text_block, tags, mods_namespace, arabic_helper, min_line_confidence, version: ALTOVersion,
-                   next_line=None, previous_line=None, word_splitters=["-"]):
+    def to_altoxml(self, text_block, arabic_helper, min_line_confidence, version: ALTOVersion, next_line=None,
+                   previous_line=None, word_splitters=["-"]):
         if self.transcription_confidence is not None and self.transcription_confidence < min_line_confidence:
             return
 
@@ -575,8 +575,8 @@ class RegionLayout(object):
 
         return layout_region
 
-    def to_altoxml(self, print_space, tags, mods_namespace, arabic_helper, min_line_confidence,
-                   print_space_coords: Tuple[int, int, int, int], version: ALTOVersion, word_splitters=["-"]) -> Tuple[int, int, int, int]:
+    def to_altoxml(self, print_space, arabic_helper, min_line_confidence,  print_space_coords: Tuple[int, int, int, int],
+                 version: ALTOVersion, word_splitters=["-"]) -> Tuple[int, int, int, int]:
         print_space_height, print_space_width, print_space_vpos, print_space_hpos = print_space_coords
 
 
@@ -606,7 +606,7 @@ class RegionLayout(object):
 
             previous_line = self.lines[i - 1] if i > 0 else None
             next_line = self.lines[i + 1] if i + 1 < len(self.lines) else None
-            line.to_altoxml(block, tags, mods_namespace, arabic_helper, min_line_confidence, version, next_line=next_line,
+            line.to_altoxml(block, arabic_helper, min_line_confidence, version, next_line=next_line,
                             previous_line=previous_line, word_splitters=word_splitters)
         return print_space_height, print_space_width, print_space_vpos, print_space_hpos
 
@@ -888,10 +888,7 @@ class PageLayout(object):
                           word_splitters=["-"]):
         arabic_helper = ArabicHelper()
 
-        mods_namespace_url = "http://www.loc.gov/mods/v3"
-
         NSMAP = {"xlink": 'http://www.w3.org/1999/xlink',
-                 "mods": mods_namespace_url,
                  "xsi": 'http://www.w3.org/2001/XMLSchema-instance'}
         root = ET.Element("alto", nsmap=NSMAP)
 
@@ -941,8 +938,9 @@ class PageLayout(object):
 
         self.to_altoxml_regions_started(self, print_space, version)
 
-        for region in self.regions:
-            print_space_coords = region.to_altoxml(print_space, tags, mods_namespace_url, arabic_helper, min_line_confidence, print_space_coords, version, word_splitters)
+        for block in self.regions:
+            print_space_coords = block.to_altoxml(print_space, arabic_helper, min_line_confidence, print_space_coords, 
+                                                  version, word_splitters=word_splitters)
 
         self.to_altoxml_regions_ended(self, print_space, version)
 
