@@ -1,0 +1,7 @@
+{
+ "git_commit": "d958fe8",
+ "pero_ocr_uncommitted_changes": false,
+ "python": "3.10.22",
+ "torch": "2.14.1+cu130",
+ "numpy": "1.24.4"
+}
