@@ -137,3 +137,4 @@ ENV/
 # test fixtures are committed on purpose
 !test/io/consistency/data/**
 !test/engines/consistency/data/**
+**/__pycache__/

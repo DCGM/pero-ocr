@@ -6,9 +6,9 @@ This directory checks that pero-ocr keeps **writing** the same files and can sti
 |---|---|
 | `test_pagexml.py`, `test_altoxml.py`, `test_logits.py` | checks: does the current code still produce exactly the committed PAGE XML, ALTO XML and logits? |
 | `test_pagexml_input.py` | check: can the current code still read the committed PAGE XML files back? pero-ocr also takes PAGE XML as input, e.g. `parse_folder.py -x`. |
-| `golden_io.py` | `GOLDEN_IO_FILES`, the list of golden IO files and the exporter call that produces each one, plus the code that writes and compares them |
+| `golden_io.py` | what the script and the checks share: `GOLDEN_IO_FILES`, the list of golden IO files and the exporter call that produces each one, plus the comparison code |
 | `data/` | the committed golden IO files |
-| `data/regenerate.py` | the script that recreates `data/` with the current code |
+| `data/regenerate.py` | the script that recreates `data/` with the current code; all code used only for regenerating is in it |
 
 Every file in `GOLDEN_IO_FILES` is both written by `data/regenerate.py` and compared by the checks, so the two cannot drift apart. The checks also fail if `data/` holds a file that is not in the list, or misses one.
 

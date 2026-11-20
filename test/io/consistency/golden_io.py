@@ -1,12 +1,12 @@
 """Golden IO files: which files exist in data/, how pero-ocr produces each of them, and how they are compared.
 
-GOLDEN_IO_FILES is the single list of golden IO files. data/regenerate.py writes every entry, the consistency tests
-compare every entry, so the two cannot drift apart.
+GOLDEN_IO_FILES is the single list of golden IO files. data/regenerate.py writes every entry, the consistency checks
+compare every entry, so the two cannot drift apart. This module holds what both of them need; the writing itself is
+in data/regenerate.py.
 """
 import difflib
 import os
 import pickle
-import shutil
 import tempfile
 
 import lxml.etree as ET
@@ -17,7 +17,6 @@ from pero_ocr.core.layout import ALTOVersion, PAGEVersion, create_ocr_processing
 from test.io.reference_layout import build_edge_layout, build_empty_layout, build_reference_layout
 
 GOLDEN_IO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-FORMAT_DIRS = ['page_xml', 'alto', 'logits']
 MASKED = 'MASKED'
 # elements whose text changes on every run (timestamps)
 VOLATILE_ELEMENTS = {'Created', 'LastChange', 'processingDateTime'}
@@ -88,27 +87,6 @@ def produce(name: str):
     """The current content of a golden IO file: normalized XML text, or pickle bytes."""
     content = GOLDEN_IO_FILES[name]()
     return normalize_xml(content) if name.endswith('.xml') else content
-
-
-# --- writing ------------------------------------------------------------------------------------------------------
-
-def write_all(directory: str = GOLDEN_IO_DIR) -> list:
-    """Recreate all golden IO files in ``directory`` from the current code; files not in the table are removed."""
-    for format_dir in FORMAT_DIRS:
-        shutil.rmtree(os.path.join(directory, format_dir), ignore_errors=True)
-    written = []
-    for name in GOLDEN_IO_FILES:
-        path = os.path.join(directory, name)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        content = produce(name)
-        if isinstance(content, str):
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(content)
-        else:
-            with open(path, 'wb') as f:
-                f.write(content)
-        written.append(path)
-    return written
 
 
 # --- comparing ----------------------------------------------------------------------------------------------------

@@ -8,7 +8,7 @@ This directory checks that models **exported by an older pero-ocr or torch still
 | `test_transformer_engine.py` | check: does a frozen transformer still load in `TransformerEngineLineOCR` and decode the same text, with greedy and beam search? |
 | `test_layout_engine.py` | check: does a frozen ParseNet still load in `LayoutEngine` and find the same baselines? |
 | `data/` | the committed frozen models |
-| `data/regenerate.py` | the script that recreates `data/` with the current code |
+| `data/regenerate.py` | the script that recreates `data/` with the current code; all code used only for regenerating is in it (the models themselves are in `test/tiny_models.py`, because the engine tests build fresh copies of them in every session) |
 
 The general engine tests are one level up in `test/engines/`.
 
