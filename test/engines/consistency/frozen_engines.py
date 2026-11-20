@@ -2,7 +2,8 @@
 
 Every engine has a directory data/<name>/ that was written once by data/regenerate.py and then committed:
 
-- the frozen model, exported by the pero-ocr, torch and brnolm of that time (the cropper has none),
+- the frozen model, exported by the pero-ocr, torch and brnolm of that time (the smart sorter and the cropper have
+  none),
 - input.npz, plus input.json for parameters: the frozen input,
 - output.npz: what the engine returned for that input at that time,
 - generated_with.json: the commit and library versions.
@@ -24,11 +25,12 @@ import numpy as np
 import torch
 
 from pero_ocr.core.crop_engine import EngineLineCropper
-from pero_ocr.core.layout import PageLayout, RegionLayout
+from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.decoding.decoders import BLANK_SYMBOL, CTCPrefixLogRawNumpyDecoder
 from pero_ocr.decoding.decoding_itf import construct_lm
 from pero_ocr.decoding.lm_wrapper import LMWrapper
 from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine
+from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
@@ -114,6 +116,42 @@ def run_region_sorter(directory, inputs, params):
     return out
 
 
+def _layout_from_arrays(inputs, name, page_size):
+    """A PageLayout from the arrays polygon/<page>/<region>, and per line baseline/, heights/ and line_polygon/
+    <page>/<region>/<line>. Region i gets the id str(i)."""
+    layout = PageLayout(id=name, page_size=tuple(page_size))
+    n_regions = len([k for k in inputs if k.startswith(f'polygon/{name}/')])
+    for i in range(n_regions):
+        region = RegionLayout(str(i), inputs[f'polygon/{name}/{i}'])
+        n_lines = len([k for k in inputs if k.startswith(f'baseline/{name}/{i}/')])
+        for j in range(n_lines):
+            region.lines.append(TextLine(id=f'{i}-l{j}', baseline=inputs[f'baseline/{name}/{i}/{j}'],
+                                         heights=inputs[f'heights/{name}/{i}/{j}'].tolist(),
+                                         polygon=inputs[f'line_polygon/{name}/{i}/{j}']))
+        layout.regions.append(region)
+    return layout
+
+
+def run_smart_sorter(directory, inputs, params):
+    """Reading order of the frozen pages (order/<page>: the input regions in the sorted order), and the geometry of
+    the returned regions in that order: the sorter rotates a tilted page to sort it and rotates it back."""
+    config = configparser.ConfigParser()
+    config.read_dict({'S': {key.upper(): str(value) for key, value in params['config'].items()}})
+    sorter = SmartRegionSorter(config['S'])
+    out = {}
+    for name in params['pages']:
+        page_size = params['page_size']
+        layout = sorter.process_page(np.zeros(tuple(page_size) + (3,), dtype=np.uint8),
+                                     _layout_from_arrays(inputs, name, page_size))
+        out[f'order/{name}'] = np.array([int(region.id) for region in layout.regions], dtype=np.int64)
+        for k, region in enumerate(layout.regions):
+            out[f'polygon/{name}/{k}'] = np.asarray(region.polygon, dtype=np.float64)
+            for j, line in enumerate(region.lines):
+                out[f'baseline/{name}/{k}/{j}'] = np.asarray(line.baseline, dtype=np.float64)
+                out[f'line_polygon/{name}/{k}/{j}'] = np.asarray(line.polygon, dtype=np.float64)
+    return out
+
+
 def run_cropper(directory, inputs, params):
     page = inputs['page']
     out = {}
@@ -134,7 +172,7 @@ def run_cropper(directory, inputs, params):
 
 
 RUNNERS = {'ctc': run_ctc, 'transformer': run_transformer, 'parsenet': run_parsenet, 'lm': run_lm,
-           'region_sorter': run_region_sorter, 'cropper': run_cropper}
+           'region_sorter': run_region_sorter, 'smart_sorter': run_smart_sorter, 'cropper': run_cropper}
 
 
 # --- reading, writing, comparing ----------------------------------------------------------------------------------

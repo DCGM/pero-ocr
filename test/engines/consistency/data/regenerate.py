@@ -5,7 +5,7 @@
     python test/engines/consistency/data/regenerate.py lm                   # only the named engines
     python test/engines/consistency/data/regenerate.py --outputs-only ctc   # keep model and input, recompute output
 
-Names: ctc, transformer, parsenet, lm, region_sorter (tiny models) and cropper (the line cropper, which has no model).
+Names: ctc, transformer, parsenet, lm, region_sorter (tiny models), smart_sorter and cropper (no model).
 
 For every name, data/<name>/ holds the frozen model, the frozen input (input.npz, input.json), the output the engine
 gave for it (output.npz) and generated_with.json. The checks in test/engines/consistency run the current code with the
@@ -35,6 +35,7 @@ sys.path.insert(0, REPO_DIR)  # this checkout's pero_ocr and test packages, not 
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 import scipy  # noqa: E402
+import shapely  # noqa: E402
 import torch  # noqa: E402
 
 from test import tiny_models  # noqa: E402
@@ -55,6 +56,7 @@ def write_generated_with(directory):
         'numpy': np.__version__,
         'opencv': cv2.__version__,
         'scipy': scipy.__version__,
+        'shapely': shapely.__version__,
     }
     path = os.path.join(directory, 'generated_with.json')
     with open(path, 'w') as f:
@@ -131,6 +133,59 @@ def region_sorter_input():
     return inputs, params
 
 
+def smart_sorter_region(box, n_lines=None, angle=0.0):
+    """Region polygon and lines (baseline, heights, line polygon) for a box [left, top, right, bottom]: one line per
+    40 px unless n_lines is given, everything rotated by angle degrees around the page origin."""
+    l, t, r, b = box
+    polygon = np.array([[l, t], [r, t], [r, b], [l, b]], dtype=np.float64)
+    ys = list(range(t + 30, b, 40)) if n_lines is None else list(np.linspace(t + 30, b - 10, n_lines))[:n_lines]
+    lines = []
+    for y in ys:
+        baseline = np.array([[l + 5.0, y], [(l + r) / 2, y], [r - 5.0, y]])
+        line_polygon = np.array([[l + 5.0, y - 20], [r - 5.0, y - 20], [r - 5.0, y + 5], [l + 5.0, y + 5]])
+        lines.append((baseline, np.array([20.0, 5.0]), line_polygon))
+    if angle:
+        a = np.deg2rad(angle)
+        rotation = np.array([[np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]]).T
+        polygon = polygon @ rotation
+        lines = [(baseline @ rotation, heights, line_polygon @ rotation) for baseline, heights, line_polygon in lines]
+    return polygon, lines
+
+
+def smart_sorter_input():
+    """Region layouts on a 1000 x 800 page, given in a scrambled order: the reading orders pero-ocr meets in
+    production (title over columns, columns whose gaps do not line up, a tilted page, a newspaper-like page, a layout
+    that no straight cut divides, which takes the fallback ordering) and the small overlaps that
+    FakeIntersectionParameter (default 0.1) ignores."""
+    title, left_top, left_bottom = (40, 40, 760, 120), (40, 160, 380, 500), (40, 540, 380, 940)
+    right_top, right_bottom = (420, 160, 760, 700), (420, 740, 760, 940)
+    columns = [right_bottom, left_bottom, title, right_top, left_top]
+    pages = {
+        'title_and_two_columns': [smart_sorter_region(box) for box in columns],
+        'overlap_below_the_threshold': [smart_sorter_region(box) for box in
+                                        [(420, 600, 760, 940), (40, 540, 380, 940), (420, 160, 760, 560),
+                                         (40, 160, 380, 500)]],
+        'tilted_4deg': [smart_sorter_region(box, angle=4.0) for box in columns],
+        'newspaper': [smart_sorter_region(box, **kwargs) for box, kwargs in [
+            ((560, 300, 760, 640), {}), ((40, 160, 760, 260), dict(n_lines=2)), ((300, 300, 520, 520), dict(n_lines=0)),
+            ((40, 40, 760, 130), dict(n_lines=1)), ((40, 300, 260, 940), {}), ((300, 560, 520, 940), {}),
+            ((560, 680, 760, 940), {}), ((40, 960, 760, 990), dict(n_lines=1))]],
+        'pinwheel': [smart_sorter_region(box) for box in
+                     [(200, 600, 760, 760), (600, 40, 760, 600), (40, 40, 600, 200), (40, 200, 200, 760),
+                      (240, 240, 560, 560)]],
+        'one_region': [smart_sorter_region((40, 40, 760, 940))],
+    }
+    inputs = {}
+    for name, regions in pages.items():
+        for i, (polygon, lines) in enumerate(regions):
+            inputs[f'polygon/{name}/{i}'] = polygon
+            for j, (baseline, heights, line_polygon) in enumerate(lines):
+                inputs[f'baseline/{name}/{i}/{j}'] = baseline
+                inputs[f'heights/{name}/{i}/{j}'] = heights
+                inputs[f'line_polygon/{name}/{i}/{j}'] = line_polygon
+    return inputs, {'config': {}, 'page_size': [1000, 800], 'pages': list(pages)}
+
+
 PAGE_HEIGHT, PAGE_WIDTH = 480, 640
 
 
@@ -185,7 +240,7 @@ def cropper_input():
 
 
 INPUTS = {'ctc': ctc_input, 'transformer': transformer_input, 'parsenet': parsenet_input, 'lm': lm_input,
-          'region_sorter': region_sorter_input, 'cropper': cropper_input}
+          'region_sorter': region_sorter_input, 'smart_sorter': smart_sorter_input, 'cropper': cropper_input}
 assert set(INPUTS) == set(frozen_engines.RUNNERS)
 
 

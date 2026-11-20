@@ -14,6 +14,7 @@ The checks are small and run in about a second, so they show such changes long b
 | `test_layout_engine.py` | `LayoutEngine`: frozen ParseNet, frozen pages → frozen regions, baselines and heights |
 | `test_lm.py` | `construct_lm()`, `LMWrapper`, the `FAST-LOG-RAW` decoder: frozen language model, frozen CTC frames → frozen next-character probabilities and decoded text, with LM weights 1.0 and 0.4 |
 | `test_region_sorter.py` | `TransformerRegionSorter` (`REGION_SORTER_TRANSFORMER`): frozen reading-order model, frozen region boxes → frozen reading order |
+| `test_smart_sorter.py` | `SmartRegionSorter` (`REGION_SORTER_SMART`, no model): frozen region layouts → frozen reading order and the geometry it returns |
 | `test_line_cropper.py` | `EngineLineCropper` (no model): frozen page and lines → frozen crops, mappings and `blend_in()` result |
 | `frozen_engines.py` | what the checks and the script share: how each engine is run on its frozen input (`RUNNERS`), how the data is read and written, and how outputs are compared |
 | `data/<engine>/` | the committed frozen data |
@@ -38,11 +39,11 @@ Each `data/<engine>/` holds:
 
 | file | what |
 |---|---|
-| the model | small, fake networks saved as torchscript by `test/tiny_models.py` (see below); the cropper has none |
+| the model | small, fake networks saved as torchscript by `test/tiny_models.py` (see below); the smart sorter and the cropper have none |
 | `input.npz` | the frozen input arrays: line crops, pages, CTC frames |
 | `input.json` | the parameters of the run: beam sizes, layout-engine settings, LM weights, the cropper's lines and settings |
 | `output.npz` | what the engine returned for that input, when the data was frozen |
-| `generated_with.json` | the commit and the versions of Python, torch, numpy, opencv and scipy that produced the data |
+| `generated_with.json` | the commit and the versions of Python, torch, numpy, opencv, scipy and shapely that produced the data (data frozen before shapely was recorded lacks it) |
 
 The tiny models have no trained weights; their output is a deterministic function of the input:
 
@@ -53,6 +54,7 @@ The tiny models have no trained weights; their output is a deterministic functio
 | `parsenet/` | `parsenet.pt` | a baseline at the bottom row of every bright block, constant line heights, no line endpoints and no region separators |
 | `region_sorter/` | `model-cuda.pt`, `model-cpu.pt` | a reading-order model with the calling contract of the real one (region boxes, query types, page image → scores for "region *i* comes right after region *j*"); it orders regions by their left edge, then by their top edge, and ignores the image |
 | `lm/` | `lm.pt` | a brnolm torchscript LM (zip of `model.zip`, `decoder.zip`, `vocabulary.pickle`); its state is the last character seen, kept over line ends; after `a` it strongly prefers `b`, otherwise uniform |
+| `smart_sorter/` | none | the input is six region layouts with lines, in a scrambled order: a title over two columns whose gaps do not line up, a small overlap that `FakeIntersectionParameter` ignores, the same title and columns tilted by 4 degrees (the sorter rotates the page to sort it and back), a newspaper-like page, a pinwheel that no straight cut divides (the fallback ordering) and a single region; default config, as in production |
 | `cropper/` | none | the input is a synthetic page with text-like strokes and lines cut from it with the settings pero-ocr uses: the production `LineCropper` (`LINE_HEIGHT 48`, `INTERP 2`, `LINE_SCALE 1.15`) on straight lines at several angles, a gentle arc, a short line and a line partly outside the page; the ALTO word alignment (height 32, `INTERP 2`, with its forward mapping); the baseline refiner (height 32, `INTERP 0`); and `blend_in()` |
 
 The OCR and layout models are saved twice, as `X` and `X.cpu`, because those engines append `.cpu` to the checkpoint path when they run on CPU. The reading-order sorter instead replaces `cuda` with `cpu` in the file name, hence `model-cuda.pt` and `model-cpu.pt`. The LM loader does neither.

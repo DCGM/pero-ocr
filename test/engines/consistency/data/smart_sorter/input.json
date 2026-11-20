@@ -1,0 +1,15 @@
+{
+ "config": {},
+ "page_size": [
+  1000,
+  800
+ ],
+ "pages": [
+  "title_and_two_columns",
+  "overlap_below_the_threshold",
+  "tilted_4deg",
+  "newspaper",
+  "pinwheel",
+  "one_region"
+ ]
+}
