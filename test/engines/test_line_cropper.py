@@ -6,7 +6,9 @@ along the normal of the baseline must come out as crop rows equal to the sampled
 baseline as linearly increasing crop columns. Curved baselines are tested with a thin bright stroke drawn along the
 baseline, which a correct crop turns into a horizontal line at the baseline row.
 
-Known limits of the cropper are pinned by strict xfail tests that describe the wanted behaviour."""
+Known limits of the cropper are pinned by strict xfail tests that describe the wanted behaviour.
+
+The last section tests the LINE_CROPPER stage (LineCropper) that a config section builds around the cropper."""
 import cv2
 import numpy as np
 import pytest
@@ -213,3 +215,50 @@ def test_degenerate_baseline_gives_a_blank_crop(capsys):
     crop = EngineLineCropper(line_height=48, poly=2, scale=1.0).crop(page, np.array([[300.0, 300.0]]), [20, 8])
     assert crop.shape == (48, 32, 3) and crop.max() == 0
     assert 'line crop failed' in capsys.readouterr().out
+
+
+# --- the LINE_CROPPER stage ---------------------------------------------------------------------------------------
+# LineCropper (pero_ocr.document_ocr.page_parser) built from its config section: crops the lines of a PageLayout.
+
+def cropper_stage(**options):
+    from pero_ocr.document_ocr.page_parser import line_cropper_factory
+    from test.configs import section
+    return line_cropper_factory(section(**{'LINE_HEIGHT': 40, 'INTERP': 2, 'LINE_SCALE': 1.0, **options}))
+
+
+def page_with_lines(*categories):
+    from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
+    layout = PageLayout(id='p', page_size=PAGE_SHAPE)
+    region = RegionLayout('r1', np.array([[0, 0], [800, 0], [800, 600], [0, 600]]))
+    for i, category in enumerate(categories):
+        y = 100.0 + 80 * i
+        region.lines.append(TextLine(id=f'r1-l{i}', baseline=np.array([[100.0, y], [500.0, y]]),
+                                     heights=[ASCENDER, DESCENDER], category=category))
+    layout.regions = [region]
+    return layout
+
+
+@pytest.mark.parametrize('options, engine', [
+    ({}, dict(line_height=40, poly=2, scale=1.0)),
+    (dict(LINE_HEIGHT=48, INTERP=0, LINE_SCALE=1.15), dict(line_height=48, poly=0, scale=1.15)),
+])
+def test_stage_crops_every_line_with_its_settings(options, engine):
+    """LINE_HEIGHT, INTERP and LINE_SCALE are the cropper's line_height, poly and scale."""
+    page = linear_fields_page(np.array([100.0, 100.0]), 0.0, 400.0)
+    layout = cropper_stage(**options).process_page(page, page_with_lines('text', 'text'))
+    for line in layout.lines_iterator():
+        assert line.crop.shape[0] == engine['line_height']
+        np.testing.assert_array_equal(line.crop, EngineLineCropper(**engine).crop(page, line.baseline, line.heights))
+
+
+def test_stage_crops_only_lines_of_its_categories():
+    """Lines without a category pass every CATEGORIES filter (PageLayout.lines_iterator), so they are cropped too."""
+    page = np.full(PAGE_SHAPE + (3,), 200, dtype=np.uint8)
+    layout = cropper_stage(CATEGORIES=['title']).process_page(page, page_with_lines('text', 'title', None))
+    assert [line.crop is not None for line in layout.lines_iterator()] == [False, True, True]
+
+
+def test_stage_without_categories_crops_all_lines():
+    page = np.full(PAGE_SHAPE + (3,), 200, dtype=np.uint8)
+    layout = cropper_stage().process_page(page, page_with_lines('text', 'title', None))
+    assert all(line.crop is not None for line in layout.lines_iterator())

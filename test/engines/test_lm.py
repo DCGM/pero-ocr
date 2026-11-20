@@ -2,40 +2,21 @@
 
 The tiny LM (test/tiny_models.py) prefers 'b' after 'a' and is uniform otherwise; its state survives line ends."""
 import configparser
-import math
 
 import numpy as np
 import pytest
 import torch
-from scipy import sparse
 
-from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.decoding.decoders import BLANK_SYMBOL, CTCPrefixLogRawNumpyDecoder
 from pero_ocr.decoding.decoding_itf import construct_lm, decoder_factory
 from pero_ocr.decoding.lm_wrapper import LMWrapper
-from pero_ocr.document_ocr.page_parser import PageDecoder
 from test import tiny_models
+from test.synthetic import A, AMBIGUOUS_AFTER_A, BLANK, ctc_frames as frames
 
 CHARS = tiny_models.CHARACTERS
-N_CLASSES = len(CHARS) + 1  # + blank, last
 CPU = torch.device('cpu')
 
 
-def frames(*specs):
-    """Log-probability CTC frames, e.g. frames({'a': .98}, {'blank': .98}, {'c': .6, 'b': .4})."""
-    out = []
-    for spec in specs:
-        f = np.full(N_CLASSES, 1e-4)
-        for symbol, p in spec.items():
-            f[N_CLASSES - 1 if symbol == 'blank' else CHARS.index(symbol)] = p
-        out.append(np.log(f / f.sum()))
-    return np.stack(out)
-
-
-A = {'a': .98}
-BLANK = {'blank': .98}
-C_OR_B = {'c': .6, 'b': .4}  # visually 'c' wins, an LM preferring 'b' can override it
-AMBIGUOUS_AFTER_A = frames(A, BLANK, C_OR_B, BLANK)
 
 
 @pytest.fixture(scope='module')
@@ -134,46 +115,3 @@ def test_decoder_factory_builds_lm_decoder(tiny_model_dir):
     decoder = decoder_factory(config['DECODER'], list(CHARS), CPU, config_path=tiny_model_dir)
     assert isinstance(decoder._lm, LMWrapper)
     assert decoder(AMBIGUOUS_AFTER_A).best_hyp() == 'ab'
-
-
-# --- PageDecoder: decoding a page with an LM ----------------------------------------------------------------------
-
-def page_with_lines(*line_logits):
-    """A page whose lines carry the given log-prob frames as (sparse) logits."""
-    page = PageLayout(id='p', page_size=(100, 100))
-    region = RegionLayout('r1', np.array([[0, 0], [100, 0], [100, 100], [0, 100]]))
-    for i, logits in enumerate(line_logits):
-        line = TextLine(id=f'r1-l{i}', transcription='?', category='text',
-                        logits=None if logits is None else sparse.csc_matrix(logits.astype(np.float32)))
-        region.lines.append(line)
-    page.regions = [region]
-    return page
-
-
-B_OR_C_AT_LINE_START = frames(C_OR_B, BLANK)
-
-
-@pytest.mark.parametrize('carry_h_over, expected', [(False, ['a', 'c']), (True, ['a', 'b'])])
-def test_carry_h_over_lets_the_previous_line_guide_the_next(wrapper, carry_h_over, expected):
-    page = page_with_lines(frames(A, BLANK), B_OR_C_AT_LINE_START)
-    PageDecoder(lm_decoder(wrapper), line_confidence_threshold=math.inf, carry_h_over=carry_h_over).process_page(page)
-    assert [line.transcription for line in page.lines_iterator()] == expected
-
-
-def test_confident_lines_are_not_decoded(wrapper):
-    page = page_with_lines(frames(A, BLANK), AMBIGUOUS_AFTER_A)
-    page_decoder = PageDecoder(lm_decoder(wrapper), line_confidence_threshold=0.9)
-    page_decoder.process_page(page)
-    assert [line.transcription for line in page.lines_iterator()] == ['?', 'ab']  # the confident line keeps its text
-    assert (page_decoder.lines_examined, page_decoder.lines_decoded) == (2, 1)
-    assert page_decoder.decoding_summary().startswith('Ran on 2, decoded 1 lines (50.0 %)')
-
-
-def test_a_failing_line_does_not_stop_the_page(wrapper):
-    page = page_with_lines(None, AMBIGUOUS_AFTER_A)
-    PageDecoder(lm_decoder(wrapper), line_confidence_threshold=math.inf).process_page(page)
-    assert [line.transcription for line in page.lines_iterator()] == ['?', 'ab']
-
-
-def test_summary_before_decoding(wrapper):
-    assert PageDecoder(lm_decoder(wrapper)).decoding_summary() == 'This PageDecoder has not processed a single line yet'

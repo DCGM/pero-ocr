@@ -112,7 +112,7 @@ def lm_input():
 def region_sorter_input():
     """Region boxes [left, top, right, bottom] on a 1000 x 800 page, deliberately not in reading order. The pages stay
     within MAX_BBOX_COUNT: regions beyond it are appended in a random order (a known bug, see
-    test/engines/test_region_sorter.py), which a frozen output cannot capture."""
+    test/engines/test_region_sorter_transformer.py), which a frozen output cannot capture."""
     rng = np.random.default_rng(20261120)
     two_columns = np.array([[420, 500, 760, 700], [40, 300, 380, 480], [420, 50, 760, 450], [40, 50, 380, 250]])
     column = np.array([[40, 20 + 80 * i, 380, 90 + 80 * i] for i in range(12)])

@@ -1,7 +1,8 @@
-"""Synthetic bright-on-black images that the tiny models in test/tiny_models.py read predictably."""
+"""Synthetic inputs that the tiny models in test/tiny_models.py read predictably: bright-on-black line crops and
+pages, and CTC frames over the tiny models' characters for decoders and language models."""
 import numpy as np
 
-from test.tiny_models import LINE_PX_HEIGHT
+from test.tiny_models import CHARACTERS, LINE_PX_HEIGHT
 
 
 def line_image(n_runs: int, run_width: int = 16, gap: int = 16, height: int = LINE_PX_HEIGHT,
@@ -27,3 +28,22 @@ def page_image(n_lines: int = 3, width: int = 800, height: int = 600, line_heigh
         img[y:y + line_height, left:width - right] = 255
         y += line_height + line_gap
     return img
+
+
+def ctc_frames(*specs):
+    """CTC log-probability frames over CHARACTERS + blank (last), e.g. ctc_frames({'a': .98}, {'blank': .98},
+    {'c': .6, 'b': .4}); every symbol not named gets a small floor probability."""
+    n_classes = len(CHARACTERS) + 1
+    out = []
+    for spec in specs:
+        frame = np.full(n_classes, 1e-4)
+        for symbol, p in spec.items():
+            frame[n_classes - 1 if symbol == 'blank' else CHARACTERS.index(symbol)] = p
+        out.append(np.log(frame / frame.sum()))
+    return np.stack(out)
+
+
+A = {'a': .98}
+BLANK = {'blank': .98}
+C_OR_B = {'c': .6, 'b': .4}  # visually 'c' wins; the tiny LM, which prefers 'b' after 'a', can override it
+AMBIGUOUS_AFTER_A = ctc_frames(A, BLANK, C_OR_B, BLANK)

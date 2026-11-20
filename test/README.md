@@ -12,14 +12,33 @@
 | directory | what | needs |
 |---|---|---|
 | `cli/` | `user_scripts/parse_folder.py` end to end: files, flags, process behaviour | CPU, ~20 s |
-| `page_parser/` | `PageParser` built from config: the stages wired together, as library users call it | CPU |
-| `engines/` | OCR, layout, reading-order and language-model engines driven by tiny torchscript models, the YOLO layout engine with a fake ultralytics, and the line cropper | CPU |
+| `page_parser/` | `PageParser` built from config: which stages run and in which order, numbered sections, what `PageParser` itself does with the result, and full production-like pipelines | CPU |
+| `engines/` | every engine as a black box, with all its config options: the stages a config section builds (layout, line cropper, OCR, decoder, sorters, postprocessing) and the engines inside them, driven by tiny torchscript models; YOLO with a fake ultralytics | CPU |
 | `engines/consistency/` | every engine, with a frozen model, still turns a frozen input into exactly the frozen output (the line cropper has no model) | CPU |
 | `io/` | PAGE XML / ALTO / logits: export, import (also from other tools), round trips, known bugs | CPU |
 | `io/consistency/` | the exporters still write the committed golden IO files, and the committed PAGE XML still reads back | CPU |
 | `unit/` | single functions and classes in isolation, mirroring the `pero_ocr` package | CPU |
 
 The tiers follow the call stack: `parse_folder.py` wraps `PageParser`, which wraps the engines, which produce the `PageLayout` that `io` exports.
+
+Each tier tests its own logic and treats the tier below as a black box:
+
+- An **engine** is everything one config section builds: a `[LAYOUT_PARSER]` stage selected by its `METHOD`, `[LINE_CROPPER]`, `[OCR]` or `[DECODER]`, together with the engine classes inside it. Its tests in `engines/` build it from a config section and cover every option it reads: a section and a `PageLayout` in, a `PageLayout` out.
+- **`page_parser/`** tests what `PageParser` adds on top: which sections are built and run (`RUN_*`, section names and order, numbered croppers and OCRs), the `METHOD` dispatch, passing `config_path` on, what it does after the stages (confidences, `FILTER_CONFIDENT_LINES_THRESHOLD`), and a few full pipelines in the shape of the production engines. It does not test the options of a stage.
+- **`cli/`** tests `parse_folder.py` itself: arguments, files, skipping, errors, exit codes, and full runs.
+
+| config section | engine | tests |
+|---|---|---|
+| `[LAYOUT_PARSER] METHOD = LAYOUT_CNN` | `LayoutExtractor`, `LayoutEngine` | `test_layout_cnn.py`, `test_layout_engine.py` |
+| `METHOD = LAYOUT_YOLO` | `LayoutExtractorYolo`, `LayoutEngineYolo` | `test_layout_yolo.py` |
+| `METHOD = REGION_SORTER_SMART`, `REGION_SORTER_NAIVE` | `SmartRegionSorter`, `NaiveRegionSorter` | `test_region_sorters.py` |
+| `METHOD = REGION_SORTER_TRANSFORMER` | `TransformerRegionSorter` | `test_region_sorter_transformer.py` |
+| `METHOD = REGION_WHOLE_PAGE`, `LINE_POSTPROCESSING`, `LAYOUT_POSTPROCESSING` | `WholePageRegion`, `LinePostprocessor`, `LayoutPostprocessor` | `test_layout_postprocessing.py` |
+| `[LINE_CROPPER]` | `LineCropper`, `EngineLineCropper` | `test_line_cropper.py` |
+| `[OCR]` | `PageOCR`, `PytorchEngineLineOCR`, `TransformerEngineLineOCR` | `test_page_ocr.py`, `test_ctc_engine.py`, `test_transformer_engine.py` |
+| `[DECODER]` | `PageDecoder`, the decoders, the language model | `test_page_decoder.py`, `test_lm.py` |
+
+Not covered: `REGION_SIMPLE_THRESHOLD`, `LINES_SIMPLE_THRESHOLD` and `LINE_FILTER`, which may be dropped (issues #101 and #102).
 
 The markers `gpu`, `models` (real models, `PERO_TEST_MODELS`) and `regression` (the external page sample, `PERO_TEST_DATA`) are deselected by default.
 
