@@ -14,7 +14,7 @@ import pytest
 from pero_ocr.core.layout import PageLayout
 from test import tiny_models
 from test.conftest import REPO_DIR
-from test.io.consistency.golden import golden_path
+from test.io.consistency.golden_io import golden_io_path
 from test.synthetic import page_image
 
 PARSE_FOLDER = os.path.join(REPO_DIR, 'user_scripts', 'parse_folder.py')
@@ -109,10 +109,10 @@ def signature(xml_path):
     return sig
 
 
-def assert_shape_within(produced, golden):
-    assert set(produced) <= set(golden), set(produced) - set(golden)
+def assert_shape_within(produced, golden_io):
+    assert set(produced) <= set(golden_io), set(produced) - set(golden_io)
     for path, attrs in produced.items():
-        assert attrs <= golden[path], (path, attrs - golden[path])
+        assert attrs <= golden_io[path], (path, attrs - golden_io[path])
 
 
 @pytest.fixture(scope='module')
@@ -158,17 +158,17 @@ def test_page_xml_content(full_run):
         assert all(line.transcription_confidence is not None for line in lines)
 
 
-def test_page_xml_has_the_golden_shape(full_run):
-    """Same elements and attributes as the golden reference (minus features the run does not produce)."""
+def test_page_xml_has_the_golden_io_shape(full_run):
+    """Same elements and attributes as the golden IO reference (minus features the run does not produce)."""
     _, _, _, out, _ = full_run
     assert_shape_within(signature(os.path.join(out['xml'], 'page_a.xml')),
-                        signature(golden_path('page_xml/reference_page.2019.xml')))
+                        signature(golden_io_path('page_xml/reference_page.2019.xml')))
 
 
-def test_alto_has_the_golden_shape(full_run):
+def test_alto_has_the_golden_io_shape(full_run):
     _, _, _, out, _ = full_run
     assert_shape_within(signature(os.path.join(out['alto'], 'page_a.xml')),
-                        signature(golden_path('alto/reference_page.v2.xml')))
+                        signature(golden_io_path('alto/reference_page.v2.xml')))
 
 
 def test_logits_match_page_xml(full_run):

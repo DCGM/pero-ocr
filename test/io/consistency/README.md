@@ -1,4 +1,4 @@
-# IO consistency checks: golden files
+# IO consistency checks: golden IO files
 
 This directory checks that pero-ocr keeps **writing** the same files and can still **read** the files it wrote before. It holds the checks and the committed data they compare against.
 
@@ -20,7 +20,7 @@ The output files are pero-ocr's interface. Production services, downstream tools
 - a reordered element
 - a new key in the logits pickle
 
-Unit tests that assert a few chosen values miss most of these, because nobody thinks to assert the thing that changed by accident. A golden file covers the whole document at once, so any change to the output fails a check, including changes nobody anticipated. When a change is intended, the updated golden file shows up in the diff of the commit, so a reviewer sees exactly what consumers of the output will see.
+Unit tests that assert a few chosen values miss most of these, because nobody thinks to assert the thing that changed by accident. A golden IO file covers the whole document at once, so any change to the output fails a check, including changes nobody anticipated. When a change is intended, the updated golden IO file shows up in the diff of the commit, so a reviewer sees exactly what consumers of the output will see.
 
 ## What is in `data/`
 
@@ -58,7 +58,7 @@ The pages are designed to cover the features the exporters handle:
 - `edge_page`: region-level text, an empty transcription, a line without logits, an Arabic line, YOLO-style category regions, and a page name with characters that ALTO has to sanitize.
 - `empty_page`: a page without any region.
 
-Timestamps (`Created`, `LastChange`, `processingDateTime`) change on every run, so they are replaced by `MASKED`, both in the files and when comparing. XML is compared after parsing, so whitespace does not matter. Logits are compared by content (keys, matrix type, dtype, shape, values) and by pickle protocol. The helpers for this are in `golden.py`.
+Timestamps (`Created`, `LastChange`, `processingDateTime`) change on every run, so they are replaced by `MASKED`, both in the files and when comparing. XML is compared after parsing, so whitespace does not matter. Logits are compared by content (keys, matrix type, dtype, shape, values) and by pickle protocol. The helpers for this are in `golden_io.py`.
 
 The files record **current** behaviour, not ideal behaviour, including known flaws. For example, ALTO coordinates can be negative, and words placed without logits run past the end of the line. Each known flaw also has a strict `xfail` test in `test/io/` that describes the correct behaviour. Fixing a flaw makes both that `xfail` test and the consistency check fail, so the fix has to remove the marker and regenerate the data. That makes the format change visible in review.
 
@@ -66,7 +66,7 @@ The files record **current** behaviour, not ideal behaviour, including known fla
 
 Regenerate the data whenever the output format changes **on purpose**, and commit it together with the code change:
 
-    pytest test/io/consistency --update-golden
+    pytest test/io/consistency --update-golden-io
 
 This rewrites `data/` from the current code and records the commit and library versions in `data/generated_with.json`. Review the diff of `data/` before committing, and mention the format change in the commit message or PR, since consumers of the output may need to adapt.
 

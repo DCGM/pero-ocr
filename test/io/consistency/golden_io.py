@@ -1,4 +1,4 @@
-"""Golden-file helpers: compare exporter output with the committed files in data/, or rewrite them with --update-golden."""
+"""Golden IO file helpers: compare exporter output with the committed files in data/, or rewrite them with --update-golden-io."""
 import difflib
 import os
 
@@ -6,7 +6,7 @@ import lxml.etree as ET
 import numpy as np
 import pytest
 
-GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+GOLDEN_IO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 MASKED = 'MASKED'
 # elements whose text changes on every run (timestamps)
 VOLATILE_ELEMENTS = {'Created', 'LastChange', 'processingDateTime'}
@@ -21,12 +21,12 @@ def normalize_xml(xml: str) -> str:
     return ET.tostring(root, pretty_print=True, encoding='utf-8', xml_declaration=True).decode('utf-8')
 
 
-def golden_path(name: str) -> str:
-    return os.path.join(GOLDEN_DIR, name)
+def golden_io_path(name: str) -> str:
+    return os.path.join(GOLDEN_IO_DIR, name)
 
 
-def check_golden_xml(name: str, actual_xml: str, update: bool):
-    path = golden_path(name)
+def check_golden_io_xml(name: str, actual_xml: str, update: bool):
+    path = golden_io_path(name)
     actual = normalize_xml(actual_xml)
     if update:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -34,13 +34,13 @@ def check_golden_xml(name: str, actual_xml: str, update: bool):
             f.write(actual)
         return
     if not os.path.exists(path):
-        pytest.fail(f'Golden file {path} does not exist, create it with: pytest test/io/consistency --update-golden')
+        pytest.fail(f'Golden file {path} does not exist, create it with: pytest test/io/consistency --update-golden-io')
     with open(path, encoding='utf-8') as f:
         expected = normalize_xml(f.read())
     if actual != expected:
         diff = ''.join(difflib.unified_diff(expected.splitlines(True), actual.splitlines(True),
                                             fromfile=f'data/{name}', tofile='current output'))
-        pytest.fail(f'Output differs from data/{name}. If the change is intended, rerun with --update-golden '
+        pytest.fail(f'Output differs from data/{name}. If the change is intended, rerun with --update-golden-io '
                     f'and commit the updated file.\n{diff}')
 
 

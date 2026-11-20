@@ -15,8 +15,8 @@ REPO_DIR = os.path.dirname(TEST_DIR)
 
 
 def pytest_addoption(parser):
-    parser.addoption('--update-golden', action='store_true', default=False,
-                     help='Rewrite the golden files in test/io/consistency/data from the current code instead of comparing.')
+    parser.addoption('--update-golden-io', action='store_true', default=False,
+                     help='Rewrite the golden IO files in test/io/consistency/data from the current code instead of comparing.')
     parser.addoption('--update-frozen-models', action='store_true', default=False,
                      help='Rewrite the frozen tiny models in test/engines/consistency/data from the current code. Only after a '
                           'deliberate break of the model format: this resets the backward-compatibility check.')
@@ -49,8 +49,8 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(scope='session')
-def update_golden(request):
-    return request.config.getoption('--update-golden')
+def update_golden_io(request):
+    return request.config.getoption('--update-golden-io')
 
 
 @pytest.fixture(scope='session')

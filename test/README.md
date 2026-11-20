@@ -13,7 +13,7 @@
 |---|---|---|
 | `unit/` | single functions and classes | CPU |
 | `io/` | PAGE XML / ALTO / logits: round trips, single features, known bugs | CPU |
-| `io/consistency/` | the exporters still write the committed golden files, and the committed PAGE XML still reads back | CPU |
+| `io/consistency/` | the exporters still write the committed golden IO files, and the committed PAGE XML still reads back | CPU |
 | `engines/` | OCR and layout engines driven by tiny torchscript models | CPU |
 | `engines/consistency/` | models frozen from an older version still load and give the same results | CPU |
 | `cli/` | `user_scripts/parse_folder.py` end to end | CPU, ~20 s |
@@ -26,10 +26,10 @@ The general tests check what the code does now. The consistency checks compare t
 
 | | `io/consistency/` | `engines/consistency/` |
 |---|---|---|
-| snapshot in `data/` | golden PAGE XML, ALTO and logits files | frozen tiny torchscript models |
+| snapshot in `data/` | golden IO files: PAGE XML, ALTO and logits | frozen tiny torchscript models |
 | guards | the output format (and reading PAGE XML back) | loading of previously exported models |
 | made from | hand-built pages in `io/reference_layout.py` | stand-ins in `tiny_models.py` |
-| regenerate | `pytest test/io/consistency --update-golden` | `pytest test/engines/consistency --update-frozen-models` |
+| regenerate | `pytest test/io/consistency --update-golden-io` | `pytest test/engines/consistency --update-frozen-models` |
 | regenerate when | the output format changes on purpose | the model format is broken on purpose (rarely) |
 
 Regenerating rewrites `data/` and records the commit and library versions in `data/generated_with.json`. Never regenerate just to make a failing check pass. Each directory's README explains its snapshot and what to do when a check fails.
