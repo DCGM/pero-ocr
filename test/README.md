@@ -33,7 +33,9 @@ Each tier tests its own logic and treats the tier below as a black box:
 | `METHOD = LAYOUT_YOLO` | `LayoutExtractorYolo`, `LayoutEngineYolo` | `test_layout_yolo.py` |
 | `METHOD = REGION_SORTER_SMART`, `REGION_SORTER_NAIVE` | `SmartRegionSorter`, `NaiveRegionSorter` | `test_region_sorters.py` |
 | `METHOD = REGION_SORTER_TRANSFORMER` | `TransformerRegionSorter` | `test_region_sorter_transformer.py` |
-| `METHOD = REGION_WHOLE_PAGE`, `LINE_POSTPROCESSING`, `LAYOUT_POSTPROCESSING` | `WholePageRegion`, `LinePostprocessor`, `LayoutPostprocessor` | `test_layout_postprocessing.py` |
+| `METHOD = REGION_WHOLE_PAGE` | `WholePageRegion` | `test_region_whole_page.py` |
+| `METHOD = LINE_POSTPROCESSING` | `LinePostprocessor`, `PostprocessingEngine` | `test_line_postprocessing.py` |
+| `METHOD = LAYOUT_POSTPROCESSING` | `LayoutPostprocessor` (`layout_helpers.retrace_region`) | `test_layout_postprocessing.py` |
 | `[LINE_CROPPER]` | `LineCropper`, `EngineLineCropper` | `test_line_cropper.py` |
 | `[OCR]` | `PageOCR`, `PytorchEngineLineOCR`, `TransformerEngineLineOCR` | `test_page_ocr.py`, `test_ctc_engine.py`, `test_transformer_engine.py` |
 | `[DECODER]` | `PageDecoder`, the decoders, the language model | `test_page_decoder.py`, `test_lm.py` |
