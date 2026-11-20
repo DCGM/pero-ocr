@@ -14,18 +14,18 @@
 | `io/` | PAGE XML / ALTO / logits format contract: golden files and round trips | CPU |
 | `engines/` | OCR and layout engines driven by tiny torchscript models | CPU |
 | `cli/` | `user_scripts/parse_folder.py` end to end | CPU, ~20 s |
-| `data/golden/` | reference exporter outputs | |
-| `data/models/` | frozen tiny models: the backward-compatibility check for exported models | |
+| `io/data/` | reference exporter outputs | |
+| `engines/data/` | frozen tiny models: the backward-compatibility check for exported models | |
 
 The markers `gpu`, `models` (real models, `PERO_TEST_MODELS`) and `regression` (the external page sample, `PERO_TEST_DATA`) are deselected by default.
 
 ## Tiny models
 
-pero-ocr loads every network as a torchscript file, so the engine tests use small stand-ins (`tiny_models.py`) that follow the same calling contract and read synthetic bright-on-black images (`synthetic.py`) predictably. For example, a line crop with *n* bright blocks decodes to *n* characters. The stand-ins are built from the current code for each test session. `data/models/` holds copies frozen from an older version, to check that previously exported models keep working. See `data/models/README.md` for the motivation.
+pero-ocr loads every network as a torchscript file, so the engine tests use small stand-ins (`tiny_models.py`) that follow the same calling contract and read synthetic bright-on-black images (`synthetic.py`) predictably. For example, a line crop with *n* bright blocks decodes to *n* characters. The stand-ins are built from the current code for each test session. `engines/data/` holds copies frozen from an older version, to check that previously exported models keep working. See `engines/data/README.md` for the motivation.
 
 ## Golden files
 
-`io/` exports a hand-built `PageLayout` (`io/reference_layout.py`) and compares the result with `data/golden/`. Timestamps are masked. If a change to the output format is intended, regenerate the golden files and commit them together with the change, so that the format change shows up in the diff. See `data/golden/README.md` for the motivation and what each file covers:
+`io/` exports a hand-built `PageLayout` (`io/reference_layout.py`) and compares the result with `io/data/`. Timestamps are masked. If a change to the output format is intended, regenerate the golden files and commit them together with the change, so that the format change shows up in the diff. See `io/data/README.md` for the motivation and what each file covers:
 
     pytest test/io --update-golden
 

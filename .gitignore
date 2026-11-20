@@ -135,4 +135,5 @@ ENV/
 *.swp
 
 # test fixtures are committed on purpose
-!test/data/**
+!test/io/data/**
+!test/engines/data/**

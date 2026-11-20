@@ -49,4 +49,4 @@ Generated from:
 
 Regenerate them only on purpose: after a deliberate, announced break of the model format, or when you add a new kind of stand-in. Commit the new files together with that change and update the versions above.
 
-    python -m test.tiny_models test/data/models
+    python -m test.tiny_models test/engines/data

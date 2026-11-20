@@ -5,9 +5,7 @@ import os
 import lxml.etree as ET
 import pytest
 
-from test.conftest import DATA_DIR
-
-GOLDEN_DIR = os.path.join(DATA_DIR, 'golden')
+GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 MASKED = 'MASKED'
 # elements whose text changes on every run (timestamps)
 VOLATILE_ELEMENTS = {'Created', 'LastChange', 'processingDateTime'}

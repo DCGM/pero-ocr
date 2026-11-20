@@ -56,6 +56,6 @@ The files were generated from develop @ 81b496e and contain what pero-ocr produc
 
        pytest test/io --update-golden
 
-   Review the diff of `test/data/golden/` before committing. Mention the format change in the commit message or PR, since consumers of the output may need to adapt.
+   Review the diff of `test/io/data/` before committing. Mention the format change in the commit message or PR, since consumers of the output may need to adapt.
 
 Never edit these files by hand, and never regenerate them just to make a failing test pass without understanding the diff.

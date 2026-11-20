@@ -111,7 +111,7 @@ def test_greedy_decode_ctc_collapses_repeats_and_blanks():
 
 
 def test_frozen_model_still_works(engine, cpu):
-    """A model exported by an older pero-ocr/torch (test/data/models) loads and gives the same output."""
+    """A model exported by an older pero-ocr/torch (test/engines/data) loads and gives the same output."""
     frozen = PytorchEngineLineOCR(os.path.join(FROZEN_MODELS, 'ctc', 'ocr_engine.json'), cpu)
     lines = [line_image(n) for n in (0, 1, 4)]
     frozen_out, fresh_out = frozen.process_lines(lines), engine.process_lines(lines)

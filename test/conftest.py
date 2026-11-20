@@ -6,14 +6,13 @@ import torch
 from test import tiny_models
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(TEST_DIR, 'data')
-FROZEN_MODELS = os.path.join(DATA_DIR, 'models')
+FROZEN_MODELS = os.path.join(TEST_DIR, 'engines', 'data')
 REPO_DIR = os.path.dirname(TEST_DIR)
 
 
 def pytest_addoption(parser):
     parser.addoption('--update-golden', action='store_true', default=False,
-                     help='Rewrite the golden files in test/data/golden from the current code instead of comparing.')
+                     help='Rewrite the golden files in test/io/data from the current code instead of comparing.')
 
 
 def pytest_collection_modifyitems(config, items):

@@ -97,7 +97,7 @@ def test_order_is_kept_with_batching_by_width(engine):
 
 @pytest.mark.parametrize('beam_size', [1, 3])
 def test_frozen_model_still_works(transformer_json, cpu, beam_size):
-    """A model exported by an older pero-ocr/torch (test/data/models) loads and gives the same output."""
+    """A model exported by an older pero-ocr/torch (test/engines/data) loads and gives the same output."""
     frozen = TransformerEngineLineOCR(os.path.join(FROZEN_MODELS, 'transformer', 'ocr_engine.json'), cpu,
                                       beam_size=beam_size)
     fresh = TransformerEngineLineOCR(transformer_json, cpu, beam_size=beam_size)

@@ -57,7 +57,7 @@ def test_rotated_detection_returns_page_coordinates(engine):
 
 
 def test_frozen_model_still_works(engine, cpu):
-    """A model exported by an older pero-ocr/torch (test/data/models) loads and gives the same output."""
+    """A model exported by an older pero-ocr/torch (test/engines/data) loads and gives the same output."""
     frozen = LayoutEngine(os.path.join(FROZEN_MODELS, 'parsenet', 'parsenet.pt'), cpu, downsample=4,
                           detection_threshold=0.2, max_mp=5)
     page = page_image(3)
