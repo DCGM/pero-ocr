@@ -1,0 +1,62 @@
+<?xml version='1.0' encoding='utf-8'?>
+<alto xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.loc.gov/standards/alto/ns-v2#">
+  <Description>
+    <MeasurementUnit>pixel</MeasurementUnit>
+    <sourceImageInformation>
+      <fileName>reference_page.jpg</fileName>
+    </sourceImageInformation>
+    <OCRProcessing ID="IdOcrCustom">
+      <ocrProcessingStep>
+        <processingDateTime>MASKED</processingDateTime>
+        <processingSoftware>
+          <softwareCreator>Creator</softwareCreator>
+          <softwareName>Name</softwareName>
+          <softwareVersion>v9.9.9</softwareVersion>
+        </processingSoftware>
+      </ocrProcessingStep>
+    </OCRProcessing>
+  </Description>
+  <Layout>
+    <Page ID="id_0f1e2d3c-page-uuid" PHYSICAL_IMG_NR="1" HEIGHT="1000" WIDTH="800">
+      <TopMargin HEIGHT="50" WIDTH="800" VPOS="0" HPOS="0"/>
+      <LeftMargin HEIGHT="1000" WIDTH="-15" VPOS="0" HPOS="0"/>
+      <RightMargin HEIGHT="1000" WIDTH="0" VPOS="0" HPOS="800"/>
+      <BottomMargin HEIGHT="0" WIDTH="800" VPOS="1000" HPOS="0"/>
+      <PrintSpace HEIGHT="950" WIDTH="815" VPOS="50" HPOS="-15">
+        <TextBlock ID="block_r001" HEIGHT="180" WIDTH="720" VPOS="50" HPOS="40">
+          <TextLine ID="line_r001-l001" BASELINE="101" VPOS="88" HPOS="60" HEIGHT="18" WIDTH="680">
+            <String CONTENT="hello" HEIGHT="17" WIDTH="181" VPOS="87" HPOS="59" WC="0.99"/>
+            <SP WIDTH="4" VPOS="87" HPOS="240"/>
+            <String CONTENT="world," HEIGHT="17" WIDTH="230" VPOS="88" HPOS="241" WC="1.0"/>
+            <SP WIDTH="4" VPOS="88" HPOS="472"/>
+            <String CONTENT="hyphen-" HEIGHT="17" WIDTH="265" VPOS="87" HPOS="473" WC="1.0" SUBS_CONTENT="hyphenated" SUBS_TYPE="HypPart1"/>
+          </TextLine>
+          <TextLine ID="line_r001-l002" BASELINE="150" VPOS="137" HPOS="60" HEIGHT="18" WIDTH="460">
+            <String CONTENT="ated" HEIGHT="17" WIDTH="196" VPOS="137" HPOS="59" WC="0.99" SUBS_CONTENT="hyphenated" SUBS_TYPE="HypPart2"/>
+            <SP WIDTH="4" VPOS="137" HPOS="255"/>
+            <String CONTENT="text." HEIGHT="17" WIDTH="262" VPOS="137" HPOS="257" WC="0.99"/>
+          </TextLine>
+        </TextBlock>
+        <TextBlock ID="block_r002" HEIGHT="180" WIDTH="720" VPOS="300" HPOS="40">
+          <TextLine ID="line_r002-l001" BASELINE="350" VPOS="337" HPOS="60" HEIGHT="18" WIDTH="680">
+            <String CONTENT="Příliš" HEIGHT="17" WIDTH="213" VPOS="337" HPOS="59" WC="1.0"/>
+            <SP WIDTH="4" VPOS="337" HPOS="273"/>
+            <String CONTENT="žluťoučký" HEIGHT="17" WIDTH="331" VPOS="338" HPOS="274" WC="1.0"/>
+            <SP WIDTH="4" VPOS="338" HPOS="606"/>
+            <String CONTENT="kůň" HEIGHT="17" WIDTH="132" VPOS="337" HPOS="607" WC="1.0"/>
+          </TextLine>
+          <TextLine ID="line_r002-l002" BASELINE="400" VPOS="387" HPOS="60" HEIGHT="18" WIDTH="340">
+            <String CONTENT="Header line" HEIGHT="18" WIDTH="340" VPOS="387" HPOS="60" WC="1.0"/>
+          </TextLine>
+        </TextBlock>
+        <TextBlock ID="block_r003" HEIGHT="80" WIDTH="315" VPOS="520" HPOS="-15">
+          <TextLine ID="line_r003-l001" BASELINE="570" VPOS="557" HPOS="-10" HEIGHT="18" WIDTH="290">
+            <String CONTENT="margin" HEIGHT="17" WIDTH="162" VPOS="557" HPOS="-10" WC="1.0"/>
+            <SP WIDTH="4" VPOS="557" HPOS="152"/>
+            <String CONTENT="note" HEIGHT="17" WIDTH="126" VPOS="557" HPOS="153" WC="1.0"/>
+          </TextLine>
+        </TextBlock>
+      </PrintSpace>
+    </Page>
+  </Layout>
+</alto>

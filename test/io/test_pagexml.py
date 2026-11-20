@@ -6,7 +6,7 @@ import pytest
 
 from pero_ocr.core.layout import PageLayout, PAGEVersion
 from test.io.golden import check_golden_xml, golden_path
-from test.io.reference_layout import build_reference_layout
+from test.io.reference_layout import build_reference_layout, build_edge_layout, build_empty_layout
 
 PAGE_2019 = 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15'
 
@@ -110,3 +110,42 @@ def test_custom_attribute_is_json(layout):
     for el in root.iter('{*}TextRegion', '{*}TextLine'):
         if el.get('custom') is not None:
             json.loads(el.get('custom'))
+
+
+# --- edge cases --------------------------------------------------------------------------------------------------
+
+def test_golden_page_2019_validate_id(layout, update_golden):
+    check_golden_xml('reference_page.page_2019.validate_id.xml', layout.to_pagexml_string(validate_id=True),
+                     update_golden)
+
+
+@pytest.mark.parametrize('version, suffix', [(PAGEVersion.PAGE_2019_07_15, 'page_2019'),
+                                             (PAGEVersion.PAGE_2013_07_15, 'page_2013')])
+def test_golden_edge_page(version, suffix, update_golden):
+    check_golden_xml(f'edge_page.{suffix}.xml', build_edge_layout().to_pagexml_string(version=version),
+                     update_golden)
+
+
+def test_golden_empty_page(update_golden):
+    check_golden_xml('empty_page.page_2019.xml', build_empty_layout().to_pagexml_string(), update_golden)
+
+
+def test_edge_page_round_trip():
+    edge = build_edge_layout()
+    loaded = PageLayout()
+    loaded.from_pagexml_string(edge.to_pagexml_string())
+    assert loaded.id == 'scan 01#(a).tif'
+    r1, r2, r3 = loaded.regions
+    assert r1.transcription == 'region level text'
+    assert [line.transcription for line in r1.lines] == ['', 'text without logits', edge.regions[0].lines[2].transcription,
+                                                         'abc def']
+    assert r1.lines[0].transcription_confidence is None
+    assert (r2.category, r2.detection_confidence) == ('barcode', 0.512)
+    assert r2.lines[0].category == 'barcode' and r2.lines[0].transcription is None
+    assert (r3.category, r3.lines[0].transcription) == ('title', 'Big Title')
+
+
+def test_empty_page_round_trip():
+    loaded = PageLayout()
+    loaded.from_pagexml_string(build_empty_layout().to_pagexml_string())
+    assert (loaded.id, loaded.page_size, loaded.regions) == ('empty_page.jpg', (400, 300), [])

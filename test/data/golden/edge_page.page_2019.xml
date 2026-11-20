@@ -1,0 +1,61 @@
+<?xml version='1.0' encoding='utf-8'?>
+<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15/pagecontent.xsd">
+  <Metadata>
+    <Creator>Pero OCR</Creator>
+    <Created>MASKED</Created>
+    <LastChange>MASKED</LastChange>
+  </Metadata>
+  <Page imageFilename="scan 01#(a).tif" imageWidth="500" imageHeight="600">
+    <TextRegion id="r001">
+      <Coords points="20,20 480,20 480,260 20,260"/>
+      <TextEquiv>
+        <Unicode>region level text</Unicode>
+      </TextEquiv>
+      <TextLine id="r001-l001" index="0" custom="{&quot;heights&quot;: [12.4, 4.6]}">
+        <Coords points="40,48 250,49 460,48 460,65 250,66 40,65"/>
+        <Baseline points="40,60 250,61 460,60"/>
+        <TextEquiv>
+          <Unicode/>
+        </TextEquiv>
+      </TextLine>
+      <TextLine id="r001-l002" index="1" custom="{&quot;heights&quot;: [12.4, 4.6]}">
+        <Coords points="40,98 250,99 460,98 460,115 250,116 40,115"/>
+        <Baseline points="40,110 250,111 460,110"/>
+        <TextEquiv>
+          <Unicode>text without logits</Unicode>
+        </TextEquiv>
+      </TextLine>
+      <TextLine id="r001-l003" index="2" custom="{&quot;heights&quot;: [12.4, 4.6]}">
+        <Coords points="40,148 250,149 460,148 460,165 250,166 40,165"/>
+        <Baseline points="40,160 250,161 460,160"/>
+        <TextEquiv conf="0.993">
+          <Unicode>ملاعلاب ابحرم</Unicode>
+        </TextEquiv>
+      </TextLine>
+      <TextLine id="r001-l004" index="3" custom="{&quot;heights&quot;: [12.4, 4.6]}">
+        <Coords points="40,198 250,199 460,198 460,215 250,216 40,215"/>
+        <Baseline points="40,210 250,211 460,210"/>
+        <TextEquiv conf="0.993">
+          <Unicode>abc def</Unicode>
+        </TextEquiv>
+      </TextLine>
+    </TextRegion>
+    <TextRegion id="r002" custom="{&quot;category&quot;: &quot;barcode&quot;, &quot;detection_confidence&quot;: 0.512}">
+      <Coords points="30,300 30,380 230,380 230,300 30,300"/>
+      <TextLine id="r002-l000" index="0" custom="{&quot;heights&quot;: [40.0, 40.0], &quot;category&quot;: &quot;barcode&quot;}">
+        <Coords points="30,300 30,380 230,380 230,300 30,300"/>
+        <Baseline points="30,340 230,340"/>
+      </TextLine>
+    </TextRegion>
+    <TextRegion id="r003" custom="{&quot;category&quot;: &quot;title&quot;, &quot;detection_confidence&quot;: 0.9}">
+      <Coords points="250,300 250,340 470,340 470,300 250,300"/>
+      <TextLine id="r003-l000" index="0" custom="{&quot;heights&quot;: [12.4, 4.6], &quot;category&quot;: &quot;title&quot;}">
+        <Coords points="250,318 360,319 470,318 470,335 360,336 250,335"/>
+        <Baseline points="250,330 360,331 470,330"/>
+        <TextEquiv conf="0.995">
+          <Unicode>Big Title</Unicode>
+        </TextEquiv>
+      </TextLine>
+    </TextRegion>
+  </Page>
+</PcGts>

@@ -4,7 +4,7 @@ import pytest
 
 from pero_ocr.core.layout import ALTOVersion, PageLayout, RegionLayout, TextLine
 from test.io.golden import check_golden_xml
-from test.io.reference_layout import build_reference_layout, ctc_logits, CHARACTERS
+from test.io.reference_layout import build_reference_layout, build_edge_layout, build_empty_layout, ctc_logits, CHARACTERS
 
 ALTO_V2 = 'http://www.loc.gov/standards/alto/ns-v2#'
 ALTO_V4 = 'http://www.loc.gov/standards/alto/ns-v4#'
@@ -122,3 +122,46 @@ def test_coords_are_non_negative(layout):
         for attr in ('HPOS', 'VPOS', 'WIDTH', 'HEIGHT'):
             if el.get(attr) is not None:
                 assert int(el.get(attr)) >= 0, (ET.QName(el).localname, el.get('ID'), attr, el.get(attr))
+
+
+# --- edge cases --------------------------------------------------------------------------------------------------
+
+def test_golden_alto_with_page_uuid_and_processing_element(layout, update_golden):
+    from pero_ocr.core.layout import create_ocr_processing_element
+    processing = create_ocr_processing_element(id='IdOcrCustom', software_creator_str='Creator',
+                                               software_name_str='Name', software_version_str='v9.9.9',
+                                               processing_datetime='2026-01-01T00:00:00')
+    xml = layout.to_altoxml_string(ocr_processing_element=processing, page_uuid='0f1e2d3c-page-uuid')
+    check_golden_xml('reference_page.alto_v2.page_uuid.xml', xml, update_golden)
+
+
+@pytest.mark.parametrize('version, suffix', [(ALTOVersion.ALTO_v2_x, 'alto_v2'), (ALTOVersion.ALTO_v4_4, 'alto_v4')])
+def test_golden_edge_page(version, suffix, update_golden):
+    check_golden_xml(f'edge_page.{suffix}.xml', build_edge_layout().to_altoxml_string(version=version), update_golden)
+
+
+def test_golden_empty_page(update_golden):
+    check_golden_xml('empty_page.alto_v2.xml', build_empty_layout().to_altoxml_string(), update_golden)
+
+
+def test_edge_page_content():
+    xml = build_edge_layout().to_altoxml_string()
+    root = ET.fromstring(xml.encode())
+    assert root.find('.//{*}Page').get('ID') == 'id_scan_01__a_.tif'
+    lines = {line.get('ID'): [s.get('CONTENT') for s in line.iter('{*}String')] for line in root.iter('{*}TextLine')}
+    assert lines == {
+        'line_r001-l002': ['text', 'without', 'logits'],       # even spacing, no alignment possible
+        'line_r001-l003': ['بالعالم', 'مرحبا'],                   # label form converted back to logical order
+        'line_r001-l004': ['abc', 'def'],
+        'line_r003-l000': ['Big Title'],                       # non-text category: one String per line
+    }                                                          # empty and untranscribed lines are left out
+
+
+@pytest.mark.xfail(reason='the even-spacing fallback computes the word width from hpos + width instead of width, '
+                          'so words run past the end of the line', strict=True)
+def test_fallback_word_boxes_stay_inside_the_line():
+    root = ET.fromstring(build_edge_layout().to_altoxml_string().encode())
+    line = root.find(".//{*}TextLine[@ID='line_r001-l002']")
+    line_end = int(line.get('HPOS')) + int(line.get('WIDTH'))
+    for s in line.iter('{*}String'):
+        assert int(s.get('HPOS')) + int(s.get('WIDTH')) <= line_end, s.get('CONTENT')

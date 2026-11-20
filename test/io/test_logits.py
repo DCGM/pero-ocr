@@ -108,3 +108,37 @@ def test_load_legacy_logits_without_metadata(layout, tmp_path):
     line = loaded.regions[0].lines[0]
     assert line.characters is None
     assert line.logit_coords == [None, None]
+
+
+# --- variants ----------------------------------------------------------------------------------------------------
+
+GOLDEN_LOGITS_BYTES = 'reference_page.logits_bytes'
+GOLDEN_EDGE_LOGITS = 'edge_page.logits'
+
+
+def _check_golden_pickle(name, data: bytes, update_golden):
+    if update_golden:
+        with open(golden_path(name), 'wb') as f:
+            f.write(data)
+        return
+    with open(golden_path(name), 'rb') as f:
+        golden = f.read()
+    assert data[:2] == golden[:2], f'pickle protocol changed: {data[:2]!r} vs golden {golden[:2]!r}'
+    _assert_logit_dicts_equal(pickle.loads(data), pickle.loads(golden))
+
+
+def test_golden_logits_bytes(layout, update_golden):
+    """save_logits_bytes() pickles with HIGHEST_PROTOCOL, unlike the protocol 4 of save_logits()."""
+    _check_golden_pickle(GOLDEN_LOGITS_BYTES, layout.save_logits_bytes(missing_line_logits_ok=True), update_golden)
+
+
+def test_golden_edge_page_logits(update_golden):
+    from test.io.reference_layout import build_edge_layout
+    _check_golden_pickle(GOLDEN_EDGE_LOGITS, build_edge_layout().save_logits_bytes(missing_line_logits_ok=True),
+                         update_golden)
+
+
+def test_empty_page_logits():
+    from test.io.reference_layout import build_empty_layout
+    data = pickle.loads(build_empty_layout().save_logits_bytes())
+    assert data == {'line_characters': {}, 'logit_coords': {}}
