@@ -12,6 +12,9 @@ of the input image, so tests can predict it:
   (cycling over ``characters[1:]``), then the end-of-sequence token. With ``stop=False`` it never emits the end token.
 * ParseNet: a baseline is the bottom row of every block of ink, ascender/descender heights are constants and there
   are no line endpoints or region separators.
+* Language model (brnolm torchscript format): the state is the last character seen, ignoring the line separator
+  ``</s>``, so the state carries over line ends. After ``LM_PREFERS[0]`` the LM strongly prefers ``LM_PREFERS[1]``;
+  every other context gives a uniform distribution.
 
 The frozen copies in ``test/engines/consistency/data`` are regenerated with
 ``python test/engines/consistency/data/regenerate.py``.
@@ -27,6 +30,8 @@ from torch.nn import functional as F
 
 CHARACTERS = ['�', 'a', 'b', 'c', 'd', ' ']
 LINE_PX_HEIGHT = 40
+LM_PREFERS = ('a', 'b')  # after 'a', the tiny LM strongly prefers 'b'
+LM_PREFERENCE = 6.0
 PARSENET_ASCENDER = 10.0
 PARSENET_DESCENDER = 3.0
 
@@ -111,6 +116,50 @@ class TinyParseNet(nn.Module):
         return maps, maps
 
 
+class TinyLMModel(nn.Module):
+    """brnolm-style LM body: (tokens, (h, c)) -> (outputs, (h, c)); the state is a one-hot of the last non-</s> token."""
+
+    def __init__(self, vocab_size: int, eos: int = 0):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.eos = eos
+        self.register_buffer('device_holder', torch.zeros(1))
+
+    def forward(self, x: Tensor, h: Tuple[Tensor, Tensor]) -> Tuple[Tensor, Tuple[Tensor, Tensor]]:
+        state = h[0][-1]  # B,V
+        outputs = []
+        for t in range(x.shape[1]):
+            token = x[:, t]
+            one_hot = F.one_hot(token, self.vocab_size).to(state.dtype)
+            keep = (token == self.eos).to(state.dtype).unsqueeze(1)
+            state = keep * state + (1.0 - keep) * one_hot
+            outputs.append(state)
+        return torch.stack(outputs, dim=1), (state.unsqueeze(0), h[1])
+
+    @torch.jit.export
+    def init_hidden(self, batch_size: int) -> Tuple[Tensor, Tensor]:
+        zeros = torch.zeros(1, batch_size, self.vocab_size, device=self.device_holder.device)
+        return zeros, zeros.clone()
+
+
+class TinyLMDecoder(nn.Module):
+    """State -> log-probabilities of the next token: uniform, except the preferences given as a V x V matrix."""
+
+    def __init__(self, preferences: Tensor):
+        super().__init__()
+        self.register_buffer('preferences', preferences)
+
+    def forward(self, o: Tensor) -> Tensor:
+        return F.log_softmax(o @ self.preferences, dim=-1)
+
+
+class _LanguageModelParts:
+    """What brnolm's torchscript_export() reads: .model, .decoder and .vocab."""
+
+    def __init__(self, model, decoder, vocab):
+        self.model, self.decoder, self.vocab = model, decoder, vocab
+
+
 def _save_script(module: nn.Module, path: str) -> str:
     """Save as torchscript; the engines append '.cpu' to the path on CPU, so write both."""
     scripted = torch.jit.script(module.eval())
@@ -164,10 +213,31 @@ def write_parsenet(directory: str) -> str:
     return _save_script(TinyParseNet(), os.path.join(directory, 'parsenet.pt'))
 
 
-def write_all(directory: str) -> dict:
-    return {
-        'ctc': write_ctc(os.path.join(directory, 'ctc')),
-        'transformer': write_transformer(os.path.join(directory, 'transformer')),
-        'parsenet': write_parsenet(os.path.join(directory, 'parsenet')),
-    }
+def write_lm(directory: str, characters=CHARACTERS) -> str:
+    """Write a language model in brnolm's torchscript zip format, return its path.
+
+    The vocabulary is ['</s>', '<unk>'] + characters: pero-ocr maps OCR character i to LM token i + 2."""
+    from brnolm.language_models.language_model import torchscript_export
+    os.makedirs(directory, exist_ok=True)
+    vocab_list = ['</s>', '<unk>'] + list(characters)
+    vocab = {symbol: i for i, symbol in enumerate(vocab_list)}
+    preferences = torch.zeros(len(vocab_list), len(vocab_list))
+    preferences[vocab[LM_PREFERS[0]], vocab[LM_PREFERS[1]]] = LM_PREFERENCE
+    parts = _LanguageModelParts(TinyLMModel(len(vocab_list)).eval(), TinyLMDecoder(preferences).eval(), vocab)
+    path = os.path.join(directory, 'lm.pt')
+    torchscript_export(parts, path)
+    return path
+
+
+WRITERS = {
+    'ctc': lambda d: write_ctc(os.path.join(d, 'ctc')),
+    'transformer': lambda d: write_transformer(os.path.join(d, 'transformer')),
+    'parsenet': lambda d: write_parsenet(os.path.join(d, 'parsenet')),
+    'lm': lambda d: write_lm(os.path.join(d, 'lm')),
+}
+
+
+def write_all(directory: str, names=None) -> dict:
+    """Write the stand-ins ``names`` (default: all of WRITERS) into subdirectories of ``directory``."""
+    return {name: WRITERS[name](directory) for name in (names or WRITERS)}
 

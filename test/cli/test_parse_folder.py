@@ -61,22 +61,26 @@ USE_CPU = yes
 [DECODER]
 TYPE = FAST-LOG-RAW
 BEAM_SIZE = 4
-LM_SCALE = 0.0
+LM_SCALE = {lm_scale}
 USE_CPU = yes
-"""
+{lm_line}"""
 
 
-def write_engine(directory, transformer=False, layout=True, decoder=False):
+def write_engine(directory, transformer=False, layout=True, decoder=False, lm=False):
     os.makedirs(directory, exist_ok=True)
     tiny_models.write_parsenet(os.path.join(directory, 'layout'))
     if transformer:
         tiny_models.write_transformer(os.path.join(directory, 'ocr'))
     else:
         tiny_models.write_ctc(os.path.join(directory, 'ocr'))
+    if lm:
+        tiny_models.write_lm(os.path.join(directory, 'language_model'))
     config = os.path.join(directory, 'config.ini')
     with open(config, 'w') as f:
         f.write(ENGINE_CONFIG.format(method='pytorch_ocr-transformer' if transformer else 'pytorch_ocr',
-                                     layout='yes' if layout else 'no', decoder='yes' if decoder else 'no'))
+                                     layout='yes' if layout else 'no', decoder='yes' if decoder else 'no',
+                                     lm_scale='0.4' if lm else '0.0',
+                                     lm_line='LM = ./language_model/lm.pt\nINSERTION_BONUS = 1.0\n' if lm else ''))
     return config
 
 
@@ -254,3 +258,18 @@ def test_missing_config(tmp_path):
     result = run('-c', str(tmp_path / 'nope.ini'), '-i', str(tmp_path))
     assert result.returncode != 0
     assert 'Config file does not exist' in result.stdout
+
+
+def test_full_run_with_language_model(tmp_path):
+    """The shape of the production LM job: layout + CTC OCR + FAST-LOG-RAW decoding with a torchscript LM."""
+    config = write_engine(str(tmp_path / 'engine'), decoder=True, lm=True)
+    images = write_images(str(tmp_path / 'images'))
+    result = run('-c', config, '-i', images, '--output-xml-path', str(tmp_path / 'xml'),
+                 '--output-alto-path', str(tmp_path / 'alto'), '--output-logit-path', str(tmp_path / 'logits'))
+    assert result.returncode == 0, result.stderr
+    assert 'ERROR: Failed to process file' not in result.stdout, result.stdout
+    for name, n_lines in PAGES.items():
+        layout = PageLayout(file=str(tmp_path / 'xml' / (name + '.xml')))
+        assert [line.transcription for line in layout.lines_iterator()] == ['a'] * n_lines
+        assert (tmp_path / 'alto' / (name + '.xml')).exists()
+        assert (tmp_path / 'logits' / (name + '.logits')).exists()

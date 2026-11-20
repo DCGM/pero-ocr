@@ -252,3 +252,32 @@ def test_init_config_sections_order(cpu):
         CROPPER.replace('{suffix}', s) for s in ['', '_2', '_10', '_1']))
     parser = pp.PageParser(config, device=cpu)
     assert set(parser.line_croppers) == {'-1', '1', '2', '10'}
+
+
+LM_DECODER = """
+[DECODER]
+TYPE = FAST-LOG-RAW
+BEAM_SIZE = 8
+LM = ./lm/lm.pt
+LM_SCALE = 0.4
+INSERTION_BONUS = 1.0
+USE_CPU = yes
+"""
+
+
+@pytest.mark.parametrize('extra, decoded', [
+    ('', 3),                                 # without a threshold every line is decoded
+    ('CARRY_H_OVER = yes\n', 3),
+    ('CONFIDENCE_THRESHOLD = 0.66\n', 0),    # the tiny OCR is sure of every line, so none needs decoding
+])
+def test_decoder_with_language_model(parsenet_path, ctc_json, cpu, tmp_path, extra, decoded):
+    """The shape of the production LM config: layout + CTC OCR + FAST-LOG-RAW with a torchscript LM."""
+    from pero_ocr.decoding.lm_wrapper import LMWrapper
+    tiny_models.write_lm(str(tmp_path / 'lm'))
+    config = full_config(parsenet_path, ctc_json, extra=LM_DECODER + extra)
+    config['PAGE_PARSER']['RUN_DECODER'] = 'yes'
+    parser = pp.PageParser(config, device=cpu, config_path=str(tmp_path))
+    assert isinstance(parser.decoder.decoder._lm, LMWrapper)
+    layout = parser.process_page(PAGE, new_page())
+    assert [line.transcription for line in layout.lines_iterator()] == ['a'] * 3
+    assert (parser.decoder.lines_examined, parser.decoder.lines_decoded) == (3, decoded)

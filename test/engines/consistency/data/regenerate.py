@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Recreate the frozen tiny models in this directory with the current pero-ocr code.
+"""Recreate frozen tiny models in this directory with the current pero-ocr code.
 
-    python test/engines/consistency/data/regenerate.py
+    python test/engines/consistency/data/regenerate.py            # all models
+    python test/engines/consistency/data/regenerate.py lm         # only the named ones, e.g. a newly added stand-in
 
-Only after a deliberate, announced break of the model format, or to add a new kind of stand-in model. These models
-are meant to stay old: regenerating them resets the check that previously exported models still work.
+Regenerate all models only after a deliberate, announced break of the model format. These models are meant to stay
+old: regenerating a model resets the check that previously exported models of that kind still work. To add a new kind
+of stand-in, name only that one, so the existing frozen models stay untouched. Each model directory gets its own
+generated_with.json, because models can be frozen at different times.
 
 The models themselves are defined in test/tiny_models.py, because the engine tests build fresh copies of the same
 models in every test session; this script only writes them here and records generated_with.json.
@@ -45,9 +48,14 @@ def write_generated_with(directory):
 
 
 def main():
-    for name, path in tiny_models.write_all(DATA_DIR).items():
+    names = sys.argv[1:] or list(tiny_models.WRITERS)
+    unknown = sorted(set(names) - set(tiny_models.WRITERS))
+    if unknown:
+        sys.exit(f'unknown model(s) {unknown}, choose from {sorted(tiny_models.WRITERS)}')
+    for name, path in tiny_models.write_all(DATA_DIR, names).items():
         print('wrote', name, os.path.relpath(path, REPO_DIR))
-    print('wrote', os.path.relpath(write_generated_with(DATA_DIR), REPO_DIR))
+        model_dir = os.path.join(DATA_DIR, name)
+        print('wrote', os.path.relpath(write_generated_with(model_dir), REPO_DIR))
 
 
 if __name__ == '__main__':
