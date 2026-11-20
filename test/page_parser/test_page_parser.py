@@ -227,6 +227,27 @@ def test_cpu_only_layout_parsers(method, cpu):
         assert len(layout.regions) == 2
 
 
+def test_transformer_region_sorter(region_sorter_path, cpu):
+    """REGION_SORTER_TRANSFORMER from config (the production layout.order engine uses it); relative MODEL_PATH."""
+    config = make_config(f'[S]\nMETHOD = REGION_SORTER_TRANSFORMER\nMODEL_PATH = model-cuda.pt\nMAX_BBOX_COUNT = 32\n'
+                         f'IMAGE_WIDTH = 64\nIMAGE_HEIGHT = 64\nUSE_CPU = yes\n')
+    parser = pp.layout_parser_factory(config['S'], cpu, config_path=os.path.dirname(region_sorter_path))
+    layout = new_page()
+    for i, x in enumerate([500, 20]):
+        layout.regions.append(RegionLayout(f'r{i}', np.array([[x, 50], [x + 200, 50], [x + 200, 400], [x, 400]])))
+    assert [r.id for r in parser.process_page(PAGE, layout).regions] == ['r1', 'r0']  # left column first
+
+
+def test_layout_cnn_followed_by_transformer_region_sorter(parsenet_path, region_sorter_path, cpu):
+    """The production setup: ParseNet finds regions and lines, the transformer sorter orders the regions."""
+    sorter = (f'\n[LAYOUT_PARSER_2]\nMETHOD = REGION_SORTER_TRANSFORMER\nMODEL_PATH = {region_sorter_path}\n'
+              f'MAX_BBOX_COUNT = 32\nIMAGE_WIDTH = 64\nIMAGE_HEIGHT = 64\nUSE_CPU = yes\n')
+    text = '[PAGE_PARSER]\nRUN_LAYOUT_PARSER = yes\n' + LAYOUT.replace('[LAYOUT_PARSER]', '[LAYOUT_PARSER_1]') + sorter
+    parser = pp.PageParser(make_config(text, parsenet=parsenet_path), device=cpu)
+    layout = parser.process_page(PAGE, new_page())
+    assert len(layout.regions) >= 1 and len(list(layout.lines_iterator())) == 3
+
+
 def test_unknown_layout_method(cpu):
     config = make_config('[S]\nMETHOD = NOPE\n')
     with pytest.raises(ValueError, match='Unknown layout parser method'):

@@ -13,7 +13,7 @@
 |---|---|---|
 | `cli/` | `user_scripts/parse_folder.py` end to end: files, flags, process behaviour | CPU, ~20 s |
 | `page_parser/` | `PageParser` built from config: the stages wired together, as library users call it | CPU |
-| `engines/` | OCR, layout and language-model engines driven by tiny torchscript models, and the line cropper | CPU |
+| `engines/` | OCR, layout, reading-order and language-model engines driven by tiny torchscript models, and the line cropper | CPU |
 | `engines/consistency/` | every engine, with a frozen model, still turns a frozen input into exactly the frozen output (the line cropper has no model) | CPU |
 | `io/` | PAGE XML / ALTO / logits: export, import (also from other tools), round trips, known bugs | CPU |
 | `io/consistency/` | the exporters still write the committed golden IO files, and the committed PAGE XML still reads back | CPU |

@@ -17,6 +17,8 @@ of the input image, so tests can predict it:
   (cycling over ``characters[1:]``), then the end-of-sequence token. With ``stop=False`` it never emits the end token.
 * ParseNet: a baseline is the bottom row of every block of ink, ascender/descender heights are constants and there
   are no line endpoints or region separators.
+* Reading order (REGION_SORTER_TRANSFORMER): regions go by their left edge, then by their top edge, i.e. columns
+  left to right, each top to bottom. Only the region boxes matter; the page image is passed in but not used.
 * Language model (brnolm torchscript format): the state is the last character seen, ignoring the line separator
   ``</s>``, so the state carries over line ends. After ``LM_PREFERS[0]`` the LM strongly prefers ``LM_PREFERS[1]``;
   every other context gives a uniform distribution.
@@ -119,6 +121,24 @@ class TinyParseNet(nn.Module):
         zeros = torch.zeros_like(ink)
         maps = torch.cat([zeros + self.ascender, zeros + self.descender, baseline, zeros, zeros], dim=1)
         return maps, maps
+
+
+class TinyRegionSorter(nn.Module):
+    """Reading-order model with the calling contract of the real MultimodalLayoutTransformer.
+
+    forward(boxes B,M,4 [left, top, right, bottom] in [0, 1], query_types B,M (1 = box, 0 = padding),
+    images B,3,H,W uint8) -> B,M,M scores, where out[b, i, j] is high when box i comes right after box j.
+    The order is by left edge, then by top edge: columns left to right, each top to bottom. The image is not used."""
+
+    def forward(self, x: Tensor, query_types: Tensor, images: Tensor) -> Tensor:
+        valid = query_types == 1
+        key = x[:, :, 0] + 1e-3 * x[:, :, 1]
+        key = torch.where(valid, key, torch.full_like(key, 1e9))
+        rank = torch.argsort(torch.argsort(key, dim=1), dim=1)  # B,M: position of every box in the order
+        follows = rank.unsqueeze(2) == rank.unsqueeze(1) + 1  # B,M,M: box i comes right after box j
+        mask = valid.unsqueeze(2) & valid.unsqueeze(1)
+        scores = (follows & mask).to(x.dtype) * 10.0
+        return scores.masked_fill(~mask, -1e-9)  # like the real model: padded entries are masked, not removed
 
 
 class TinyLMModel(nn.Module):
@@ -234,11 +254,24 @@ def write_lm(directory: str, characters=CHARACTERS) -> str:
     return path
 
 
+def write_region_sorter(directory: str) -> str:
+    """Write a torchscript reading-order model, return the path a config names (model-cuda.pt).
+
+    TransformerRegionSorter replaces 'cuda' with 'cpu' in the file name when it runs on CPU, so write both, like the
+    files of the real models."""
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, 'model-cuda.pt')
+    torch.jit.script(TinyRegionSorter().eval()).save(path)
+    shutil.copyfile(path, os.path.join(directory, 'model-cpu.pt'))
+    return path
+
+
 WRITERS = {
     'ctc': lambda d: write_ctc(os.path.join(d, 'ctc')),
     'transformer': lambda d: write_transformer(os.path.join(d, 'transformer')),
     'parsenet': lambda d: write_parsenet(os.path.join(d, 'parsenet')),
     'lm': lambda d: write_lm(os.path.join(d, 'lm')),
+    'region_sorter': lambda d: write_region_sorter(os.path.join(d, 'region_sorter')),
 }
 
 

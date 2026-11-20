@@ -5,7 +5,7 @@
     python test/engines/consistency/data/regenerate.py lm                   # only the named engines
     python test/engines/consistency/data/regenerate.py --outputs-only ctc   # keep model and input, recompute output
 
-Names: ctc, transformer, parsenet, lm (tiny models) and cropper (the line cropper, which has no model).
+Names: ctc, transformer, parsenet, lm, region_sorter (tiny models) and cropper (the line cropper, which has no model).
 
 For every name, data/<name>/ holds the frozen model, the frozen input (input.npz, input.json), the output the engine
 gave for it (output.npz) and generated_with.json. The checks in test/engines/consistency run the current code with the
@@ -109,6 +109,28 @@ def lm_input():
     return {f'frames/{name}': f for name, f in frames.items()}, params
 
 
+def region_sorter_input():
+    """Region boxes [left, top, right, bottom] on a 1000 x 800 page, deliberately not in reading order. The pages stay
+    within MAX_BBOX_COUNT: regions beyond it are appended in a random order (a known bug, see
+    test/engines/test_region_sorter.py), which a frozen output cannot capture."""
+    rng = np.random.default_rng(20261120)
+    two_columns = np.array([[420, 500, 760, 700], [40, 300, 380, 480], [420, 50, 760, 450], [40, 50, 380, 250]])
+    column = np.array([[40, 20 + 80 * i, 380, 90 + 80 * i] for i in range(12)])
+    pages = {
+        'two_columns': two_columns,
+        'twelve_regions_in_a_column': column[rng.permutation(len(column))],  # more than 8: the path search merges
+        'one_region': np.array([[40, 50, 760, 950]]),
+    }
+    inputs = {}
+    for name, boxes in pages.items():
+        inputs[f'boxes/{name}'] = boxes.astype(np.int64)
+        inputs[f'image/{name}'] = np.zeros((1000, 800, 3), dtype=np.uint8)
+    params = {'config': {'model_path': 'model-cuda.pt', 'max_bbox_count': 32, 'image_width': 64, 'image_height': 64,
+                         'use_cpu': 'yes'},
+              'pages': list(pages)}
+    return inputs, params
+
+
 PAGE_HEIGHT, PAGE_WIDTH = 480, 640
 
 
@@ -163,7 +185,7 @@ def cropper_input():
 
 
 INPUTS = {'ctc': ctc_input, 'transformer': transformer_input, 'parsenet': parsenet_input, 'lm': lm_input,
-          'cropper': cropper_input}
+          'region_sorter': region_sorter_input, 'cropper': cropper_input}
 assert set(INPUTS) == set(frozen_engines.RUNNERS)
 
 

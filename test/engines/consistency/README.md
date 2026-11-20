@@ -13,6 +13,7 @@ The checks are small and run in about a second, so they show such changes long b
 | `test_transformer_engine.py` | `TransformerEngineLineOCR`: frozen transformer, frozen line crops → frozen text, logits and logit coordinates, with greedy decoding and beam search |
 | `test_layout_engine.py` | `LayoutEngine`: frozen ParseNet, frozen pages → frozen regions, baselines and heights |
 | `test_lm.py` | `construct_lm()`, `LMWrapper`, the `FAST-LOG-RAW` decoder: frozen language model, frozen CTC frames → frozen next-character probabilities and decoded text, with LM weights 1.0 and 0.4 |
+| `test_region_sorter.py` | `TransformerRegionSorter` (`REGION_SORTER_TRANSFORMER`): frozen reading-order model, frozen region boxes → frozen reading order |
 | `test_line_cropper.py` | `EngineLineCropper` (no model): frozen page and lines → frozen crops, mappings and `blend_in()` result |
 | `frozen_engines.py` | what the checks and the script share: how each engine is run on its frozen input (`RUNNERS`), how the data is read and written, and how outputs are compared |
 | `data/<engine>/` | the committed frozen data |
@@ -48,10 +49,11 @@ The tiny models have no trained weights; their output is a deterministic functio
 | `ctc/` | `model.pt`, `ocr_engine.json` | every horizontal run of bright pixels in the line crop becomes one character, `characters[1]`; with an embedding id `e` it becomes `characters[1 + e % (n - 1)]` |
 | `transformer/` | `model.pt`, `ocr_engine.json` (`exported: true`) | a line with *n* bright runs decodes to *n* characters `characters[1], characters[2], ...`, then the end-of-sequence token |
 | `parsenet/` | `parsenet.pt` | a baseline at the bottom row of every bright block, constant line heights, no line endpoints and no region separators |
+| `region_sorter/` | `model-cuda.pt`, `model-cpu.pt` | a reading-order model with the calling contract of the real one (region boxes, query types, page image → scores for "region *i* comes right after region *j*"); it orders regions by their left edge, then by their top edge, and ignores the image |
 | `lm/` | `lm.pt` | a brnolm torchscript LM (zip of `model.zip`, `decoder.zip`, `vocabulary.pickle`); its state is the last character seen, kept over line ends; after `a` it strongly prefers `b`, otherwise uniform |
 | `cropper/` | none | the input is a synthetic page with text-like strokes and lines cut from it with the settings pero-ocr uses: the production `LineCropper` (`LINE_HEIGHT 48`, `INTERP 2`, `LINE_SCALE 1.15`) on straight lines at several angles, a gentle arc, a short line and a line partly outside the page; the ALTO word alignment (height 32, `INTERP 2`, with its forward mapping); the baseline refiner (height 32, `INTERP 0`); and `blend_in()` |
 
-The OCR and layout models are saved twice, as `X` and `X.cpu`, because those engines append `.cpu` to the checkpoint path when they run on CPU. The LM loader does not.
+The OCR and layout models are saved twice, as `X` and `X.cpu`, because those engines append `.cpu` to the checkpoint path when they run on CPU. The reading-order sorter instead replaces `cuda` with `cpu` in the file name, hence `model-cuda.pt` and `model-cpu.pt`. The LM loader does neither.
 
 The inputs are reasonable cases that the current code handles. Cases it cannot handle yet are known bugs or limits with strict `xfail` tests in the general tests, for example line shapes the cropper cannot straighten (`test/engines/test_line_cropper.py`). When the code learns to handle them, add them here as new cases.
 

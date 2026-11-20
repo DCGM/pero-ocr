@@ -49,3 +49,8 @@ def parsenet_path(tiny_model_dir):
 @pytest.fixture(scope='session')
 def lm_path(tiny_model_dir):
     return os.path.join(tiny_model_dir, 'lm', 'lm.pt')
+
+
+@pytest.fixture(scope='session')
+def region_sorter_path(tiny_model_dir):
+    return os.path.join(tiny_model_dir, 'region_sorter', 'model-cuda.pt')

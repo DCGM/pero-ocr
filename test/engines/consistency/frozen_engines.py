@@ -16,6 +16,7 @@ Text, integers and crops (uint8) must match exactly. Float outputs (logits, base
 up to FLOAT_TOLERANCE, which ignores the last bits of float arithmetic that can differ between torch builds but not any
 change of behaviour.
 """
+import configparser
 import json
 import os
 
@@ -23,10 +24,12 @@ import numpy as np
 import torch
 
 from pero_ocr.core.crop_engine import EngineLineCropper
+from pero_ocr.core.layout import PageLayout, RegionLayout
 from pero_ocr.decoding.decoders import BLANK_SYMBOL, CTCPrefixLogRawNumpyDecoder
 from pero_ocr.decoding.decoding_itf import construct_lm
 from pero_ocr.decoding.lm_wrapper import LMWrapper
 from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine
+from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 
@@ -94,6 +97,23 @@ def run_lm(directory, inputs, params):
     return out
 
 
+def run_region_sorter(directory, inputs, params):
+    """Reading order of the frozen pages: output order/<page> lists the input regions in the order the sorter put them."""
+    config = configparser.ConfigParser()
+    config.read_dict({'S': {key.upper(): str(value) for key, value in params['config'].items()}})
+    sorter = TransformerRegionSorter(config['S'], CPU, config_path=directory)
+    out = {}
+    for name in params['pages']:
+        boxes = inputs[f'boxes/{name}']
+        image = inputs[f'image/{name}']
+        layout = PageLayout(id=name, page_size=image.shape[:2])
+        layout.regions = [RegionLayout(str(i), np.array([[l, t], [r, t], [r, b], [l, b]], dtype=np.float64))
+                          for i, (l, t, r, b) in enumerate(boxes)]
+        layout = sorter.process_page(image, layout)
+        out[f'order/{name}'] = np.array([int(region.id) for region in layout.regions], dtype=np.int64)
+    return out
+
+
 def run_cropper(directory, inputs, params):
     page = inputs['page']
     out = {}
@@ -114,7 +134,7 @@ def run_cropper(directory, inputs, params):
 
 
 RUNNERS = {'ctc': run_ctc, 'transformer': run_transformer, 'parsenet': run_parsenet, 'lm': run_lm,
-           'cropper': run_cropper}
+           'region_sorter': run_region_sorter, 'cropper': run_cropper}
 
 
 # --- reading, writing, comparing ----------------------------------------------------------------------------------
