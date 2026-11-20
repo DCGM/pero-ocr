@@ -1,19 +1,10 @@
-"""A transformer exported by an older pero-ocr/torch (test/engines/consistency/data/transformer) must still load and give the same
-output."""
-import os
+"""The transformer engine (TransformerEngineLineOCR, exported torchscript) with a model exported by an older
+pero-ocr/torch (data/transformer) must still decode the frozen line crops into exactly the frozen text, logits and logit
+coordinates, with greedy decoding and with beam search.
 
-import pytest
-
-from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
-from test.conftest import FROZEN_MODELS
-from test.synthetic import line_image
+The frozen data and how it is compared: frozen_engines.py and README.md in this directory."""
+from test.engines.consistency.frozen_engines import check
 
 
-@pytest.mark.parametrize('beam_size', [1, 3])
-def test_frozen_model_still_works(transformer_json, cpu, beam_size):
-    """A model exported by an older pero-ocr/torch (test/engines/consistency/data) loads and gives the same output."""
-    frozen = TransformerEngineLineOCR(os.path.join(FROZEN_MODELS, 'transformer', 'ocr_engine.json'), cpu,
-                                      beam_size=beam_size)
-    fresh = TransformerEngineLineOCR(transformer_json, cpu, beam_size=beam_size)
-    lines = [line_image(n) for n in (0, 1, 4)]
-    assert frozen.process_lines(lines)[0] == fresh.process_lines(lines)[0] == ['', 'a', 'abcd']
+def test_frozen_output_unchanged():
+    check('transformer')

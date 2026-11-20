@@ -1,53 +1,69 @@
-# Engine consistency checks: frozen models and frozen line crops
+# Engine consistency checks: frozen model, input and output
 
-This directory checks that models **exported by an older pero-ocr, torch or brnolm still load and give the same results** with the current code, and that the line cropper **still cuts exactly the same crops** as before. It holds the checks and the committed data they run on.
+Every engine has the same kind of check here: a **frozen model**, a **frozen input** and the **frozen output** that an earlier version of pero-ocr produced, all committed. The check runs the current code with the frozen model on the frozen input and requires the frozen output. So it fails when:
+
+- a model **exported by an older pero-ocr, torch or brnolm** no longer loads or behaves differently, or
+- the **engine code or a library** changes what the engine returns, even slightly.
+
+The checks are small and run in about a second, so they show such changes long before a run on real data does.
 
 | file | what |
 |---|---|
-| `test_ctc_engine.py` | check: does a frozen CTC model still load in `PytorchEngineLineOCR` and read the same text and logits? |
-| `test_transformer_engine.py` | check: does a frozen transformer still load in `TransformerEngineLineOCR` and decode the same text, with greedy and beam search? |
-| `test_layout_engine.py` | check: does a frozen ParseNet still load in `LayoutEngine` and find the same baselines? |
-| `test_lm.py` | check: does a frozen language model still load through `construct_lm()` and guide decoding the same way? |
-| `test_line_cropper.py` | check: does `EngineLineCropper` still cut exactly the frozen crops from the frozen page? |
-| `frozen_crops.py` | what the cropper check and the script share: running one line case through the cropper, and loading `data/cropper` |
-| `data/` | the committed frozen models and frozen crops |
-| `data/regenerate.py` | the script that recreates `data/` with the current code; all code used only for regenerating is in it, including the synthetic page and the line cases for the cropper (the models themselves are in `test/tiny_models.py`, because the engine tests build fresh copies of them in every session) |
+| `test_ctc_engine.py` | `PytorchEngineLineOCR`: frozen CTC model, frozen line crops → frozen text, logits and logit coordinates |
+| `test_transformer_engine.py` | `TransformerEngineLineOCR`: frozen transformer, frozen line crops → frozen text, logits and logit coordinates, with greedy decoding and beam search |
+| `test_layout_engine.py` | `LayoutEngine`: frozen ParseNet, frozen pages → frozen regions, baselines and heights |
+| `test_lm.py` | `construct_lm()`, `LMWrapper`, the `FAST-LOG-RAW` decoder: frozen language model, frozen CTC frames → frozen next-character probabilities and decoded text, with LM weights 1.0 and 0.4 |
+| `test_line_cropper.py` | `EngineLineCropper` (no model): frozen page and lines → frozen crops, mappings and `blend_in()` result |
+| `frozen_engines.py` | what the checks and the script share: how each engine is run on its frozen input (`RUNNERS`), how the data is read and written, and how outputs are compared |
+| `data/<engine>/` | the committed frozen data |
+| `data/regenerate.py` | the script that writes `data/`; all code used only for regenerating is in it, including the frozen inputs (the models themselves are in `test/tiny_models.py`, because the engine tests build fresh copies of them in every session) |
 
 The general engine tests are one level up in `test/engines/`.
 
 ## Why
 
-The engine tests one level up run on tiny stand-in models that the test session builds **fresh** from the current code. A model built from the current code can never notice that the current code stopped accepting models built by an older one. For example, a change to how the engine reads the json, a renamed method the engine calls, or a torch upgrade that cannot load older torchscript files would all break models already deployed in production, yet every test using fresh models would still pass.
+The engine tests one level up run on tiny stand-in models that the test session builds **fresh** from the current code, and they check behaviour with expectations written in the test. That leaves two gaps:
 
-The models in `data/` close that gap. They were generated once and committed, so they act like models exported in the past. A failing check here means that previously exported models no longer work.
+- A model built from the current code can never notice that the current code stopped accepting models built by an older one. A change to how the engine reads the json, a renamed method the engine calls, or a torch upgrade that cannot load older torchscript files would all break models already deployed in production, yet every test using fresh models would still pass.
+- An expectation written in a test checks what its author thought of, often with a tolerance. A change in the exact numbers an engine returns goes unnoticed, although on real pages it changes the recognized text. For example, opencv 5 changed `cv2.remap` so that about 6 % of the line-crop pixels differ by up to 3 grey levels, which changed 0.1 to 0.5 % of the characters on real pages; the general cropper tests still pass with opencv 5.
+
+The frozen data closes both gaps: the models act like models exported in the past, and the outputs record exactly what the engines returned in the past.
 
 ## What is in `data/`
 
-Small, fake networks saved as torchscript, generated by `test/tiny_models.py`. They have no trained weights; their output is a deterministic function of the input.
+Each `data/<engine>/` holds:
 
-| model | used by | behaviour |
+| file | what |
+|---|---|
+| the model | small, fake networks saved as torchscript by `test/tiny_models.py` (see below); the cropper has none |
+| `input.npz` | the frozen input arrays: line crops, pages, CTC frames |
+| `input.json` | the parameters of the run: beam sizes, layout-engine settings, LM weights, the cropper's lines and settings |
+| `output.npz` | what the engine returned for that input, when the data was frozen |
+| `generated_with.json` | the commit and the versions of Python, torch, numpy, opencv and scipy that produced the data |
+
+The tiny models have no trained weights; their output is a deterministic function of the input:
+
+| engine | model | behaviour |
 |---|---|---|
-| `ctc/` | `PytorchEngineLineOCR` | every horizontal run of bright pixels in the line crop becomes one character, `characters[1]`; with an embedding id `e` it becomes `characters[1 + e % (n - 1)]` |
-| `transformer/` | `TransformerEngineLineOCR` (`exported: true`) | a line with *n* bright runs decodes to *n* characters `characters[1], characters[2], ...`, then the end-of-sequence token |
-| `parsenet/` | `LayoutEngine` (ParseNet) | a baseline at the bottom row of every bright block, constant line heights, no line endpoints and no region separators |
-| `cropper/` | `EngineLineCropper` | not a model: a synthetic page (`page.png`), the lines cut out of it (`cases.json`) and the crops an earlier version produced (`crops.npz`); see below |
-| `lm/` | `construct_lm()`, `LMWrapper`, the `FAST-LOG-RAW` decoder | a brnolm torchscript LM (zip of `model.zip`, `decoder.zip`, `vocabulary.pickle`); its state is the last character seen, kept over line ends; after `a` it strongly prefers `b`, otherwise uniform |
-| `<model>/generated_with.json` | | the commit and library versions that produced that model |
-| `regenerate.py` | | recreates the models |
+| `ctc/` | `model.pt`, `ocr_engine.json` | every horizontal run of bright pixels in the line crop becomes one character, `characters[1]`; with an embedding id `e` it becomes `characters[1 + e % (n - 1)]` |
+| `transformer/` | `model.pt`, `ocr_engine.json` (`exported: true`) | a line with *n* bright runs decodes to *n* characters `characters[1], characters[2], ...`, then the end-of-sequence token |
+| `parsenet/` | `parsenet.pt` | a baseline at the bottom row of every bright block, constant line heights, no line endpoints and no region separators |
+| `lm/` | `lm.pt` | a brnolm torchscript LM (zip of `model.zip`, `decoder.zip`, `vocabulary.pickle`); its state is the last character seen, kept over line ends; after `a` it strongly prefers `b`, otherwise uniform |
+| `cropper/` | none | the input is a synthetic page with text-like strokes and lines cut from it with the settings pero-ocr uses: the production `LineCropper` (`LINE_HEIGHT 48`, `INTERP 2`, `LINE_SCALE 1.15`) on straight lines at several angles, a gentle arc, a short line and a line partly outside the page; the ALTO word alignment (height 32, `INTERP 2`, with its forward mapping); the baseline refiner (height 32, `INTERP 0`); and `blend_in()` |
 
 The OCR and layout models are saved twice, as `X` and `X.cpu`, because those engines append `.cpu` to the checkpoint path when they run on CPU. The LM loader does not.
 
-Each model has its own `generated_with.json` because models are frozen at different times: `ctc`, `transformer` and `parsenet` at 81b496e, `lm` and `cropper` later, when they were added. The cropper's file also records the opencv and scipy versions.
+The inputs are reasonable cases that the current code handles. Cases it cannot handle yet are known bugs or limits with strict `xfail` tests in the general tests, for example line shapes the cropper cannot straighten (`test/engines/test_line_cropper.py`). When the code learns to handle them, add them here as new cases.
 
-## Frozen line crops
+The inputs are committed, not generated in the check, so that a check depends only on the engine it checks. The cropper's page, for example, is drawn with opencv, the very library whose changes its check has to catch.
 
-The line crops are the input of every OCR model, and the models were trained on crops made by the cropper of their time. A tiny change in the crops changes the recognized text: opencv 5 changed `cv2.remap` so that about 6 % of the crop pixels differ by up to 3 grey levels, and on real pages that changed 0.1 to 0.5 % of the characters. The general cropper tests (`test/engines/test_line_cropper.py`) do not notice such a change, because they check geometry with tolerances. This check does: it crops the committed page with the current code and compares with the committed crops **exactly**. With opencv 5 every case fails.
+## How outputs are compared
 
-The cases are reasonable lines that the current cropper handles, with the settings used in pero-ocr: the production `LineCropper` (`LINE_HEIGHT 48`, `INTERP 2`, `LINE_SCALE 1.15`) on straight lines at several angles, a gentle arc, a short line and a line partly outside the page; the ALTO word alignment (height 32, `INTERP 2`, including its forward mapping); the baseline refiner (height 32, `INTERP 0`); and `blend_in()`, which maps a crop back into the page. Shapes the cropper cannot handle yet (S-curves with `INTERP 2`, strong arcs, circles) are known limits with strict `xfail` tests in `test/engines/test_line_cropper.py`. When the cropper learns to handle them, add them here as new cases.
+Text, integers and crops (uint8) must match **exactly**. Floats (logits, baselines, log-probabilities) must match up to a relative and absolute tolerance of 1e-5 (`FLOAT_TOLERANCE` in `frozen_engines.py`): that ignores the last bits of float arithmetic, which can differ between torch builds, but not any change of behaviour. With numpy 2 instead of 1.24 all checks pass; with opencv 5 the cropper check fails.
 
-The page is committed as an image, not generated in the check, so that the check depends only on the cropper, not on the code that drew the page.
+The frozen outputs record **current** behaviour, not ideal behaviour. For example, the LM output with weight 0.4 includes the known bug that `BagOfHypotheses.best_hyp()` ignores the LM weight. A fix of such a bug changes the output on purpose, and the frozen output is then regenerated with `--outputs-only` (see below).
 
-## How the data is made
+## Why tiny models
 
 pero-ocr's engines are mostly plumbing around a network: reading the engine json, finding and loading the checkpoint, padding and batching line crops, decoding, turning outputs into logits and confidences, and building the `PageLayout`. That plumbing is what breaks when code changes. Real models are a poor fit for testing it:
 
@@ -63,18 +79,24 @@ Real models are still needed to check recognition quality. That is the job of th
 
 ## Regenerating
 
-Regenerate models **only on purpose**, and commit them together with the change that needs it:
+Regenerate **only on purpose**, name only the engines the change concerns, and commit the data together with the change that needs it:
 
-    python test/engines/consistency/data/regenerate.py lm        # only the named data, e.g. a newly added stand-in
-    python test/engines/consistency/data/regenerate.py cropper   # only the frozen line crops
-    python test/engines/consistency/data/regenerate.py           # everything, after a deliberate break of the model format
+    python test/engines/consistency/data/regenerate.py --outputs-only cropper   # the output changed on purpose
+    python test/engines/consistency/data/regenerate.py lm                       # a new engine or stand-in, or a deliberate break of the model format
+    python test/engines/consistency/data/regenerate.py                          # everything
 
-When you add a new kind of stand-in or new cropper cases, name only that one, so the data that is already frozen stays untouched. The script builds the named stand-ins from `test/tiny_models.py` (or the cropper page, cases and crops) with the current code, rewrites their directories in `data/`, and records the commit and library versions in each directory's `generated_with.json`. It works from any directory and always uses the `pero_ocr` of the checkout it lives in. pytest itself never writes to `data/`. After regenerating a model, its check compares the current code with itself until the model is old again, so anything that the old model exercised is no longer protected.
+- **The output changes on purpose** (a fixed bug, a new logits format, a better cropper): use `--outputs-only`. It keeps the frozen model and input and recomputes only `output.npz`, so the model stays old and keeps checking that old models still load.
+- **The model format breaks on purpose** (models have to be re-exported): regenerate the engine completely. After that, its check compares the current code with itself until the model is old again, so anything the old model exercised is no longer protected.
+- **A new engine or stand-in**: add a runner to `frozen_engines.py` and an input to `regenerate.py`, then regenerate only that one.
+
+The script records the commit and library versions in each directory's `generated_with.json`. It works from any directory and always uses the `pero_ocr` of the checkout it lives in. pytest itself never writes to `data/`.
 
 ## When a check fails
 
-1. A failure means a model exported by an older version stops loading or behaves differently, or that the cropper cuts different crops.
-2. If that is **not intended**, fix the code (or the library version, e.g. pin opencv): deployed models depend on it.
-3. If it **is intended**, it is a breaking change for every deployed model. For models: announce it, make sure the production models are re-exported, then regenerate the data as described above. For crops: compare the recognition accuracy with the old and the new crops on real pages first; the models were trained on the old crops.
+1. Read the failure: it lists every output that changed, with the largest difference.
+2. If the change is **not intended**, fix the code, or pin the library version that caused it (e.g. opencv): deployed models depend on the old behaviour.
+3. If it **is intended**:
+   - a model no longer loads: this breaks every deployed model of that kind. Announce it, make sure the production models are re-exported, then regenerate the engine;
+   - the output changed: check what it does on real pages first. The models were trained on the old crops and tuned with the old decoding, so compare the recognition accuracy on the consistency page sample before and after. Then regenerate with `--outputs-only`.
 
 Never regenerate the data just to make a failing check pass.

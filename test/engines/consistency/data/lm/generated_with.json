@@ -1,7 +1,9 @@
 {
- "git_commit": "24e7624",
- "pero_ocr_uncommitted_changes": false,
+ "git_commit": "a57e4db",
+ "pero_ocr_uncommitted_changes": true,
  "python": "3.10.22",
  "torch": "2.14.1+cu130",
- "numpy": "1.24.4"
+ "numpy": "1.24.4",
+ "opencv": "4.11.0",
+ "scipy": "1.15.3"
 }

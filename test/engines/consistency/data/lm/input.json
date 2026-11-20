@@ -1,0 +1,26 @@
+{
+ "characters": [
+  "\ufffd",
+  "a",
+  "b",
+  "c",
+  "d",
+  " "
+ ],
+ "prefixes": [
+  "",
+  "a",
+  "ab",
+  "ba"
+ ],
+ "frames": [
+  "c_or_b_after_a",
+  "clear_c_after_a",
+  "c_or_b_at_start"
+ ],
+ "lm_scales": [
+  1.0,
+  0.4
+ ],
+ "beam_size": 8
+}

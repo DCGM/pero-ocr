@@ -6,7 +6,6 @@ import torch
 from test import tiny_models
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
-FROZEN_MODELS = os.path.join(TEST_DIR, 'engines', 'consistency', 'data')
 REPO_DIR = os.path.dirname(TEST_DIR)
 
 
