@@ -1,0 +1,60 @@
+<?xml version='1.0' encoding='utf-8'?>
+<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15">
+  <Page imageFilename="reference_page.jpg" imageWidth="800" imageHeight="1000">
+    <ReadingOrder>
+      <OrderedGroup id="reading_order">
+        <RegionRefIndexed regionRef="r002" index="1"/>
+        <RegionRefIndexed regionRef="r001" index="0"/>
+        <RegionRefIndexed regionRef="r003" index="2"/>
+      </OrderedGroup>
+    </ReadingOrder>
+    <TextRegion id="r001">
+      <Coords points="40,51 760,50 760,230 40,230"/>
+      <TextLine id="r001-l001" index="0" custom="{&quot;heights&quot;: [12.4, 4.6]}">
+        <Coords points="60,88 400,89 740,88 740,105 400,106 60,105"/>
+        <Baseline points="60,100 400,102 740,100"/>
+        <TextEquiv conf="0.990">
+          <Unicode>hello world, hyphen-</Unicode>
+        </TextEquiv>
+      </TextLine>
+      <TextLine id="r001-l002" index="1" custom="{&quot;heights&quot;: [12.4, 4.6]}">
+        <Coords points="60,138 290,139 520,138 520,155 290,156 60,155"/>
+        <Baseline points="60,150 290,151 520,150"/>
+        <TextEquiv conf="0.993">
+          <Unicode>ated text.</Unicode>
+        </TextEquiv>
+      </TextLine>
+      <TextLine id="r001-l003" index="2" custom="{&quot;heights&quot;: [12.4, 4.6]}">
+        <Coords points="60,188 180,189 300,188 300,205 180,206 60,205"/>
+        <Baseline points="60,200 180,201 300,200"/>
+      </TextLine>
+    </TextRegion>
+    <TextRegion id="r002" type="paragraph" custom="{&quot;category&quot;: &quot;text&quot;, &quot;detection_confidence&quot;: 0.877}">
+      <Coords points="40,300 760,300 760,480 40,480"/>
+      <TextLine id="r002-l001" index="0" custom="{&quot;heights&quot;: [12.4, 4.6]}">
+        <Coords points="60,338 400,339 740,338 740,355 400,356 60,355"/>
+        <Baseline points="60,350 400,351 740,350"/>
+        <TextEquiv conf="0.990">
+          <Unicode>Příliš žluťoučký kůň</Unicode>
+        </TextEquiv>
+      </TextLine>
+      <TextLine id="r002-l002" index="1" custom="{&quot;heights&quot;: [12.4, 4.6], &quot;category&quot;: &quot;title&quot;}">
+        <Coords points="60,388 230,389 400,388 400,405 230,406 60,405"/>
+        <Baseline points="60,400 230,401 400,400"/>
+        <TextEquiv conf="0.995">
+          <Unicode>Header line</Unicode>
+        </TextEquiv>
+      </TextLine>
+    </TextRegion>
+    <TextRegion id="r003">
+      <Coords points="0,520 300,520 300,600 0,600"/>
+      <TextLine id="r003-l001" index="0" custom="{&quot;heights&quot;: [12.4, 4.6]}">
+        <Coords points="0,558 135,559 280,558 280,575 135,576 0,575"/>
+        <Baseline points="0,570 135,571 280,570"/>
+        <TextEquiv conf="0.991">
+          <Unicode>margin note</Unicode>
+        </TextEquiv>
+      </TextLine>
+    </TextRegion>
+  </Page>
+</PcGts>

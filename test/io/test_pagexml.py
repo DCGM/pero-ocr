@@ -1,0 +1,112 @@
+import json
+
+import lxml.etree as ET
+import numpy as np
+import pytest
+
+from pero_ocr.core.layout import PageLayout, PAGEVersion
+from test.io.golden import check_golden_xml, golden_path
+from test.io.reference_layout import build_reference_layout
+
+PAGE_2019 = 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15'
+
+
+@pytest.fixture
+def layout():
+    return build_reference_layout()
+
+
+def test_golden_page_2019(layout, update_golden):
+    check_golden_xml('reference_page.page_2019.xml', layout.to_pagexml_string(), update_golden)
+
+
+def test_golden_page_2013(layout, update_golden):
+    check_golden_xml('reference_page.page_2013.xml',
+                     layout.to_pagexml_string(version=PAGEVersion.PAGE_2013_07_15), update_golden)
+
+
+def test_to_pagexml_file_equals_string(layout, tmp_path):
+    path = tmp_path / 'page.xml'
+    layout.to_pagexml(str(path))
+    root = ET.parse(str(path)).getroot()
+    assert ET.QName(root).namespace == PAGE_2019
+    assert path.read_text(encoding='utf-8').startswith("<?xml version='1.0' encoding='utf-8'?>")
+
+
+def test_to_pagexml_tree_matches_string(layout):
+    tree_xml = ET.tostring(layout.to_pagexml_tree(), encoding='unicode')
+    assert 'Příliš žluťoučký kůň' in tree_xml
+    assert ET.QName(layout.to_pagexml_tree()).localname == 'PcGts'
+
+
+def test_validate_id_prefixes_ids(layout):
+    root = ET.fromstring(layout.to_pagexml_string(validate_id=True).encode())
+    ids = [el.get('id') for el in root.iter('{*}TextRegion', '{*}TextLine')]
+    assert ids and all(i.startswith('id_') for i in ids)
+
+
+def test_coords_are_non_negative_integers(layout):
+    """Issue #84: PAGE requires non-negative integer coordinates."""
+    root = ET.fromstring(layout.to_pagexml_string().encode())
+    for el in root.iter('{*}Coords', '{*}Baseline'):
+        for point in el.get('points').split():
+            x, y = point.split(',')
+            assert x.isdigit() and y.isdigit(), point
+
+
+def test_regions_follow_reading_order(layout):
+    root = ET.fromstring(layout.to_pagexml_string().encode())
+    assert [r.get('id') for r in root.iter('{*}TextRegion')] == ['r001', 'r002', 'r003']
+    refs = {r.get('regionRef'): int(r.get('index')) for r in root.iter('{*}RegionRefIndexed')}
+    assert refs == {'r001': 0, 'r002': 1, 'r003': 2}
+
+
+def _assert_layouts_equal(a: PageLayout, b: PageLayout):
+    assert a.id == b.id
+    assert a.page_size == b.page_size
+    assert [r.id for r in a.regions] == [r.id for r in b.regions]
+    for ra, rb in zip(a.regions, b.regions):
+        assert ra.region_type == rb.region_type
+        assert ra.category == rb.category
+        assert ra.detection_confidence == pytest.approx(rb.detection_confidence if rb.detection_confidence is None
+                                                        else round(rb.detection_confidence, 3))
+        np.testing.assert_array_equal(np.asarray(ra.polygon), np.maximum(np.round(rb.polygon), 0))
+        assert [line.id for line in ra.lines] == [line.id for line in rb.lines]
+        for la, lb in zip(ra.lines, rb.lines):
+            assert la.index == lb.index
+            assert la.category == lb.category
+            assert la.transcription == lb.transcription
+            np.testing.assert_array_equal(la.baseline, np.maximum(np.round(lb.baseline), 0))
+            np.testing.assert_array_equal(la.polygon, np.maximum(np.round(lb.polygon), 0))
+            np.testing.assert_allclose(la.heights, np.round(lb.heights, 1))
+            if lb.transcription is None:
+                assert la.transcription_confidence is None
+            else:
+                assert la.transcription_confidence == pytest.approx(lb.transcription_confidence, abs=5e-4)
+
+
+def test_round_trip(layout):
+    loaded = PageLayout()
+    loaded.from_pagexml_string(layout.to_pagexml_string())
+    _assert_layouts_equal(loaded, layout)
+
+
+def test_round_trip_page_2013(layout):
+    loaded = PageLayout()
+    loaded.from_pagexml_string(layout.to_pagexml_string(version=PAGEVersion.PAGE_2013_07_15))
+    assert [r.id for r in loaded.regions] == ['r001', 'r002', 'r003']
+    assert sum(len(r.lines) for r in loaded.regions) == 6
+
+
+def test_golden_file_loads(update_golden):
+    if update_golden:
+        pytest.skip('golden files are being rewritten')
+    loaded = PageLayout(file=golden_path('reference_page.page_2019.xml'))
+    _assert_layouts_equal(loaded, build_reference_layout())
+
+
+def test_custom_attribute_is_json(layout):
+    root = ET.fromstring(layout.to_pagexml_string().encode())
+    for el in root.iter('{*}TextRegion', '{*}TextLine'):
+        if el.get('custom') is not None:
+            json.loads(el.get('custom'))
