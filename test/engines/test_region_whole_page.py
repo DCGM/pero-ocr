@@ -2,15 +2,14 @@
 with one region over the whole page, without lines. Followed by a stage that puts lines into existing regions (e.g.
 LAYOUT_CNN with DETECT_REGIONS = no), it forces one region, so that the layout engine only gives lines."""
 import numpy as np
-import torch
 
-from pero_ocr.document_ocr.page_parser import layout_parser_factory
+from pero_ocr.document_ocr.page_parser import WholePageRegion
 from test.configs import section
 from test.layouts import box_region, page, straight_line
 
 
 def whole_page(layout):
-    return layout_parser_factory(section(METHOD='REGION_WHOLE_PAGE'), torch.device('cpu')).process_page(None, layout)
+    return WholePageRegion(section()).process_page(None, layout)
 
 
 def test_replaces_all_regions_with_one_over_the_page():

@@ -1,16 +1,18 @@
 """The language model engine: loading a brnolm torchscript LM, wrapping it for the decoder, and LM-guided decoding.
 
 The tiny LM (test/tiny_models.py) prefers 'b' after 'a' and is uniform otherwise; its state survives line ends."""
-import configparser
+
+import unittest
 
 import numpy as np
 import pytest
 import torch
 
 from pero_ocr.decoding.decoders import BLANK_SYMBOL, CTCPrefixLogRawNumpyDecoder
-from pero_ocr.decoding.decoding_itf import construct_lm, decoder_factory
-from pero_ocr.decoding.lm_wrapper import LMWrapper
+from pero_ocr.decoding.decoding_itf import construct_lm
+from pero_ocr.decoding.lm_wrapper import HiddenState, LMWrapper
 from test import tiny_models
+from test.dummy_lm import DummyLm
 from test.synthetic import A, AMBIGUOUS_AFTER_A, BLANK, ctc_frames as frames
 
 CHARS = tiny_models.CHARACTERS
@@ -109,9 +111,68 @@ def test_lm_does_not_override_a_clear_character(wrapper):
     assert lm_decoder(wrapper)(clear_c).best_hyp() == 'ac'
 
 
-def test_decoder_factory_builds_lm_decoder(tiny_model_dir):
-    config = configparser.ConfigParser()
-    config.read_string('[DECODER]\nTYPE = FAST-LOG-RAW\nBEAM_SIZE = 8\nLM_SCALE = 1.0\nLM = lm/lm.pt\n')
-    decoder = decoder_factory(config['DECODER'], list(CHARS), CPU, config_path=tiny_model_dir)
-    assert isinstance(decoder._lm, LMWrapper)
-    assert decoder(AMBIGUOUS_AFTER_A).best_hyp() == 'ab'
+# --- LMWrapper on a hand-weighted LM --------------------------------------------------------------------------------
+# Exact scores through the public interface of the wrapper (advance_h0, log_probs, initial_h, translate, eos_scores).
+
+class LMWrapperTemplate:
+    '''Set of tests that any LM wrapper needs to pass.
+
+    Inheriting class needs to:
+    - instantiate an LM wrapper in self._wrapper
+    - prepare proper PyTorch device in self._device
+    '''
+    def test_single_advance(self):
+        h0 = HiddenState(torch.tensor([-2.0]).to(self._device))
+        h1 = self._wrapper.advance_h0(np.asarray([2]), h0)
+        self.assertTrue((h1._h == torch.tensor([-2.0]).to(self._device)).all())
+
+    def test_advance_batch(self):
+        h0 = HiddenState(torch.tensor([[-2.0], [2.0]]).to(self._device))
+        h1 = self._wrapper.advance_h0(np.asarray([2, 0]), h0)
+        expected = torch.tensor([[-2.0], [4.0]]).to(self._device)
+        self.assertTrue((h1._h == expected).all())
+
+    def test_single_output(self):
+        h = HiddenState(torch.tensor([[[1.0]]]).to(self._device))
+        y = self._wrapper.log_probs(h)
+        self.assertTrue((y == np.asarray([3, 3, 1])).all())
+
+    def test_batch_output(self):
+        h = HiddenState(torch.tensor([[[1.0], [-2.0]]]).to(self._device))
+        y = self._wrapper.log_probs(h)
+        self.assertTrue((y == np.asarray([[3, 3, 1], [-3, 3, -14]])).all())
+
+    def test_initial_state(self):
+        h_init = self._wrapper.initial_h(1)
+        self.assertTrue((h_init._h == torch.tensor([[19.0]]).to(self._device)).all())
+
+    def test_single_translation(self):
+        translation = self._wrapper.translate(np.asarray([0]))
+        self.assertTrue((translation == np.asarray([1])).all())
+
+    def test_batch_translation(self):
+        translation = self._wrapper.translate(np.asarray([0, 1]))
+        self.assertTrue((translation == np.asarray([1, 2])).all())
+
+    def test_prefix_cutting_translation(self):
+        translation = self._wrapper.translate(np.asarray([0, 1]))
+        self.assertTrue((translation == np.asarray([1, 2])).all())
+
+    def test_eos_score(self):
+        h = HiddenState(torch.tensor([[[0.0], [0.2]]]).to(self._device))
+        eos_scores = self._wrapper.eos_scores(h)
+        self.assertTrue((eos_scores == np.asarray([-100.0, -120.0])).all())
+
+
+class TorchCPULmWrapperTests(LMWrapperTemplate, unittest.TestCase):
+    def setUp(self):
+        self._device = torch.device('cpu')
+        self._wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'], device=self._device)
+
+
+@pytest.mark.gpu
+@unittest.skipIf(not torch.cuda.is_available(), "CUDA is not available")
+class GPULMWrapperTests(LMWrapperTemplate, unittest.TestCase):
+    def setUp(self):
+        self._device = torch.device('cuda')
+        self._wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'], device=self._device)

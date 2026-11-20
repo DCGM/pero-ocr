@@ -2,7 +2,8 @@
 sections pair line croppers with OCRs, what PageParser itself does with the result (confidences, filtering), and full
 runs of production-like pipelines.
 
-What each stage does with its own config options is tested with the stage in test/engines."""
+Which engine a config section builds and what the stage around it does are tested in test/stages; what each engine does
+with its own options in test/engines."""
 import configparser
 
 import numpy as np
@@ -10,11 +11,7 @@ import pytest
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import page_parser as pp
-from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
-from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
-from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from test import tiny_models
-from test.configs import section
 from test.synthetic import page_image
 
 PAGE = page_image(3)
@@ -209,37 +206,6 @@ def test_relative_paths_resolve_against_config_path(tmp_path, cpu):
     config['PAGE_PARSER']['RUN_DECODER'] = 'yes'
     parser = pp.PageParser(config, device=cpu, config_path=str(model_dir))
     assert texts(parser.process_page(PAGE, new_page())) == ['a'] * 3
-
-
-# --- the layout parser methods ------------------------------------------------------------------------------------
-
-@pytest.mark.parametrize('method, engine_class', [
-    ('REGION_WHOLE_PAGE', pp.WholePageRegion),
-    ('LAYOUT_CNN', pp.LayoutExtractor),
-    ('LAYOUT_YOLO', pp.LayoutExtractorYolo),
-    ('LINE_POSTPROCESSING', pp.LinePostprocessor),
-    ('LAYOUT_POSTPROCESSING', pp.LayoutPostprocessor),
-    ('REGION_SORTER_NAIVE', NaiveRegionSorter),
-    ('REGION_SORTER_SMART', SmartRegionSorter),
-    ('REGION_SORTER_TRANSFORMER', TransformerRegionSorter),
-])
-def test_layout_parser_methods(method, engine_class, parsenet_path, region_sorter_path, fake_yolo, cpu):
-    cnn = make_config(LAYOUT, parsenet=parsenet_path)['LAYOUT_PARSER']
-    options = {
-        'LAYOUT_CNN': {key.upper(): value for key, value in cnn.items()},
-        'LAYOUT_YOLO': dict(MODEL_PATH='yolo.pt', DETECTION_THRESHOLD=0.3, USE_CPU='yes'),
-        'LINE_POSTPROCESSING': dict(STRETCH_LINES=0, RESAMPLE_LINES='no', HEIGHTS_FROM_REGIONS='no'),
-        'LAYOUT_POSTPROCESSING': dict(RETRACE_REGIONS='no'),
-        'REGION_SORTER_TRANSFORMER': dict(MODEL_PATH=region_sorter_path, MAX_BBOX_COUNT=32, IMAGE_WIDTH=64,
-                                          IMAGE_HEIGHT=64, USE_CPU='yes'),
-    }.get(method, {})
-    options['METHOD'] = method
-    assert isinstance(pp.layout_parser_factory(section(**options), cpu), engine_class)
-
-
-def test_unknown_layout_method(cpu):
-    with pytest.raises(ValueError, match='Unknown layout parser method'):
-        pp.layout_parser_factory(section(METHOD='NOPE'), cpu)
 
 
 # --- what PageParser does after the stages ------------------------------------------------------------------------

@@ -5,16 +5,14 @@ outline falls apart)."""
 import numpy as np
 import pytest
 import shapely.geometry as sg
-import torch
 
-from pero_ocr.document_ocr.page_parser import layout_parser_factory
+from pero_ocr.document_ocr.page_parser import LayoutPostprocessor
 from test.configs import section
 from test.layouts import box_region, page, rotated, straight_line, textline
 
 
 def postprocess(layout, retrace='yes'):
-    config = section(METHOD='LAYOUT_POSTPROCESSING', RETRACE_REGIONS=retrace)
-    return layout_parser_factory(config, torch.device('cpu')).process_page(None, layout)
+    return LayoutPostprocessor(section(RETRACE_REGIONS=retrace)).process_page(None, layout)
 
 
 def outline(region):

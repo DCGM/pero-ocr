@@ -107,3 +107,17 @@ def test_greedy_decode_ctc_collapses_repeats_and_blanks():
     for t, k in enumerate(frames):
         scores[0, k, t] = 10.0
     assert greedy_decode_ctc(scores, chars) == ['xxy']
+
+
+@pytest.mark.parametrize('atomic', [True, False])
+def test_output_substitution_table_from_the_json(tmp_path, cpu, atomic):
+    """The engine json may carry an output_substitution_table; the engine turns it into a translator (applied to the
+    transcriptions by the [OCR] stage), atomic per line unless substitute_output_atomic=False."""
+    json_path = tiny_models.write_ctc(str(tmp_path), extra={'output_substitution_table': {'a': 'ALPHA'}})
+    substitution = PytorchEngineLineOCR(json_path, cpu, substitute_output_atomic=atomic).output_substitution
+    assert substitution('a a') == 'ALPHA ALPHA'
+    assert substitution('a b') == (None if atomic else 'ALPHA b')
+
+
+def test_no_output_substitution_without_a_table(engine):
+    assert engine.output_substitution is None

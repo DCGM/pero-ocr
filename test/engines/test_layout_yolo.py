@@ -13,7 +13,7 @@ import pytest
 import torch
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
-from pero_ocr.document_ocr.page_parser import LayoutExtractorYolo, layout_parser_factory
+from pero_ocr.document_ocr.page_parser import LayoutExtractorYolo
 
 PAGE_SIZE = (1000, 800)  # height, width
 IMAGE = np.zeros(PAGE_SIZE + (3,), dtype=np.uint8)
@@ -21,9 +21,9 @@ IMAGE = np.zeros(PAGE_SIZE + (3,), dtype=np.uint8)
 
 def make_extractor(extra='', model_path='yolo.pt', config_path='', threshold=0.3, device=torch.device('cpu')):
     config = configparser.ConfigParser()
-    config.read_string(f'[S]\nMETHOD = LAYOUT_YOLO\nMODEL_PATH = {model_path}\nDETECTION_THRESHOLD = {threshold}\n'
+    config.read_string(f'[S]\nMODEL_PATH = {model_path}\nDETECTION_THRESHOLD = {threshold}\n'
                        f'USE_CPU = yes\n{extra}')
-    return layout_parser_factory(config['S'], device, config_path=config_path)
+    return LayoutExtractorYolo(config['S'], device, config_path=config_path)
 
 
 def new_page(regions=()):
@@ -128,10 +128,6 @@ def test_without_ultralytics(monkeypatch):
     monkeypatch.setitem(sys.modules, 'ultralytics', None)  # import ultralytics raises ImportError
     with pytest.raises(ImportError, match='pip install ultralytics'):
         make_extractor()
-
-
-def test_is_built_by_the_factory(fake_yolo):
-    assert isinstance(make_extractor(), LayoutExtractorYolo)
 
 
 # --- the real ultralytics -----------------------------------------------------------------------------------------

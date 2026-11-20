@@ -2,7 +2,7 @@
 
     pip install -e ".[test]"
     pytest                       # everything that runs on CPU without external data (the default)
-    pytest test/page_parser      # one tier
+    pytest test/stages           # one tier
     pytest test/io/consistency test/engines/consistency   # only the consistency checks
     pytest -m slow               # only the slow tests (parse_folder.py end-to-end runs)
     pytest -m gpu                # GPU tests (skipped automatically without CUDA)
@@ -12,33 +12,36 @@
 | directory | what | needs |
 |---|---|---|
 | `cli/` | `user_scripts/parse_folder.py` end to end: files, flags, process behaviour | CPU, ~20 s |
-| `page_parser/` | `PageParser` built from config: which stages run and in which order, numbered sections, what `PageParser` itself does with the result, and full production-like pipelines | CPU |
-| `engines/` | every engine as a black box, with all its config options: the stages a config section builds (layout, line cropper, OCR, decoder, sorters, postprocessing) and the engines inside them, driven by tiny torchscript models; YOLO with a fake ultralytics | CPU |
+| `page_parser/` | `PageParser` built from config: which sections run and in which order, numbered sections, what `PageParser` itself does with the result, and full production-like pipelines | CPU |
+| `stages/` | every kind of config section as a stage: which engine a section builds, and what the stage does around the engine that is the same for all its engines | CPU |
+| `engines/` | every engine as a black box, with all its options, driven by tiny torchscript models; YOLO with a fake ultralytics | CPU |
 | `engines/consistency/` | every engine, with a frozen model, still turns a frozen input into exactly the frozen output (the smart sorter and the line cropper have no model) | CPU |
 | `io/` | PAGE XML / ALTO / logits: export, import (also from other tools), round trips, known bugs | CPU |
 | `io/consistency/` | the exporters still write the committed golden IO files, and the committed PAGE XML still reads back | CPU |
-| `unit/` | single functions and classes in isolation, mirroring the `pero_ocr` package | CPU |
+| `unit/` | internals in isolation: algorithms and data structures with no config section of their own (decoder internals, hypotheses, confusion networks, confidences, alignments, the layout data model), mirroring the `pero_ocr` package | CPU |
 
-The tiers follow the call stack: `parse_folder.py` wraps `PageParser`, which wraps the engines, which produce the `PageLayout` that `io` exports.
+The tiers follow the call stack: `parse_folder.py` wraps `PageParser`, which runs the stages, which wrap the engines, which produce the `PageLayout` that `io` exports.
 
 Each tier tests its own logic and treats the tier below as a black box:
 
-- An **engine** is everything one config section builds: a `[LAYOUT_PARSER]` stage selected by its `METHOD`, `[LINE_CROPPER]`, `[OCR]` or `[DECODER]`, together with the engine classes inside it. Its tests in `engines/` build it from a config section and cover every option it reads: a section and a `PageLayout` in, a `PageLayout` out.
-- **`page_parser/`** tests what `PageParser` adds on top: which sections are built and run (`RUN_*`, section names and order, numbered croppers and OCRs), the `METHOD` dispatch, passing `config_path` on, what it does after the stages (confidences, `FILTER_CONFIDENT_LINES_THRESHOLD`), and a few full pipelines in the shape of the production engines. It does not test the options of a stage.
+- An **engine** does the actual work for one kind of section: a layout method, the line cropper, an OCR network, a decoder, the language model. Its tests in `engines/` build it directly (from its own config section where it reads one, as the layout methods do) and cover every option it has.
+- A **stage** is what one kind of config section builds: `[LAYOUT_PARSER]` (`layout_parser_factory`), `[LINE_CROPPER]` (`line_cropper_factory`, `LineCropper`), `[OCR]` (`ocr_factory`, `PageOCR`) and `[DECODER]` (`page_decoder_factory`, `PageDecoder`). Its tests in `stages/` always go through the factory and cover which engine a section builds (`METHOD`, `TYPE`, unknown values), the contract every engine of the stage keeps, and the logic around the engine: which lines it handles (`CATEGORIES`, confidence thresholds), failing lines, devices, paths relative to the config, writing results to the lines. Some stages have one engine or no logic of their own yet (the layout stage only picks the method, the cropper stage has a single engine); they get their file anyway, so that a stage that grows already has its tests in place.
+- **`page_parser/`** tests what `PageParser` adds on top: which sections are built and run (`RUN_*`, section names and order, numbered croppers and OCRs), passing `config_path` on, what it does after the stages (confidences, `FILTER_CONFIDENT_LINES_THRESHOLD`), and a few full pipelines in the shape of the production engines.
 - **`cli/`** tests `parse_folder.py` itself: arguments, files, skipping, errors, exit codes, and full runs.
+- **`unit/`** tests what has no config section and is not an engine: the internals that the engines and stages are built from. A test that drives an engine through its public interface belongs to `engines/`, even if it checks exact numbers.
 
-| config section | engine | tests |
-|---|---|---|
-| `[LAYOUT_PARSER] METHOD = LAYOUT_CNN` | `LayoutExtractor`, `LayoutEngine` | `test_layout_cnn.py`, `test_layout_engine.py` |
-| `METHOD = LAYOUT_YOLO` | `LayoutExtractorYolo`, `LayoutEngineYolo` | `test_layout_yolo.py` |
-| `METHOD = REGION_SORTER_SMART`, `REGION_SORTER_NAIVE` | `SmartRegionSorter`, `NaiveRegionSorter` | `test_region_sorters.py` |
-| `METHOD = REGION_SORTER_TRANSFORMER` | `TransformerRegionSorter` | `test_region_sorter_transformer.py` |
-| `METHOD = REGION_WHOLE_PAGE` | `WholePageRegion` | `test_region_whole_page.py` |
-| `METHOD = LINE_POSTPROCESSING` | `LinePostprocessor`, `PostprocessingEngine` | `test_line_postprocessing.py` |
-| `METHOD = LAYOUT_POSTPROCESSING` | `LayoutPostprocessor` (`layout_helpers.retrace_region`) | `test_layout_postprocessing.py` |
-| `[LINE_CROPPER]` | `LineCropper`, `EngineLineCropper` | `test_line_cropper.py` |
-| `[OCR]` | `PageOCR`, `PytorchEngineLineOCR`, `TransformerEngineLineOCR` | `test_page_ocr.py`, `test_ctc_engine.py`, `test_transformer_engine.py` |
-| `[DECODER]` | `PageDecoder`, the decoders, the language model | `test_page_decoder.py`, `test_lm.py` |
+| config section | stage (`stages/`) | engine | engine tests (`engines/`) |
+|---|---|---|---|
+| `[LAYOUT_PARSER] METHOD = LAYOUT_CNN` | `test_layout_stage.py` | `LayoutExtractor`, `LayoutEngine` | `test_layout_cnn.py`, `test_layout_engine.py` |
+| `METHOD = LAYOUT_YOLO` | | `LayoutExtractorYolo`, `LayoutEngineYolo` | `test_layout_yolo.py` |
+| `METHOD = REGION_SORTER_SMART`, `REGION_SORTER_NAIVE` | | `SmartRegionSorter`, `NaiveRegionSorter` | `test_region_sorters.py` |
+| `METHOD = REGION_SORTER_TRANSFORMER` | | `TransformerRegionSorter` | `test_region_sorter_transformer.py` |
+| `METHOD = REGION_WHOLE_PAGE` | | `WholePageRegion` | `test_region_whole_page.py` |
+| `METHOD = LINE_POSTPROCESSING` | | `LinePostprocessor`, `PostprocessingEngine` | `test_line_postprocessing.py` |
+| `METHOD = LAYOUT_POSTPROCESSING` | | `LayoutPostprocessor` (`layout_helpers.retrace_region`) | `test_layout_postprocessing.py` |
+| `[LINE_CROPPER]` | `test_cropper_stage.py` | `EngineLineCropper` | `test_line_cropper.py` |
+| `[OCR]` | `test_ocr_stage.py` | `PytorchEngineLineOCR`, `TransformerEngineLineOCR` | `test_ctc_engine.py`, `test_transformer_engine.py` |
+| `[DECODER]` | `test_decoder_stage.py` | `GreedyDecoder`, `CTCPrefixLogRawNumpyDecoder`, the language model (`construct_lm`, `LMWrapper`) | `test_decoders.py`, `test_lm.py` |
 
 Not covered: `REGION_SIMPLE_THRESHOLD`, `LINES_SIMPLE_THRESHOLD` and `LINE_FILTER`, which may be dropped (issues #101 and #102).
 

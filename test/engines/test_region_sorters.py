@@ -3,10 +3,10 @@ REGION_SORTER_SMART (SmartRegionSorter, used by most production engines) and REG
 The transformer sorter has its own file, test_region_sorter_transformer.py."""
 import numpy as np
 import pytest
-import torch
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
-from pero_ocr.document_ocr.page_parser import layout_parser_factory
+from pero_ocr.layout_engines.naive_sorter import NaiveRegionSorter
+from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from test.configs import section
 
 PAGE_SIZE = (1000, 800)  # height, width
@@ -17,7 +17,8 @@ SORTERS = ['REGION_SORTER_SMART', pytest.param('REGION_SORTER_NAIVE', marks=NAIV
 
 
 def make(method, **options):
-    return layout_parser_factory(section(METHOD=method, **options), torch.device('cpu'))
+    sorter = {'REGION_SORTER_SMART': SmartRegionSorter, 'REGION_SORTER_NAIVE': NaiveRegionSorter}[method]
+    return sorter(section(**options))
 
 
 def region(region_id, l, t, r, b, category=None, angle=0.0):

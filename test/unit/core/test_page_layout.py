@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
+from scipy import sparse
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine, normalize_text
+from pero_ocr.ocr_engine.softmax import softmax
 from test.io.reference_layout import build_reference_layout
 
 
@@ -78,3 +80,13 @@ def test_calculate_confidences(layout):
 
 def test_normalize_text():
     assert normalize_text('Příliš žluťoučký') == 'Prilis zlutoucky'
+
+
+def test_dense_logits_from_sparse_logits():
+    """Logits stored sparse (entries with a negligible probability dropped) come back dense, with the dropped entries
+    filled in with the given value."""
+    logits = np.array([[1.0, -20.0, -19.0], [0.1, 0.1, -21.0]])
+    sparse_logits = logits.copy()
+    sparse_logits[softmax(logits, axis=1) < 0.0001] = 0
+    line = TextLine(logits=sparse.csc_matrix(sparse_logits))
+    np.testing.assert_array_equal(line.get_dense_logits(-50.0), [[1.0, -50.0, -50.0], [0.1, 0.1, -50.0]])

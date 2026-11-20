@@ -1,6 +1,9 @@
-"""The DECODER stage (page_decoder_factory and PageDecoder in pero_ocr.document_ocr.page_parser) as a black box: the
-[DECODER] config section (plus [OCR] OCR_JSON for the character set) and a page whose lines carry OCR logits in, the
-lines re-decoded. The decoders and the language model underneath are tested in test/unit/decoding and test_lm.py.
+"""The [DECODER] stage (page_decoder_factory and PageDecoder in pero_ocr.document_ocr.page_parser): the [DECODER]
+config section (plus [OCR] OCR_JSON for the character set) and a page whose lines carry OCR logits in, the lines
+re-decoded. The stage picks the decoder by TYPE, loads the LM, and does what is the same for every decoder: which lines
+are decoded (CATEGORIES, CONFIDENCE_THRESHOLD), carrying the LM state over line ends (CARRY_H_OVER), failing lines,
+the summary. The decoders and the language model themselves are tested in test/engines/test_decoders.py and
+test/engines/test_lm.py.
 
 The lines carry hand-made CTC frames (test/synthetic.py); the tiny LM prefers 'b' after 'a' and keeps its state over
 line ends."""
@@ -60,6 +63,7 @@ def lm_decoder(lm_path):
 
 def test_greedy(ctc_json):
     decoder = make(ctc_json, TYPE='GREEDY')
+    assert isinstance(decoder, PageDecoder)
     assert isinstance(decoder.decoder, GreedyDecoder)
     assert texts(decoder.process_page(page_with_lines(AMBIGUOUS_AFTER_A))) == ['ac']
 
@@ -84,6 +88,14 @@ def test_characters_come_from_the_ocr_json(tmp_path):
     decoder = make(reversed_json, TYPE='GREEDY')
     assert texts(decoder.process_page(page_with_lines(AMBIGUOUS_AFTER_A))) == [CHARS[::-1][CHARS.index('a')] +
                                                                               CHARS[::-1][CHARS.index('c')]]
+
+
+@pytest.mark.xfail(reason="page_decoder_factory reads the character set from config['OCR'], so a config with numbered "
+                          "OCR sections fails with KeyError: 'OCR'", raises=KeyError, strict=True)
+def test_character_set_from_a_numbered_ocr_section(ctc_json):
+    decoder = page_decoder_factory(sections(OCR_1={'OCR_JSON': ctc_json}, DECODER={'USE_CPU': 'yes', 'TYPE': 'GREEDY'}),
+                                   CPU)
+    assert texts(decoder.process_page(page_with_lines(AMBIGUOUS_AFTER_A))) == ['ac']
 
 
 def test_unknown_type(ctc_json):

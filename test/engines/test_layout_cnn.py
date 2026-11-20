@@ -9,7 +9,7 @@ import pytest
 import torch
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
-from pero_ocr.document_ocr.page_parser import LayoutExtractor, layout_parser_factory
+from pero_ocr.document_ocr.page_parser import LayoutExtractor
 from test.configs import section
 from test.synthetic import page_image
 
@@ -20,10 +20,10 @@ OFF = dict(DETECT_REGIONS='no', DETECT_LINES='no', DETECT_STRAIGHT_LINES_IN_REGI
 
 
 def make(parsenet_path, device=torch.device('cpu'), config_path='', **options):
-    config = dict(METHOD='LAYOUT_CNN', MODEL_PATH=parsenet_path, USE_CPU='yes', DOWNSAMPLE=4,
+    config = dict(MODEL_PATH=parsenet_path, USE_CPU='yes', DOWNSAMPLE=4,
                   DETECTION_THRESHOLD=0.2, MAX_MEGAPIXELS=5, **OFF)
     config.update(options)
-    return layout_parser_factory(section(**config), device, config_path=config_path)
+    return LayoutExtractor(section(**config), device, config_path=config_path)
 
 
 def new_page(regions=(), image=PAGE):
@@ -185,7 +185,6 @@ def test_model_path_relative_to_the_config(parsenet_path):
     import os
     extractor = make(os.path.basename(parsenet_path), config_path=os.path.dirname(parsenet_path),
                      DETECT_REGIONS='yes', DETECT_LINES='yes')
-    assert isinstance(extractor, LayoutExtractor)
     assert len(list(extractor.process_page(PAGE, new_page()).lines_iterator())) == 3
 
 

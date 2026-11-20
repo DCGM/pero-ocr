@@ -89,3 +89,16 @@ def test_order_is_kept_with_batching_by_width(engine):
     runs = [3, 0, 9, 1, 5, 2] * 8
     transcriptions, _, _ = engine.process_lines([line_image(n) for n in runs])
     assert transcriptions == [expected_text(n) for n in runs]
+
+
+@pytest.mark.parametrize('atomic', [True, False])
+def test_output_substitution_table_from_the_json(tmp_path, cpu, atomic):
+    """As for the CTC engine: the json's output_substitution_table becomes a translator, atomic per line by default."""
+    json_path = tiny_models.write_transformer(str(tmp_path), extra={'output_substitution_table': {'a': 'ALPHA'}})
+    substitution = TransformerEngineLineOCR(json_path, cpu, substitute_output_atomic=atomic).output_substitution
+    assert substitution('a a') == 'ALPHA ALPHA'
+    assert substitution('a b') == (None if atomic else 'ALPHA b')
+
+
+def test_no_output_substitution_without_a_table(engine):
+    assert engine.output_substitution is None

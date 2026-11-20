@@ -6,9 +6,8 @@ Stretching works in the frame of the region's tilt, estimated from its lines, so
 import numpy as np
 import pytest
 import shapely.geometry as sg
-import torch
 
-from pero_ocr.document_ocr.page_parser import layout_parser_factory
+from pero_ocr.document_ocr.page_parser import LinePostprocessor
 from test.configs import section
 from test.layouts import box_region, page, rotated, straight_line, textline
 
@@ -17,8 +16,7 @@ CENTRE = (400.0, 300.0)
 
 
 def postprocess(layout, **options):
-    config = section(METHOD='LINE_POSTPROCESSING', **{**OFF, **options})
-    return layout_parser_factory(config, torch.device('cpu')).process_page(None, layout)
+    return LinePostprocessor(section(**{**OFF, **options})).process_page(None, layout)
 
 
 def tilted_region(angle, ys=(250, 300, 350), x0=300, x1=500):

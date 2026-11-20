@@ -1,6 +1,8 @@
-"""The OCR stage (PageOCR in pero_ocr.document_ocr.page_parser) as a black box: an [OCR] config section and a
-PageLayout with line crops in, the lines transcribed. The OCR engines underneath are tested in test_ctc_engine.py and
-test_transformer_engine.py.
+"""The [OCR] stage (ocr_factory and PageOCR in pero_ocr.document_ocr.page_parser): an [OCR] config section and a
+PageLayout with line crops in, the lines transcribed. The stage picks the engine by METHOD and does what is the same for
+every OCR engine: which lines are read (CATEGORIES), the results and confidences on the lines, output substitution,
+keeping more confident transcriptions, the device and the path of the engine json. The OCR engines themselves are
+tested in test/engines/test_ctc_engine.py and test_transformer_engine.py.
 
 The tiny OCR models (test/tiny_models.py) read every bright block of a crop as one character: the CTC model always
 'a', the transformer 'a', 'b', 'c', ... in turn."""
@@ -11,7 +13,7 @@ import pytest
 import torch
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
-from pero_ocr.document_ocr.page_parser import ocr_factory
+from pero_ocr.document_ocr.page_parser import PageOCR, ocr_factory
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from test import tiny_models
@@ -53,6 +55,17 @@ def test_method_selects_the_engine(ctc_json, transformer_json, method, engine_cl
     # the tiny CTC model reads every block as 'a', the tiny transformer reads 'a', 'b', 'c', ...
     expected = ['a', 'abc'] if engine_class is TransformerEngineLineOCR else ['a', 'aaa']
     assert texts(ocr.process_page(None, page(line(1), line(3)))) == expected
+
+
+def test_factory_builds_a_page_ocr(ctc_json):
+    assert isinstance(make(ctc_json), PageOCR)
+
+
+@pytest.mark.xfail(reason='PageOCR builds the CTC engine for any METHOD other than pytorch_ocr-transformer, so a typo '
+                          'silently gives the wrong engine', raises=pytest.fail.Exception, strict=True)
+def test_unknown_method(transformer_json):
+    with pytest.raises(ValueError):
+        make(transformer_json, METHOD='pytorch_ocr-transfromer')
 
 
 def test_lines_get_logits_characters_and_confidences(ctc_json):
