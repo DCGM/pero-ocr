@@ -126,8 +126,10 @@ def test_carry_h_over_lets_the_previous_line_guide_the_next(ctc_json, lm_path, c
 
 
 @pytest.mark.xfail(reason='PageDecoder.process_page resets last_h but not last_line, and the next line rebuilds the '
-                          'LM state from last_line, so the last line of one page guides the first line of the next; '
-                          'parse_folder.py processes pages in no particular order', strict=True)
+                          'LM state from last_line, so the last line of the previous page processed guides the first '
+                          'line of the next one. That page follows in parse_folder.py with sorted images and one '
+                          'process, but not with -x, several processes or -s, and in pero-worker it is whatever page '
+                          'the worker got before, possibly from another document. To be decided in #96', strict=True)
 def test_carry_h_over_starts_afresh_on_every_page(ctc_json, lm_path):
     decoder = make(ctc_json, LM=lm_path, CARRY_H_OVER='yes', **LM_DECODER)
     decoder.process_page(page_with_lines(ctc_frames(A, BLANK)))
