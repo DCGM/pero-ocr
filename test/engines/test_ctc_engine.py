@@ -7,6 +7,7 @@ from scipy import sparse
 
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR, greedy_decode_ctc
 from test import tiny_models
+from test.conftest import FROZEN_MODELS
 from test.synthetic import line_image
 
 N_OUT = len(tiny_models.CHARACTERS) + 1
@@ -107,3 +108,13 @@ def test_greedy_decode_ctc_collapses_repeats_and_blanks():
     for t, k in enumerate(frames):
         scores[0, k, t] = 10.0
     assert greedy_decode_ctc(scores, chars) == ['xxy']
+
+
+def test_frozen_model_still_works(engine, cpu):
+    """A model exported by an older pero-ocr/torch (test/data/models) loads and gives the same output."""
+    frozen = PytorchEngineLineOCR(os.path.join(FROZEN_MODELS, 'ctc', 'ocr_engine.json'), cpu)
+    lines = [line_image(n) for n in (0, 1, 4)]
+    frozen_out, fresh_out = frozen.process_lines(lines), engine.process_lines(lines)
+    assert frozen_out[0] == fresh_out[0] == ['', 'a', 'aaaa']
+    for a, b in zip(frozen_out[1], fresh_out[1]):
+        np.testing.assert_array_equal(a.toarray(), b.toarray())

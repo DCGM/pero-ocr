@@ -36,7 +36,7 @@ The test session builds the stand-ins **fresh** from the current code (fixtures 
 
 A model built from the current code can never notice that the current code stopped accepting models built by an older one. For example, a change to how the engine reads the json, a renamed method the engine calls, or a torch upgrade that cannot load older torchscript files would all break models already deployed in production, yet every test using fresh models would still pass.
 
-The copies in this directory close that gap. They were generated once and committed. `test/engines/test_frozen_models.py` loads them with the current code and checks that they give the same results as the fresh ones. If that test fails, a model exported with an older pero-ocr or torch no longer works.
+The copies in this directory close that gap. They were generated once and committed. The `test_frozen_model_still_works` test in each engine's test file (`test/engines/test_ctc_engine.py`, `test_transformer_engine.py`, `test_layout_engine.py`) loads them with the current code and checks that they give the same results as the fresh ones. If that test fails, a model exported with an older pero-ocr or torch no longer works.
 
 Generated from:
 

@@ -1,8 +1,11 @@
+import os
+
 import numpy as np
 import pytest
 
 from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine
 from test import tiny_models
+from test.conftest import FROZEN_MODELS
 from test.synthetic import page_image
 
 LINE_TOPS = [100, 200, 300]  # page_image(3) defaults: top=100, line_height=40, line_gap=60
@@ -51,3 +54,14 @@ def test_rotated_detection_returns_page_coordinates(engine):
     for baseline in baselines:
         assert np.ptp(baseline[:, 0]) < 10  # vertical in the page
         assert 0 <= baseline[:, 0].min() and baseline[:, 0].max() <= rotated.shape[1]
+
+
+def test_frozen_model_still_works(engine, cpu):
+    """A model exported by an older pero-ocr/torch (test/data/models) loads and gives the same output."""
+    frozen = LayoutEngine(os.path.join(FROZEN_MODELS, 'parsenet', 'parsenet.pt'), cpu, downsample=4,
+                          detection_threshold=0.2, max_mp=5)
+    page = page_image(3)
+    frozen_baselines, fresh_baselines = frozen.detect(page)[1], engine.detect(page)[1]
+    assert len(frozen_baselines) == len(fresh_baselines) == 3
+    for a, b in zip(frozen_baselines, fresh_baselines):
+        np.testing.assert_allclose(a, b)

@@ -7,6 +7,7 @@ from test import tiny_models
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(TEST_DIR, 'data')
+FROZEN_MODELS = os.path.join(DATA_DIR, 'models')
 REPO_DIR = os.path.dirname(TEST_DIR)
 
 
