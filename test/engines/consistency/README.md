@@ -21,6 +21,8 @@ The checks are small and run in about a second, so they show such changes long b
 
 The general engine tests are one level up in `test/engines/`.
 
+The YOLO layout engine (`LAYOUT_YOLO`) has no check here: its model is loaded and run by ultralytics, whose model format and results pero-ocr does not control, and the tests replace ultralytics with a fake (`test/fake_yolo.py`). What pero-ocr does with the detections is covered by `test/engines/test_layout_yolo.py`.
+
 ## Why
 
 The engine tests one level up run on tiny stand-in models that the test session builds **fresh** from the current code, and they check behaviour with expectations written in the test. That leaves two gaps:

@@ -13,7 +13,7 @@
 |---|---|---|
 | `cli/` | `user_scripts/parse_folder.py` end to end: files, flags, process behaviour | CPU, ~20 s |
 | `page_parser/` | `PageParser` built from config: the stages wired together, as library users call it | CPU |
-| `engines/` | OCR, layout, reading-order and language-model engines driven by tiny torchscript models, and the line cropper | CPU |
+| `engines/` | OCR, layout, reading-order and language-model engines driven by tiny torchscript models, the YOLO layout engine with a fake ultralytics, and the line cropper | CPU |
 | `engines/consistency/` | every engine, with a frozen model, still turns a frozen input into exactly the frozen output (the line cropper has no model) | CPU |
 | `io/` | PAGE XML / ALTO / logits: export, import (also from other tools), round trips, known bugs | CPU |
 | `io/consistency/` | the exporters still write the committed golden IO files, and the committed PAGE XML still reads back | CPU |
@@ -40,6 +40,8 @@ Each `data/` directory has its own `regenerate.py`, the only thing that writes t
 ## Tiny models
 
 pero-ocr loads every network as a torchscript file, so the engine tests use small stand-ins (`tiny_models.py`) that follow the same calling contract and read synthetic bright-on-black images (`synthetic.py`) predictably. For example, a line crop with *n* bright blocks decodes to *n* characters, and the tiny language model prefers `b` after `a`. The stand-ins are built from the current code for each test session.
+
+The YOLO layout engine (`LAYOUT_YOLO`) is the exception: ultralytics, not pero-ocr, loads its model, so a stand-in model file would only test ultralytics. `fake_yolo.py` replaces the `ultralytics.YOLO` class instead (fixture `fake_yolo`), returns fixed detections, and the tests need neither ultralytics nor a model. One test runs the real ultralytics with an untrained YOLOv8n to check that the fake matches it; it is skipped when ultralytics is not installed.
 
 ## Known bugs and limits
 

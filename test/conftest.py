@@ -54,3 +54,10 @@ def lm_path(tiny_model_dir):
 @pytest.fixture(scope='session')
 def region_sorter_path(tiny_model_dir):
     return os.path.join(tiny_model_dir, 'region_sorter', 'model-cuda.pt')
+
+
+@pytest.fixture
+def fake_yolo(monkeypatch):
+    """ultralytics.YOLO replaced by test/fake_yolo.FakeYOLO for one test; works without ultralytics installed."""
+    from test import fake_yolo
+    return fake_yolo.install(monkeypatch)

@@ -248,6 +248,18 @@ def test_layout_cnn_followed_by_transformer_region_sorter(parsenet_path, region_
     assert len(layout.regions) >= 1 and len(list(layout.lines_iterator())) == 3
 
 
+def test_layout_cnn_followed_by_yolo(parsenet_path, fake_yolo, cpu):
+    """ParseNet finds the text, YOLO adds non-text regions (ultralytics replaced by test/fake_yolo.py)."""
+    yolo = '\n[LAYOUT_PARSER_2]\nMETHOD = LAYOUT_YOLO\nMODEL_PATH = yolo.pt\nDETECTION_THRESHOLD = 0.3\nUSE_CPU = yes\n'
+    text = '[PAGE_PARSER]\nRUN_LAYOUT_PARSER = yes\n' + LAYOUT.replace('[LAYOUT_PARSER]', '[LAYOUT_PARSER_1]') + yolo
+    parser = pp.PageParser(make_config(text, parsenet=parsenet_path), device=cpu)
+    layout = parser.process_page(PAGE, new_page())
+    text_regions = [r for r in layout.regions if r.category in (None, 'text')]
+    assert sum(len(r.lines) for r in text_regions) == 3
+    assert [r.category for r in layout.regions[len(text_regions):]] == ['image', 'stamp', 'page_number']
+    assert len({r.id for r in layout.regions}) == len(layout.regions)
+
+
 def test_unknown_layout_method(cpu):
     config = make_config('[S]\nMETHOD = NOPE\n')
     with pytest.raises(ValueError, match='Unknown layout parser method'):
