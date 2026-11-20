@@ -2,7 +2,7 @@
 
     pip install -e ".[test]"
     pytest                       # everything that runs on CPU without external data (the default)
-    pytest test/io               # one tier
+    pytest test/page_parser      # one tier
     pytest test/io/consistency test/engines/consistency   # only the consistency checks
     pytest -m slow               # only the slow tests (parse_folder.py end-to-end runs)
     pytest -m gpu                # GPU tests (skipped automatically without CUDA)
@@ -11,12 +11,15 @@
 
 | directory | what | needs |
 |---|---|---|
-| `unit/` | single functions and classes | CPU |
-| `io/` | PAGE XML / ALTO / logits: round trips, single features, known bugs | CPU |
-| `io/consistency/` | the exporters still write the committed golden IO files, and the committed PAGE XML still reads back | CPU |
+| `cli/` | `user_scripts/parse_folder.py` end to end: files, flags, process behaviour | CPU, ~20 s |
+| `page_parser/` | `PageParser` built from config: the stages wired together, as library users call it | CPU |
 | `engines/` | OCR and layout engines driven by tiny torchscript models | CPU |
 | `engines/consistency/` | models frozen from an older version still load and give the same results | CPU |
-| `cli/` | `user_scripts/parse_folder.py` end to end | CPU, ~20 s |
+| `io/` | PAGE XML / ALTO / logits: export, import (also from other tools), round trips, known bugs | CPU |
+| `io/consistency/` | the exporters still write the committed golden IO files, and the committed PAGE XML still reads back | CPU |
+| `unit/` | single functions and classes in isolation, mirroring the `pero_ocr` package | CPU |
+
+The tiers follow the call stack: `parse_folder.py` wraps `PageParser`, which wraps the engines, which produce the `PageLayout` that `io` exports.
 
 The markers `gpu`, `models` (real models, `PERO_TEST_MODELS`) and `regression` (the external page sample, `PERO_TEST_DATA`) are deselected by default.
 
