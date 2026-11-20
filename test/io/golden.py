@@ -28,7 +28,7 @@ def check_golden_xml(name: str, actual_xml: str, update: bool):
     path = golden_path(name)
     actual = normalize_xml(actual_xml)
     if update:
-        os.makedirs(GOLDEN_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
             f.write(actual)
         return

@@ -9,7 +9,7 @@ from pero_ocr.core.layout import PageLayout
 from test.io.golden import golden_path
 from test.io.reference_layout import build_reference_layout
 
-GOLDEN_LOGITS = 'reference_page.logits'
+GOLDEN_LOGITS = 'logits/reference_page.logits'
 META_KEYS = {'line_characters', 'logit_coords'}
 
 
@@ -112,8 +112,8 @@ def test_load_legacy_logits_without_metadata(layout, tmp_path):
 
 # --- variants ----------------------------------------------------------------------------------------------------
 
-GOLDEN_LOGITS_BYTES = 'reference_page.logits_bytes'
-GOLDEN_EDGE_LOGITS = 'edge_page.logits'
+GOLDEN_LOGITS_BYTES = 'logits/reference_page.bytes.logits'
+GOLDEN_EDGE_LOGITS = 'logits/edge_page.bytes.logits'
 
 
 def _check_golden_pickle(name, data: bytes, update_golden):

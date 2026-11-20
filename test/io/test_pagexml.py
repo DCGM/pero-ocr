@@ -17,11 +17,11 @@ def layout():
 
 
 def test_golden_page_2019(layout, update_golden):
-    check_golden_xml('reference_page.page_2019.xml', layout.to_pagexml_string(), update_golden)
+    check_golden_xml('page_xml/reference_page.2019.xml', layout.to_pagexml_string(), update_golden)
 
 
 def test_golden_page_2013(layout, update_golden):
-    check_golden_xml('reference_page.page_2013.xml',
+    check_golden_xml('page_xml/reference_page.2013.xml',
                      layout.to_pagexml_string(version=PAGEVersion.PAGE_2013_07_15), update_golden)
 
 
@@ -101,7 +101,7 @@ def test_round_trip_page_2013(layout):
 def test_golden_file_loads(update_golden):
     if update_golden:
         pytest.skip('golden files are being rewritten')
-    loaded = PageLayout(file=golden_path('reference_page.page_2019.xml'))
+    loaded = PageLayout(file=golden_path('page_xml/reference_page.2019.xml'))
     _assert_layouts_equal(loaded, build_reference_layout())
 
 
@@ -115,19 +115,19 @@ def test_custom_attribute_is_json(layout):
 # --- edge cases --------------------------------------------------------------------------------------------------
 
 def test_golden_page_2019_validate_id(layout, update_golden):
-    check_golden_xml('reference_page.page_2019.validate_id.xml', layout.to_pagexml_string(validate_id=True),
+    check_golden_xml('page_xml/reference_page.2019.validate_id.xml', layout.to_pagexml_string(validate_id=True),
                      update_golden)
 
 
-@pytest.mark.parametrize('version, suffix', [(PAGEVersion.PAGE_2019_07_15, 'page_2019'),
-                                             (PAGEVersion.PAGE_2013_07_15, 'page_2013')])
+@pytest.mark.parametrize('version, suffix', [(PAGEVersion.PAGE_2019_07_15, '2019'),
+                                             (PAGEVersion.PAGE_2013_07_15, '2013')])
 def test_golden_edge_page(version, suffix, update_golden):
-    check_golden_xml(f'edge_page.{suffix}.xml', build_edge_layout().to_pagexml_string(version=version),
+    check_golden_xml(f'page_xml/edge_page.{suffix}.xml', build_edge_layout().to_pagexml_string(version=version),
                      update_golden)
 
 
 def test_golden_empty_page(update_golden):
-    check_golden_xml('empty_page.page_2019.xml', build_empty_layout().to_pagexml_string(), update_golden)
+    check_golden_xml('page_xml/empty_page.2019.xml', build_empty_layout().to_pagexml_string(), update_golden)
 
 
 def test_edge_page_round_trip():

@@ -162,13 +162,13 @@ def test_page_xml_has_the_golden_shape(full_run):
     """Same elements and attributes as the golden reference (minus features the run does not produce)."""
     _, _, _, out, _ = full_run
     assert_shape_within(signature(os.path.join(out['xml'], 'page_a.xml')),
-                        signature(golden_path('reference_page.page_2019.xml')))
+                        signature(golden_path('page_xml/reference_page.2019.xml')))
 
 
 def test_alto_has_the_golden_shape(full_run):
     _, _, _, out, _ = full_run
     assert_shape_within(signature(os.path.join(out['alto'], 'page_a.xml')),
-                        signature(golden_path('reference_page.alto_v2.xml')))
+                        signature(golden_path('alto/reference_page.v2.xml')))
 
 
 def test_logits_match_page_xml(full_run):

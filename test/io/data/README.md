@@ -27,20 +27,26 @@ The pages are designed to cover the features the exporters handle:
 
 Timestamps (`Created`, `LastChange`, `processingDateTime`) change on every run, so they are replaced by `MASKED`, both in the files and when comparing. XML is compared after parsing, so whitespace does not matter. Logits are compared by content (keys, matrix type, dtype, shape, values) and by pickle protocol.
 
+The files are grouped by format and named `<page>.<variant>.<extension>`:
+
 | file | produced by |
 |---|---|
-| `reference_page.page_2019.xml` | `to_pagexml_string()`; this is what `parse_folder.py` writes |
-| `reference_page.page_2013.xml` | `to_pagexml_string(version=PAGEVersion.PAGE_2013_07_15)` |
-| `reference_page.page_2019.validate_id.xml` | `to_pagexml_string(validate_id=True)` |
-| `reference_page.alto_v2.xml` | `to_altoxml_string()`; this is what `parse_folder.py` writes |
-| `reference_page.alto_v4.xml` | `to_altoxml_string(version=ALTOVersion.ALTO_v4_4)` |
-| `reference_page.alto_v2.page_uuid.xml` | `to_altoxml_string(page_uuid=..., ocr_processing_element=...)` |
+| **`page_xml/`** | |
+| `reference_page.2019.xml` | `to_pagexml_string()`; this is what `parse_folder.py` writes |
+| `reference_page.2013.xml` | `to_pagexml_string(version=PAGEVersion.PAGE_2013_07_15)` |
+| `reference_page.2019.validate_id.xml` | `to_pagexml_string(validate_id=True)` |
+| `edge_page.2019.xml`, `edge_page.2013.xml` | the edge-case page in both versions |
+| `empty_page.2019.xml` | a page without regions |
+| **`alto/`** | |
+| `reference_page.v2.xml` | `to_altoxml_string()`; this is what `parse_folder.py` writes |
+| `reference_page.v4.xml` | `to_altoxml_string(version=ALTOVersion.ALTO_v4_4)` |
+| `reference_page.v2.page_uuid.xml` | `to_altoxml_string(page_uuid=..., ocr_processing_element=...)` |
+| `edge_page.v2.xml`, `edge_page.v4.xml` | the edge-case page in both versions |
+| `empty_page.v2.xml` | a page without regions |
+| **`logits/`** | |
 | `reference_page.logits` | `save_logits()`; this is what `parse_folder.py` writes (pickle protocol 4) |
-| `reference_page.logits_bytes` | `save_logits_bytes()` (pickle protocol 5) |
-| `edge_page.page_2019.xml`, `edge_page.page_2013.xml` | PAGE export of the edge-case page |
-| `edge_page.alto_v2.xml`, `edge_page.alto_v4.xml` | ALTO export of the edge-case page |
-| `edge_page.logits` | `save_logits_bytes()` of the edge-case page |
-| `empty_page.page_2019.xml`, `empty_page.alto_v2.xml` | export of a page without regions |
+| `reference_page.bytes.logits` | `save_logits_bytes()` (pickle protocol 5) |
+| `edge_page.bytes.logits` | `save_logits_bytes()` of the edge-case page |
 
 `parse_folder.py` and the other scripts always use the default versions: PAGE 2019 and ALTO v2. The other versions can only be chosen through the Python API.
 
