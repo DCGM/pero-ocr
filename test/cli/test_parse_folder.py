@@ -14,7 +14,7 @@ import pytest
 from pero_ocr.core.layout import PageLayout
 from test import tiny_models
 from test.conftest import REPO_DIR
-from test.io.golden import golden_path
+from test.io.consistency.golden import golden_path
 from test.synthetic import page_image
 
 PARSE_FOLDER = os.path.join(REPO_DIR, 'user_scripts', 'parse_folder.py')

@@ -1,5 +1,6 @@
 """A hand-built PageLayout covering the features the exporters handle. It does not depend on any model."""
 import numpy as np
+import pytest
 from scipy import sparse
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
@@ -105,3 +106,27 @@ def build_edge_layout() -> PageLayout:
 
 def build_empty_layout() -> PageLayout:
     return PageLayout(id='empty_page.jpg', page_size=(400, 300))
+
+
+def assert_layouts_equal(a: PageLayout, b: PageLayout):
+    assert a.id == b.id
+    assert a.page_size == b.page_size
+    assert [r.id for r in a.regions] == [r.id for r in b.regions]
+    for ra, rb in zip(a.regions, b.regions):
+        assert ra.region_type == rb.region_type
+        assert ra.category == rb.category
+        assert ra.detection_confidence == pytest.approx(rb.detection_confidence if rb.detection_confidence is None
+                                                        else round(rb.detection_confidence, 3))
+        np.testing.assert_array_equal(np.asarray(ra.polygon), np.maximum(np.round(rb.polygon), 0))
+        assert [line.id for line in ra.lines] == [line.id for line in rb.lines]
+        for la, lb in zip(ra.lines, rb.lines):
+            assert la.index == lb.index
+            assert la.category == lb.category
+            assert la.transcription == lb.transcription
+            np.testing.assert_array_equal(la.baseline, np.maximum(np.round(lb.baseline), 0))
+            np.testing.assert_array_equal(la.polygon, np.maximum(np.round(lb.polygon), 0))
+            np.testing.assert_allclose(la.heights, np.round(lb.heights, 1))
+            if lb.transcription is None:
+                assert la.transcription_confidence is None
+            else:
+                assert la.transcription_confidence == pytest.approx(lb.transcription_confidence, abs=5e-4)

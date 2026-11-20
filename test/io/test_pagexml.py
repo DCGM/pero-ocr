@@ -1,12 +1,10 @@
 import json
 
 import lxml.etree as ET
-import numpy as np
 import pytest
 
 from pero_ocr.core.layout import PageLayout, PAGEVersion
-from test.io.golden import check_golden_xml, golden_path
-from test.io.reference_layout import build_reference_layout, build_edge_layout, build_empty_layout
+from test.io.reference_layout import assert_layouts_equal, build_reference_layout, build_edge_layout, build_empty_layout
 
 PAGE_2019 = 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15'
 
@@ -14,15 +12,6 @@ PAGE_2019 = 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15'
 @pytest.fixture
 def layout():
     return build_reference_layout()
-
-
-def test_golden_page_2019(layout, update_golden):
-    check_golden_xml('page_xml/reference_page.2019.xml', layout.to_pagexml_string(), update_golden)
-
-
-def test_golden_page_2013(layout, update_golden):
-    check_golden_xml('page_xml/reference_page.2013.xml',
-                     layout.to_pagexml_string(version=PAGEVersion.PAGE_2013_07_15), update_golden)
 
 
 def test_to_pagexml_file_equals_string(layout, tmp_path):
@@ -61,34 +50,10 @@ def test_regions_follow_reading_order(layout):
     assert refs == {'r001': 0, 'r002': 1, 'r003': 2}
 
 
-def _assert_layouts_equal(a: PageLayout, b: PageLayout):
-    assert a.id == b.id
-    assert a.page_size == b.page_size
-    assert [r.id for r in a.regions] == [r.id for r in b.regions]
-    for ra, rb in zip(a.regions, b.regions):
-        assert ra.region_type == rb.region_type
-        assert ra.category == rb.category
-        assert ra.detection_confidence == pytest.approx(rb.detection_confidence if rb.detection_confidence is None
-                                                        else round(rb.detection_confidence, 3))
-        np.testing.assert_array_equal(np.asarray(ra.polygon), np.maximum(np.round(rb.polygon), 0))
-        assert [line.id for line in ra.lines] == [line.id for line in rb.lines]
-        for la, lb in zip(ra.lines, rb.lines):
-            assert la.index == lb.index
-            assert la.category == lb.category
-            assert la.transcription == lb.transcription
-            np.testing.assert_array_equal(la.baseline, np.maximum(np.round(lb.baseline), 0))
-            np.testing.assert_array_equal(la.polygon, np.maximum(np.round(lb.polygon), 0))
-            np.testing.assert_allclose(la.heights, np.round(lb.heights, 1))
-            if lb.transcription is None:
-                assert la.transcription_confidence is None
-            else:
-                assert la.transcription_confidence == pytest.approx(lb.transcription_confidence, abs=5e-4)
-
-
 def test_round_trip(layout):
     loaded = PageLayout()
     loaded.from_pagexml_string(layout.to_pagexml_string())
-    _assert_layouts_equal(loaded, layout)
+    assert_layouts_equal(loaded, layout)
 
 
 def test_round_trip_page_2013(layout):
@@ -96,13 +61,6 @@ def test_round_trip_page_2013(layout):
     loaded.from_pagexml_string(layout.to_pagexml_string(version=PAGEVersion.PAGE_2013_07_15))
     assert [r.id for r in loaded.regions] == ['r001', 'r002', 'r003']
     assert sum(len(r.lines) for r in loaded.regions) == 6
-
-
-def test_golden_file_loads(update_golden):
-    if update_golden:
-        pytest.skip('golden files are being rewritten')
-    loaded = PageLayout(file=golden_path('page_xml/reference_page.2019.xml'))
-    _assert_layouts_equal(loaded, build_reference_layout())
 
 
 def test_custom_attribute_is_json(layout):
@@ -113,21 +71,6 @@ def test_custom_attribute_is_json(layout):
 
 
 # --- edge cases --------------------------------------------------------------------------------------------------
-
-def test_golden_page_2019_validate_id(layout, update_golden):
-    check_golden_xml('page_xml/reference_page.2019.validate_id.xml', layout.to_pagexml_string(validate_id=True),
-                     update_golden)
-
-
-@pytest.mark.parametrize('version, suffix', [(PAGEVersion.PAGE_2019_07_15, '2019'),
-                                             (PAGEVersion.PAGE_2013_07_15, '2013')])
-def test_golden_edge_page(version, suffix, update_golden):
-    check_golden_xml(f'page_xml/edge_page.{suffix}.xml', build_edge_layout().to_pagexml_string(version=version),
-                     update_golden)
-
-
-def test_golden_empty_page(update_golden):
-    check_golden_xml('page_xml/empty_page.2019.xml', build_empty_layout().to_pagexml_string(), update_golden)
 
 
 def test_edge_page_round_trip():

@@ -1,18 +1,42 @@
+import json
 import os
+import platform
+import subprocess
 
+import numpy
 import pytest
 import torch
 
 from test import tiny_models
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
-FROZEN_MODELS = os.path.join(TEST_DIR, 'engines', 'data')
+FROZEN_MODELS = os.path.join(TEST_DIR, 'engines', 'consistency', 'data')
 REPO_DIR = os.path.dirname(TEST_DIR)
 
 
 def pytest_addoption(parser):
     parser.addoption('--update-golden', action='store_true', default=False,
-                     help='Rewrite the golden files in test/io/data from the current code instead of comparing.')
+                     help='Rewrite the golden files in test/io/consistency/data from the current code instead of comparing.')
+    parser.addoption('--update-frozen-models', action='store_true', default=False,
+                     help='Rewrite the frozen tiny models in test/engines/consistency/data from the current code. Only after a '
+                          'deliberate break of the model format: this resets the backward-compatibility check.')
+
+
+def write_generated_with(directory):
+    """Record which code and library versions produced the committed test data in ``directory``."""
+    def git(*args):
+        return subprocess.run(['git', *args], cwd=REPO_DIR, capture_output=True, text=True).stdout.strip()
+
+    info = {
+        'git_commit': git('rev-parse', '--short', 'HEAD'),
+        'pero_ocr_uncommitted_changes': bool(git('status', '--porcelain', '--', 'pero_ocr')),
+        'python': platform.python_version(),
+        'torch': torch.__version__,
+        'numpy': numpy.__version__,
+    }
+    with open(os.path.join(directory, 'generated_with.json'), 'w') as f:
+        json.dump(info, f, indent=1)
+        f.write('\n')
 
 
 def pytest_collection_modifyitems(config, items):
@@ -27,6 +51,11 @@ def pytest_collection_modifyitems(config, items):
 @pytest.fixture(scope='session')
 def update_golden(request):
     return request.config.getoption('--update-golden')
+
+
+@pytest.fixture(scope='session')
+def update_frozen_models(request):
+    return request.config.getoption('--update-frozen-models')
 
 
 @pytest.fixture(scope='session')

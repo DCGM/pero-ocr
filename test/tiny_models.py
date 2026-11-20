@@ -13,12 +13,12 @@ of the input image, so tests can predict it:
 * ParseNet: a baseline is the bottom row of every block of ink, ascender/descender heights are constants and there
   are no line endpoints or region separators.
 
-Run ``python -m test.tiny_models OUT_DIR`` to (re)generate the frozen copies in ``test/engines/data``.
+The frozen copies in ``test/engines/consistency/data`` are regenerated with
+``pytest test/engines/consistency --update-frozen-models``.
 """
 import json
 import os
 import shutil
-import sys
 from typing import Optional, Tuple
 
 import torch
@@ -171,10 +171,3 @@ def write_all(directory: str) -> dict:
         'parsenet': write_parsenet(os.path.join(directory, 'parsenet')),
     }
 
-
-if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print(f'usage: python -m test.tiny_models OUT_DIR', file=sys.stderr)
-        sys.exit(1)
-    for name, path in write_all(sys.argv[1]).items():
-        print(name, path)
