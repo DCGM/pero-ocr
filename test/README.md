@@ -29,10 +29,10 @@ The general tests check what the code does now. The consistency checks compare t
 | snapshot in `data/` | golden IO files: PAGE XML, ALTO and logits | frozen tiny torchscript models |
 | guards | the output format (and reading PAGE XML back) | loading of previously exported models |
 | made from | hand-built pages in `io/reference_layout.py` | stand-ins in `tiny_models.py` |
-| regenerate | `pytest test/io/consistency --update-golden-io` | `pytest test/engines/consistency --update-frozen-models` |
+| regenerate | `python test/io/consistency/data/regenerate.py` | `python test/engines/consistency/data/regenerate.py` |
 | regenerate when | the output format changes on purpose | the model format is broken on purpose (rarely) |
 
-Regenerating rewrites `data/` and records the commit and library versions in `data/generated_with.json`. Never regenerate just to make a failing check pass. Each directory's README explains its snapshot and what to do when a check fails.
+Each `data/` directory has its own `regenerate.py`, the only thing that writes to it. It recreates the data with the current code and records the commit and library versions in `data/generated_with.json`. pytest only compares. Never regenerate just to make a failing check pass. Each directory's README explains its snapshot and what to do when a check fails.
 
 ## Tiny models
 

@@ -2,10 +2,15 @@
 
 This directory checks that pero-ocr keeps **writing** the same files and can still **read** the files it wrote before. It holds the checks and the committed data they compare against.
 
-| check | question |
+| file | what |
 |---|---|
-| `test_pagexml.py`, `test_altoxml.py`, `test_logits.py` | Does the current code still produce exactly the committed PAGE XML, ALTO XML and logits? |
-| `test_pagexml_input.py` | Can the current code still read the committed PAGE XML files back? pero-ocr also takes PAGE XML as input, e.g. `parse_folder.py -x`. |
+| `test_pagexml.py`, `test_altoxml.py`, `test_logits.py` | checks: does the current code still produce exactly the committed PAGE XML, ALTO XML and logits? |
+| `test_pagexml_input.py` | check: can the current code still read the committed PAGE XML files back? pero-ocr also takes PAGE XML as input, e.g. `parse_folder.py -x`. |
+| `golden_io.py` | `GOLDEN_IO_FILES`, the list of golden IO files and the exporter call that produces each one, plus the code that writes and compares them |
+| `data/` | the committed golden IO files |
+| `data/regenerate.py` | the script that recreates `data/` with the current code |
+
+Every file in `GOLDEN_IO_FILES` is both written by `data/regenerate.py` and compared by the checks, so the two cannot drift apart. The checks also fail if `data/` holds a file that is not in the list, or misses one.
 
 The general IO tests (round trips, single features, known bugs) are one level up in `test/io/`.
 
@@ -45,6 +50,7 @@ The files are grouped by format and named `<page>.<variant>.<extension>`:
 | `reference_page.bytes.logits` | `save_logits_bytes()` (pickle protocol 5) |
 | `edge_page.bytes.logits` | `save_logits_bytes()` of the edge-case page |
 | `generated_with.json` | the commit and library versions that produced the files |
+| `regenerate.py` | recreates all of the above |
 
 `parse_folder.py` and the other scripts always use the default versions: PAGE 2019 and ALTO v2. The other versions can only be chosen through the Python API.
 
@@ -58,7 +64,7 @@ The pages are designed to cover the features the exporters handle:
 - `edge_page`: region-level text, an empty transcription, a line without logits, an Arabic line, YOLO-style category regions, and a page name with characters that ALTO has to sanitize.
 - `empty_page`: a page without any region.
 
-Timestamps (`Created`, `LastChange`, `processingDateTime`) change on every run, so they are replaced by `MASKED`, both in the files and when comparing. XML is compared after parsing, so whitespace does not matter. Logits are compared by content (keys, matrix type, dtype, shape, values) and by pickle protocol. The helpers for this are in `golden_io.py`.
+Timestamps (`Created`, `LastChange`, `processingDateTime`) change on every run, so they are replaced by `MASKED`, both in the files and when comparing. XML is compared after parsing, so whitespace does not matter. Logits are compared by content (keys, matrix type, dtype, shape, values) and by pickle protocol. The code for this is in `golden_io.py`.
 
 The files record **current** behaviour, not ideal behaviour, including known flaws. For example, ALTO coordinates can be negative, and words placed without logits run past the end of the line. Each known flaw also has a strict `xfail` test in `test/io/` that describes the correct behaviour. Fixing a flaw makes both that `xfail` test and the consistency check fail, so the fix has to remove the marker and regenerate the data. That makes the format change visible in review.
 
@@ -66,9 +72,11 @@ The files record **current** behaviour, not ideal behaviour, including known fla
 
 Regenerate the data whenever the output format changes **on purpose**, and commit it together with the code change:
 
-    pytest test/io/consistency --update-golden-io
+    python test/io/consistency/data/regenerate.py
 
-This rewrites `data/` from the current code and records the commit and library versions in `data/generated_with.json`. Review the diff of `data/` before committing, and mention the format change in the commit message or PR, since consumers of the output may need to adapt.
+The script runs every exporter call in `GOLDEN_IO_FILES` with the current code, rewrites `data/page_xml`, `data/alto` and `data/logits` (removing files no longer in the list), and records the commit and library versions in `data/generated_with.json`. It works from any directory and always uses the `pero_ocr` of the checkout it lives in. pytest itself never writes to `data/`.
+
+To add a golden IO file, add an entry to `GOLDEN_IO_FILES` (and, if needed, a page to `test/io/reference_layout.py`), then run the script. Review the diff of `data/` before committing, and mention the format change in the commit message or PR, since consumers of the output may need to adapt.
 
 ## When a check fails
 

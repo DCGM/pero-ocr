@@ -14,7 +14,7 @@ of the input image, so tests can predict it:
   are no line endpoints or region separators.
 
 The frozen copies in ``test/engines/consistency/data`` are regenerated with
-``pytest test/engines/consistency --update-frozen-models``.
+``python test/engines/consistency/data/regenerate.py``.
 """
 import json
 import os
