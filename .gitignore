@@ -133,3 +133,6 @@ ENV/
 *.del
 
 *.swp
+
+# test fixtures are committed on purpose
+!test/data/**

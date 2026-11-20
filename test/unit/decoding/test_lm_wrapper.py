@@ -1,7 +1,7 @@
 import unittest
+import pytest
 import torch
 import numpy as np
-import os
 
 from pero_ocr.decoding.lm_wrapper import LMWrapper, HiddenState
 
@@ -175,7 +175,8 @@ class TorchCPULmWrapperTests(LMWrapperTemplate, unittest.TestCase):
         self._wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'], device=self._device)
 
 
-@unittest.skipIf(os.environ.get('TEST_CUDA') != 'yes', "For GPU tests, set TEST_CUDA='yes'")
+@pytest.mark.gpu
+@unittest.skipIf(not torch.cuda.is_available(), "CUDA is not available")
 class GPULMWrapperTests(LMWrapperTemplate, unittest.TestCase):
     def setUp(self):
         self._device = torch.device('cuda')
