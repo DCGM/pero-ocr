@@ -4,8 +4,13 @@ pero-ocr loads every network as a torchscript file, so the tests do not need the
 that follow the same calling contract. The stand-ins have no learned weights; their output is a deterministic function
 of the input image, so tests can predict it:
 
-* "ink" is **bright** pixels (mean intensity > 0.5). The engines pad line crops and pages with zeros (black), so
-  bright-on-black test images keep the padding inert.
+* "ink" is **bright** pixels (mean intensity > 0.5), so the test images are bright text on black, the inverse of
+  real documents. The reason is padding: the engines fill everything that is not image with zeros, i.e. black. The
+  OCR engines pad shorter lines of a batch to the width of the longest one, the layout engine pads the page to a size
+  divisible by its downsampling, and the line cropper fills the part of a line outside the page with black. Real
+  models learned to ignore that padding; the stand-ins cannot learn. If dark pixels were ink, padding would read as
+  text: extra characters at the end of every line shorter than its batch, a baseline along the padded page border,
+  and outputs that depend on how the lines were batched. With bright ink, padding is simply "no ink".
 * CTC OCR: every horizontal run of ink becomes one character. Without an embedding id it is ``characters[1]``,
   with embedding id ``e`` it is ``characters[1 + e % (n_chars - 1)]``.
 * Transformer OCR: a line with ``n`` runs of ink decodes to ``n`` characters ``characters[1], characters[2], ...``

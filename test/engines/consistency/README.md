@@ -73,7 +73,7 @@ pero-ocr's engines are mostly plumbing around a network: reading the engine json
 
 pero-ocr loads every network as a torchscript file and only calls it through a fixed interface: `forward(...)`, `encode` / `adapt` / `decode_step` for the transformer, or `model(x, h)` / `init_hidden()` / `decoder(o)` for the LM. So a tiny module that implements the same interface goes through exactly the same engine code as a real model. It fits in a few KB, runs on CPU in milliseconds, and gives an output a test can predict exactly.
 
-"Ink" means bright pixels because the engines pad crops and pages with zeros, which is black. Bright-on-black test images (`test/synthetic.py`) keep that padding inert.
+"Ink" means **bright** pixels, so the test images (`test/synthetic.py`) are bright text on black, the inverse of real documents. The reason is padding: the engines fill everything that is not image with zeros, which is black. The OCR engines pad shorter lines of a batch to the width of the longest one, the layout engine pads the page to a size divisible by its downsampling, and the line cropper fills the part of a line outside the page with black. Real models learned to ignore that padding; the stand-ins cannot learn. If dark pixels were ink, the padding would read as text: extra characters at the end of every line shorter than its batch, a baseline along the padded page border, and outputs that depend on how lines happen to be batched. With bright ink, padding is simply "no ink", and the expected outputs stay exact.
 
 Real models are still needed to check recognition quality. That is the job of the separate GPU regression run on real data, not of these checks.
 
