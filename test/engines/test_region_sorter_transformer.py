@@ -13,6 +13,7 @@ import torch
 
 from pero_ocr.core.layout import PageLayout, RegionLayout
 from pero_ocr.layout_engines.transformer_sorter import QueryType, TransformerRegionSorter, page_layout_to_model_inputs
+from test.synthetic import mark_reading_order
 
 PAGE_SIZE = (1000, 800)  # height, width
 IMAGE = np.zeros(PAGE_SIZE + (3,), dtype=np.uint8)
@@ -53,6 +54,21 @@ class RecordingModel:
 def test_orders_regions_as_the_model_says(region_sorter_path):
     layout = make_sorter(region_sorter_path).process_page(IMAGE, page(TWO_COLUMNS))
     assert ids(layout) == ['r3', 'r1', 'r2', 'r0']  # left column top to bottom, then the right one
+
+
+def test_the_image_can_impose_an_order_against_the_geometry(region_sorter_path):
+    """What a learned model does and a geometric sorter cannot: the tiny model reads reading-order marks from the page
+    image (here: right column first, bottom to top), and regions without a mark follow by geometry."""
+    image = mark_reading_order(IMAGE.copy(), [TWO_COLUMNS[0], TWO_COLUMNS[2]])
+    layout = make_sorter(region_sorter_path).process_page(image, page(TWO_COLUMNS))
+    assert ids(layout) == ['r0', 'r2', 'r3', 'r1']
+
+
+@pytest.mark.parametrize('width, height', [(64, 64), (32, 96)])
+def test_marks_survive_the_resizing_of_the_image(region_sorter_path, width, height):
+    image = mark_reading_order(IMAGE.copy(), [TWO_COLUMNS[i] for i in (1, 0, 3, 2)])
+    layout = make_sorter(region_sorter_path, width=width, height=height).process_page(image, page(TWO_COLUMNS))
+    assert ids(layout) == ['r1', 'r0', 'r3', 'r2']
 
 
 def test_more_than_eight_regions(region_sorter_path):

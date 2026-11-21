@@ -3,7 +3,7 @@ pages (with line-end marks and region separators for the ParseNet stand-in), and
 characters for decoders and language models."""
 import numpy as np
 
-from test.tiny_models import CHARACTERS, LINE_END, LINE_PX_HEIGHT, SEPARATOR, ink_colour
+from test.tiny_models import CHARACTERS, LINE_END, LINE_PX_HEIGHT, SEPARATOR, ink_colour, order_mark_level
 
 
 def line_image(n_runs: int, run_width: int = 16, gap: int = 16, height: int = LINE_PX_HEIGHT,
@@ -66,6 +66,14 @@ def layout_page(text=(), line_ends=(), separators=(), size=(600, 800)) -> np.nda
     for boxes, colour in [(text, (255, 255, 255)), (line_ends, LINE_END), (separators, SEPARATOR)]:
         for left, top, right, bottom in boxes:
             img[top:bottom, left:right] = colour
+    return img
+
+
+def mark_reading_order(img: np.ndarray, boxes) -> np.ndarray:
+    """Fill the boxes (left, top, right, bottom), given in the wanted reading order, with the reading-order marks of
+    the tiny reading-order model, which then reads them in this order whatever their position."""
+    for rank, (left, top, right, bottom) in enumerate(boxes):
+        img[top:bottom, left:right, 0] = order_mark_level(rank)
     return img
 
 

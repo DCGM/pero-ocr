@@ -40,7 +40,7 @@ import torch  # noqa: E402
 
 from test import tiny_models  # noqa: E402
 from test.engines.consistency import frozen_engines  # noqa: E402
-from test.synthetic import layout_page, line_image, text_line  # noqa: E402
+from test.synthetic import layout_page, line_image, mark_reading_order, text_line  # noqa: E402
 
 
 def write_generated_with(directory):
@@ -159,7 +159,9 @@ def lm_input():
 
 
 def region_sorter_input():
-    """Region boxes [left, top, right, bottom] on a 1000 x 800 page, deliberately not in reading order. The pages stay
+    """Region boxes [left, top, right, bottom] on a 1000 x 800 page, deliberately not in reading order, and one page
+    whose image carries reading-order marks that contradict the geometry (the tiny model reads them as a learned model
+    reads the page). The pages stay
     within MAX_BBOX_COUNT: regions beyond it are appended in a random order (a known bug, see
     test/engines/test_region_sorter_transformer.py), which a frozen output cannot capture."""
     rng = np.random.default_rng(20261120)
@@ -169,11 +171,13 @@ def region_sorter_input():
         'two_columns': two_columns,
         'twelve_regions_in_a_column': column[rng.permutation(len(column))],  # more than 8: the path search merges
         'one_region': np.array([[40, 50, 760, 950]]),
+        'marked_against_the_geometry': two_columns,
     }
+    marked = {'marked_against_the_geometry': [two_columns[0], two_columns[2]]}  # right column first, bottom to top
     inputs = {}
     for name, boxes in pages.items():
         inputs[f'boxes/{name}'] = boxes.astype(np.int64)
-        inputs[f'image/{name}'] = np.zeros((1000, 800, 3), dtype=np.uint8)
+        inputs[f'image/{name}'] = mark_reading_order(np.zeros((1000, 800, 3), dtype=np.uint8), marked.get(name, []))
     params = {'config': {'model_path': 'model-cuda.pt', 'max_bbox_count': 32, 'image_width': 64, 'image_height': 64,
                          'use_cpu': 'yes'},
               'pages': list(pages)}

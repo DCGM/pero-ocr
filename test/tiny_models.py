@@ -28,8 +28,10 @@ of the input image, so tests can predict it:
     baseline (as a blob 5 rows tall) with LINE_END_WEIGHT, so a yellow mark across a line can cut it in two;
   - non-ink whose first channel is bright (red, ``SEPARATOR``): a region separator, which keeps vertically adjacent
     lines in different regions when it lies along the top of the lower line.
-* Reading order (REGION_SORTER_TRANSFORMER): regions go by their left edge, then by their top edge, i.e. columns
-  left to right, each top to bottom. Only the region boxes matter; the page image is passed in but not used.
+* Reading order (REGION_SORTER_TRANSFORMER): regions whose box in the page image is filled with a reading-order mark
+  (``order_mark_level()``, a grey level in the first channel) come first, brightest mark first, whatever their
+  position; the other regions follow by their left edge, then by their top edge, i.e. columns left to right, each
+  top to bottom.
 * Language model (brnolm torchscript format): the state is the last character seen, ignoring the line separator
   ``</s>``, so the state carries over line ends. After ``LM_PREFERS[0]`` the LM strongly prefers ``LM_PREFERS[1]``;
   every other context gives a uniform distribution.
@@ -191,17 +193,38 @@ class TinyRegionSorter(nn.Module):
 
     forward(boxes B,M,4 [left, top, right, bottom] in [0, 1], query_types B,M (1 = box, 0 = padding),
     images B,3,H,W uint8) -> B,M,M scores, where out[b, i, j] is high when box i comes right after box j.
-    The order is by left edge, then by top edge: columns left to right, each top to bottom. The image is not used."""
+    Regions whose box carries a reading-order mark in the image (``order_mark_level()``: a grey fill of the first
+    channel) come first, brightest mark first, so the image can impose an order the geometry contradicts, as a learned
+    model does. Regions without a mark follow by left edge, then top edge: columns left to right, each top to bottom."""
 
     def forward(self, x: Tensor, query_types: Tensor, images: Tensor) -> Tensor:
         valid = query_types == 1
-        key = x[:, :, 0] + 1e-3 * x[:, :, 1]
+        # mean of the first channel over the inside of every box, one pixel in from its edges in the resized image
+        image = images[:, 0].float() / 255.0  # B,H,W
+        h, w = image.shape[1], image.shape[2]
+        ys = (torch.arange(h, device=x.device, dtype=x.dtype) + 0.5) / h
+        xs = (torch.arange(w, device=x.device, dtype=x.dtype) + 0.5) / w
+        inside_x = (xs.view(1, 1, w) >= x[:, :, 0:1] + 1.0 / w) & (xs.view(1, 1, w) < x[:, :, 2:3] - 1.0 / w)  # B,M,W
+        inside_y = (ys.view(1, 1, h) >= x[:, :, 1:2] + 1.0 / h) & (ys.view(1, 1, h) < x[:, :, 3:4] - 1.0 / h)  # B,M,H
+        inside = inside_y.unsqueeze(3) & inside_x.unsqueeze(2)  # B,M,H,W
+        area = inside.to(x.dtype).sum(dim=(2, 3)).clamp(min=1.0)
+        mark = (inside.to(x.dtype) * image.unsqueeze(1)).sum(dim=(2, 3)) / area  # B,M
+        geometric = 10.0 + x[:, :, 0] + 1e-3 * x[:, :, 1]
+        key = torch.where(mark > 0.05, 1.0 - mark, geometric)
         key = torch.where(valid, key, torch.full_like(key, 1e9))
         rank = torch.argsort(torch.argsort(key, dim=1), dim=1)  # B,M: position of every box in the order
         follows = rank.unsqueeze(2) == rank.unsqueeze(1) + 1  # B,M,M: box i comes right after box j
         mask = valid.unsqueeze(2) & valid.unsqueeze(1)
         scores = (follows & mask).to(x.dtype) * 10.0
         return scores.masked_fill(~mask, -1e-9)  # like the real model: padded entries are masked, not removed
+
+
+def order_mark_level(rank: int) -> int:
+    """Grey level of the reading-order mark for the region that the tiny reading-order model puts at ``rank``
+    (0 = first) among the marked regions; up to 11 ranks."""
+    if not 0 <= rank <= 10:
+        raise ValueError(f'no mark for rank {rank}')
+    return 255 - 20 * rank
 
 
 class TinyLMModel(nn.Module):

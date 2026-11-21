@@ -9,6 +9,7 @@
  "pages": [
   "two_columns",
   "twelve_regions_in_a_column",
-  "one_region"
+  "one_region",
+  "marked_against_the_geometry"
  ]
 }
