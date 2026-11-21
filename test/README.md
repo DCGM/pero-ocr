@@ -2,12 +2,14 @@
 
 The rules for where a test goes and when an engine needs a consistency check are summarized in `AGENTS.md` at the repository root.
 
-    pip install -e ".[test]"
+    pip install -r requirements/lock.txt && pip install --no-deps -e .   # the basis environment
     pytest                       # everything that runs on CPU without external data (the default)
     pytest test/stages           # one tier
     pytest test/io/consistency test/engines/consistency   # only the consistency checks
     pytest -m slow               # only the slow tests (parse_folder.py end-to-end runs)
     pytest -m gpu                # GPU tests (skipped automatically without CUDA)
+
+The basis environment (`requirements/lock.txt`) is one set of versions that installs on Python 3.8 to 3.10 and gives the same results as every live worker stack (issue #94). `pip install -e ".[test]"` works too, with whatever versions `pyproject.toml` allows; the consistency checks then tell whether those versions change any output. Frozen data and golden files are regenerated only in the basis environment.
 
 ## Layout
 

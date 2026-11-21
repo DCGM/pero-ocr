@@ -12,6 +12,10 @@ For every name, data/<name>/ holds the frozen model, the frozen input (input.npz
 gave for it (output.npz) and generated_with.json. The checks in test/engines/consistency run the current code with the
 frozen model on the frozen input and compare with output.npz (see frozen_engines.py).
 
+It refuses to run outside the basis environment (requirements/lock.txt, issue #94) unless --any-environment is given:
+data made with other library versions would not be what the live workers produce (shapely 2.1, for example, changes
+the layout polygons), and models exported with a newer torch do not load in an older one.
+
 Regenerate only after a deliberate, announced change, and name only the engines it concerns, so the rest stays old:
 
 - the engine output changes on purpose (new logits format, a fixed bug, a new cropper): --outputs-only recomputes
@@ -40,6 +44,7 @@ import shapely  # noqa: E402
 import torch  # noqa: E402
 
 from test import tiny_models  # noqa: E402
+from test.basis import require_basis  # noqa: E402
 from test.engines.consistency import frozen_engines  # noqa: E402
 from test.synthetic import layout_page, line_image, mark_reading_order, text_line  # noqa: E402
 
@@ -393,11 +398,14 @@ def main():
     parser.add_argument('names', nargs='*', help=f'default: all of {sorted(INPUTS)}')
     parser.add_argument('--outputs-only', action='store_true',
                         help='keep the frozen model and input, recompute only output.npz')
+    parser.add_argument('--any-environment', action='store_true',
+                        help='regenerate even when the installed versions differ from requirements/lock.in')
     args = parser.parse_args()
     names = args.names or list(INPUTS)
     unknown = sorted(set(names) - set(INPUTS))
     if unknown:
         sys.exit(f'unknown name(s) {unknown}, choose from {sorted(INPUTS)}')
+    require_basis(args.any_environment)
     for name in names:
         regenerate(name, args.outputs_only)
 

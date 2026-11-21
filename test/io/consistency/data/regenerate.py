@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Recreate the golden IO files in this directory with the current pero-ocr code.
 
-    python test/io/consistency/data/regenerate.py
+    python test/io/consistency/data/regenerate.py [--any-environment]
 
-Run it when the output format changes on purpose, then review `git diff` of this directory and commit it together
+It refuses to run outside the basis environment (requirements/lock.txt) unless --any-environment is given. Run it when the output format changes on purpose, then review `git diff` of this directory and commit it together
 with the code change. Which files exist and which exporter call produces each of them is GOLDEN_IO_FILES in
 ../golden_io.py; this script writes all of them, removes files no longer listed, and records generated_with.json.
 """
@@ -22,6 +22,7 @@ sys.path.insert(0, REPO_DIR)  # this checkout's pero_ocr and test packages, not 
 import numpy  # noqa: E402
 import torch  # noqa: E402
 
+from test.basis import require_basis  # noqa: E402
 from test.io.consistency.golden_io import GOLDEN_IO_FILES, produce  # noqa: E402
 
 FORMAT_DIRS = ['page_xml', 'alto', 'logits']
@@ -66,6 +67,7 @@ def write_generated_with(directory):
 
 
 def main():
+    require_basis(allow_other='--any-environment' in sys.argv[1:])
     # the edge-case page has a line without logits on purpose; the warnings pero-ocr logs for it are expected
     logging.getLogger('pero_ocr').setLevel(logging.ERROR)
     for path in write_golden_io_files(DATA_DIR):

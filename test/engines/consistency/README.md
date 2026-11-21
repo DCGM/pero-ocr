@@ -116,6 +116,8 @@ Regenerate **only on purpose**, name only the engines the change concerns, and c
 
 The script records the commit and library versions in each directory's `generated_with.json`. It works from any directory and always uses the `pero_ocr` of the checkout it lives in. pytest itself never writes to `data/`.
 
+Run it in the basis environment (`requirements/lock.txt`, issue #94); it refuses otherwise unless given `--any-environment`. The data then is what every live worker stack produces, and the tiny models are exported with the oldest torch they all load (models exported with a newer torch do not load in an older one; torch 1.11 even aborts the process). All data was regenerated in the basis environment when it was introduced; before that it came from a development environment with shapely 2.1, which changes the `layout_cnn` and `layout_postprocessing` output.
+
 ## When a check fails
 
 1. Read the failure: it lists every output that changed, with the largest difference.

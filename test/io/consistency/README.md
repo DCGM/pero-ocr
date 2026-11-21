@@ -74,7 +74,7 @@ Regenerate the data whenever the output format changes **on purpose**, and commi
 
     python test/io/consistency/data/regenerate.py
 
-The script runs every exporter call in `GOLDEN_IO_FILES` with the current code, rewrites `data/page_xml`, `data/alto` and `data/logits` (removing files no longer in the list), and records the commit and library versions in `data/generated_with.json`. It works from any directory and always uses the `pero_ocr` of the checkout it lives in. pytest itself never writes to `data/`.
+The script runs every exporter call in `GOLDEN_IO_FILES` with the current code, rewrites `data/page_xml`, `data/alto` and `data/logits` (removing files no longer in the list), and records the commit and library versions in `data/generated_with.json`. It works from any directory and always uses the `pero_ocr` of the checkout it lives in. pytest itself never writes to `data/`. Run it in the basis environment (`requirements/lock.txt`, issue #94); it refuses otherwise unless given `--any-environment`. Note that logits pickled with scipy ≥ 1.8 cannot be read with an older scipy.
 
 To add a golden IO file, add an entry to `GOLDEN_IO_FILES` (and, if needed, a page to `test/io/reference_layout.py`), then run the script. Review the diff of `data/` before committing, and mention the format change in the commit message or PR, since consumers of the output may need to adapt.
 

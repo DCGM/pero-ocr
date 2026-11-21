@@ -121,6 +121,7 @@ ENV/
 *.pkl
 
 *.txt
+!requirements/*.txt
 
 *.swo
 

@@ -4,11 +4,13 @@ Rules for agents (and people) changing pero-ocr. The details are in `test/README
 
 ## Running the tests
 
-    pip install -e ".[test]"
+    pip install -r requirements/lock.txt && pip install --no-deps -e .   # the basis environment (Python 3.8-3.10)
     pytest                        # everything that runs on CPU without models or external data (~60 s)
     pytest -m "not slow"          # without the parse_folder.py subprocess runs (~15 s)
     pytest test/<tier>            # one tier
     pytest -m gpu                 # GPU tests; skipped without CUDA
+
+**The basis environment.** `requirements/lock.txt` pins one set of versions that installs on Python 3.8 to 3.10 and gives the same results as every live worker stack (how it was found: issue #94, "Stable dependency basis"). The tests are meant to pass in it; frozen data and golden files are generated only in it (the regeneration scripts refuse otherwise). `pyproject.toml` keeps open ranges for downstream users: add an upper bound only for a release known to change results, and move the lock only through #99-style evaluation (`requirements/lock.in` says how to recompile it).
 
 Every change keeps `pytest` green. A test that fails because of a deliberate change is updated in the same change, never deleted or loosened to make it pass.
 
@@ -48,6 +50,7 @@ When a test needs a code path a tiny model cannot reach, upgrade the model in pl
 - Adding a check: a tiny model in `tiny_models.py` (if the engine has a network), a runner in `frozen_engines.RUNNERS`, the frozen input in `data/regenerate.py` (`INPUTS`, `MODELS`), `test_<engine>.py` with `check('<engine>')`, the rows in the README, then `python test/engines/consistency/data/regenerate.py <engine>`. Run the engine as production configures it, and choose inputs that reach every step production runs.
 - Regenerate only after a deliberate change, only the engines it concerns: `--outputs-only` when the output changes on purpose (the frozen model stays old), completely when the model format changes on purpose or a tiny model is upgraded. Never regenerate to make a failing check pass; find out what changed first.
 - Frozen data must be reproducible: if the engine uses randomness, seed it in the runner and say why.
+- Regenerate only in the basis environment, so the frozen models are exported with the oldest torch every worker loads and the outputs are what the live workers produce.
 
 ## Known bugs and odd behaviour
 

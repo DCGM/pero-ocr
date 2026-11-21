@@ -7,7 +7,7 @@ name = "pero-ocr"
 version = "0.7.0"
 description = "Toolkit for advanced OCR of poor quality documents"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 license = {file = "LICENSE"}
 keywords = ["OCR", "Layout analysis", "handwriting recognition"]
 
@@ -24,24 +24,25 @@ classifiers=[
     "Operating System :: OS Independent",
 ]
 
+# Open ranges for downstream users, spanning what the live workers run (issue #94, "Stable dependency basis").
+# The exact versions the tests and the Docker image use are pinned in requirements/lock.txt. Upper bounds are set only
+# where a newer release is known to change the results or is not evaluated yet (#99).
 dependencies = [
-    "numpy~=1.24.2",
-    "opencv-python",
-    "lxml",
-    "lmdb",
-    "levenshtein",
-    "scipy",
-    "numba",
-    "torch>=2.0.1",
-    "torchvision>=0.15.2",
-    "brnolm>=0.3.0",
-    "scikit-learn",
-    "scikit-image",
-    "shapely",
+    "numpy>=1.21,<2",
+    "opencv-python>=4.5,<5",
+    "lxml>=4.7",
+    "lmdb>=1.3",
+    "levenshtein>=0.17",
+    "scipy>=1.5",
+    "numba>=0.55",
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "brnolm>=0.2",
+    "scikit-learn>=1.0",
+    "scikit-image>=0.19",
+    "shapely>=1.8,<2.1",  # shapely 2.1 changes the layout polygons (#94); evaluate in #99
     "safe-gpu>=1.5.1",
-    "pyamg",
-    "imgaug",
-    "arabic_reshaper",
+    "arabic_reshaper>=2.1",
     "ultralytics",
     "music21"
 ]
@@ -78,7 +79,4 @@ markers = [
     "models: needs real (non-tiny) models, located through PERO_TEST_MODELS",
     "regression: needs the external page sample, located through PERO_TEST_DATA",
     "slow: takes more than a few seconds",
-]
-filterwarnings = [
-    "ignore::DeprecationWarning:imgaug.*",
 ]
