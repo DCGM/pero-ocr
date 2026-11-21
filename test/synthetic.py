@@ -1,8 +1,9 @@
 """Synthetic inputs that the tiny models in test/tiny_models.py read predictably: bright-on-black line crops and
-pages, and CTC frames over the tiny models' characters for decoders and language models."""
+pages (with line-end marks and region separators for the ParseNet stand-in), and CTC frames over the tiny models'
+characters for decoders and language models."""
 import numpy as np
 
-from test.tiny_models import CHARACTERS, LINE_PX_HEIGHT
+from test.tiny_models import CHARACTERS, LINE_END, LINE_PX_HEIGHT, SEPARATOR
 
 
 def line_image(n_runs: int, run_width: int = 16, gap: int = 16, height: int = LINE_PX_HEIGHT,
@@ -27,6 +28,17 @@ def page_image(n_lines: int = 3, width: int = 800, height: int = 600, line_heigh
     for _ in range(n_lines):
         img[y:y + line_height, left:width - right] = 255
         y += line_height + line_gap
+    return img
+
+
+def layout_page(text=(), line_ends=(), separators=(), size=(600, 800)) -> np.ndarray:
+    """Page for the ParseNet stand-in, uint8 HxWx3: boxes (left, top, right, bottom) of white text blocks (one line
+    each, its height is the line height), of yellow line-end marks (ink, cut the line they cross) and of red region
+    separators (not ink). Later boxes are drawn over earlier ones."""
+    img = np.zeros(size + (3,), dtype=np.uint8)
+    for boxes, colour in [(text, (255, 255, 255)), (line_ends, LINE_END), (separators, SEPARATOR)]:
+        for left, top, right, bottom in boxes:
+            img[top:bottom, left:right] = colour
     return img
 
 

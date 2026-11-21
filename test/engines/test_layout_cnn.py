@@ -10,6 +10,7 @@ import torch
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr.page_parser import LayoutExtractor
+from test import tiny_models
 from test.configs import section
 from test.synthetic import page_image
 
@@ -144,17 +145,19 @@ def test_merged_line_spans_both_parts(parsenet_path):
 
 
 def test_adjust_heights_and_baselines(parsenet_path):
-    """Lines from elsewhere (e.g. PAGE XML) get heights and baselines from the ParseNet maps."""
-    detected = make(parsenet_path, DETECT_REGIONS='yes', DETECT_LINES='yes').process_page(PAGE, new_page())
-    detected_heights = list(detected.regions[0].lines[0].heights)
+    """Lines from elsewhere (e.g. PAGE XML) get heights and baselines from the ParseNet maps. The heights are read
+    along the given baseline: on the bottom row of the ink (map row 34 at downsample 4, y = 136) the full 40 px line
+    height, one map row higher (y = 132, where detection with SMOOTH_LINE_PREDICTIONS puts the baseline) 4 px less."""
     region = whole_page_region()
-    region.lines = [line_at('r000-l000', 130.0)]
+    for y, ascender in [(136.0, 40.0), (132.0, 36.0)]:
+        region.lines = [line_at('r000-l000', y)]
+        line = region.lines[0]
+        make(parsenet_path, ADJUST_HEIGHTS='yes').process_page(PAGE, new_page([region]))
+        np.testing.assert_allclose(line.heights, [ascender, ascender * tiny_models.PARSENET_DESCENDER_RATIO])
+        assert line.baseline[0, 1] == y and line.polygon[:, 1].min() == pytest.approx(y - ascender, abs=1)
+
+    region.lines = [line_at('r000-l000', 130.0, heights=(40.0, 12.0))]
     line = region.lines[0]
-
-    make(parsenet_path, ADJUST_HEIGHTS='yes').process_page(PAGE, new_page([region]))
-    assert list(line.heights) == detected_heights and line.baseline[0, 1] == 130.0
-    assert line.polygon[:, 1].min() == pytest.approx(130.0 - detected_heights[0], abs=1)
-
     make(parsenet_path, ADJUST_BASELINES='yes').process_page(PAGE, new_page([region]))
     assert abs(line.baseline[:, 1].mean() - INK_BOTTOMS[0]) < abs(130.0 - INK_BOTTOMS[0])
 

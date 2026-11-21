@@ -15,8 +15,14 @@ of the input image, so tests can predict it:
   with embedding id ``e`` it is ``characters[1 + e % (n_chars - 1)]``.
 * Transformer OCR: a line with ``n`` runs of ink decodes to ``n`` characters ``characters[1], characters[2], ...``
   (cycling over ``characters[1:]``), then the end-of-sequence token. With ``stop=False`` it never emits the end token.
-* ParseNet: a baseline is the bottom row of every block of ink, ascender/descender heights are constants and there
-  are no line endpoints or region separators.
+* ParseNet: the colour of a pixel says which output map it feeds (channels of the image array as the engine gets it):
+  - ink (white, any pixel with mean > 0.5): a baseline at the bottom row of every block of ink, with the height of
+    the block above it as the ascender and ``PARSENET_DESCENDER_RATIO`` times that as the descender, all in pixels of
+    the downsampled map, so the heights follow the size of the "font" and drive the adaptive downsampling;
+  - ink whose third channel is dark (yellow, ``LINE_END``): also a line end, which the engine subtracts from the
+    baseline (as a blob 5 rows tall) with LINE_END_WEIGHT, so a yellow mark across a line can cut it in two;
+  - non-ink whose first channel is bright (red, ``SEPARATOR``): a region separator, which keeps vertically adjacent
+    lines in different regions when it lies along the top of the lower line.
 * Reading order (REGION_SORTER_TRANSFORMER): regions go by their left edge, then by their top edge, i.e. columns
   left to right, each top to bottom. Only the region boxes matter; the page image is passed in but not used.
 * Language model (brnolm torchscript format): the state is the last character seen, ignoring the line separator
@@ -39,8 +45,9 @@ CHARACTERS = ['�', 'a', 'b', 'c', 'd', ' ']
 LINE_PX_HEIGHT = 40
 LM_PREFERS = ('a', 'b')  # after 'a', the tiny LM strongly prefers 'b'
 LM_PREFERENCE = 6.0
-PARSENET_ASCENDER = 10.0
-PARSENET_DESCENDER = 3.0
+PARSENET_DESCENDER_RATIO = 0.3
+LINE_END = (255, 255, 0)  # colours of the ParseNet stand-in input, see TinyParseNet
+SEPARATOR = (255, 0, 0)
 
 
 def _ink_columns(x: Tensor) -> Tensor:
@@ -108,18 +115,26 @@ class TinyTransformer(nn.Module):
 
 
 class TinyParseNet(nn.Module):
-    def __init__(self, ascender: float = PARSENET_ASCENDER, descender: float = PARSENET_DESCENDER):
+    def __init__(self, descender_ratio: float = PARSENET_DESCENDER_RATIO):
         super().__init__()
-        self.ascender = ascender
-        self.descender = descender
+        self.descender_ratio = descender_ratio
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
-        """N,3,H,W -> (N,5,H,W maps, unused). Channels: ascender, descender, baseline, endpoints, separators."""
+        """N,3,H,W -> (N,5,H,W maps, unused). Channels: ascender, descender, baseline, line ends, separators."""
         ink = (x.mean(dim=1, keepdim=True) > 0.5).float()
+        # height of the ink above every pixel, the pixel included: at the bottom row of a block, the block's height
+        rows = []
+        run = torch.zeros_like(ink[:, :, 0, :])
+        for y in range(ink.shape[2]):
+            run = (run + 1.0) * ink[:, :, y, :]
+            rows.append(run)
+        ascender = torch.stack(rows, dim=2)
         ink_below = F.pad(ink[:, :, 1:, :], (0, 0, 0, 1))
         baseline = ink * (1.0 - ink_below)
-        zeros = torch.zeros_like(ink)
-        maps = torch.cat([zeros + self.ascender, zeros + self.descender, baseline, zeros, zeros], dim=1)
+        # a blob around the mark, as the real ParseNet predicts line ends; one row would not survive the smoothing
+        line_end = F.max_pool2d(ink * (x[:, 2:3] < 0.5).float(), (5, 1), stride=1, padding=(2, 0))
+        separator = (1.0 - ink) * (x[:, 0:1] > 0.5).float()
+        maps = torch.cat([ascender, self.descender_ratio * ascender, baseline, line_end, separator], dim=1)
         return maps, maps
 
 

@@ -11,7 +11,7 @@ The checks are small and run in about a second, so they show such changes long b
 |---|---|
 | `test_ctc_engine.py` | `PytorchEngineLineOCR`: frozen CTC model, frozen line crops → frozen text, logits and logit coordinates |
 | `test_transformer_engine.py` | `TransformerEngineLineOCR`: frozen transformer, frozen line crops → frozen text, logits and logit coordinates, with greedy decoding and beam search |
-| `test_layout_engine.py` | `LayoutEngine`: frozen ParseNet, frozen pages → frozen regions, baselines and heights |
+| `test_layout_cnn.py` | the `LAYOUT_CNN` engine (`LayoutExtractor` with `LayoutEngine`) under the configs of the production engines: frozen ParseNet, frozen pages → frozen page layouts: region ids, categories and outlines, line ids, baselines, heights and outlines |
 | `test_lm.py` | `construct_lm()`, `LMWrapper`, the `FAST-LOG-RAW` decoder: frozen language model, frozen CTC frames → frozen next-character probabilities and decoded text, with LM weights 1.0 and 0.4 |
 | `test_region_sorter.py` | `TransformerRegionSorter` (`REGION_SORTER_TRANSFORMER`): frozen reading-order model, frozen region boxes → frozen reading order |
 | `test_smart_sorter.py` | `SmartRegionSorter` (`REGION_SORTER_SMART`, no model): frozen region layouts → frozen reading order and the geometry it returns |
@@ -51,7 +51,7 @@ The tiny models have no trained weights; their output is a deterministic functio
 |---|---|---|
 | `ctc/` | `model.pt`, `ocr_engine.json` | every horizontal run of bright pixels in the line crop becomes one character, `characters[1]`; with an embedding id `e` it becomes `characters[1 + e % (n - 1)]` |
 | `transformer/` | `model.pt`, `ocr_engine.json` (`exported: true`) | a line with *n* bright runs decodes to *n* characters `characters[1], characters[2], ...`, then the end-of-sequence token |
-| `parsenet/` | `parsenet.pt` | a baseline at the bottom row of every bright block, constant line heights, no line endpoints and no region separators |
+| `layout_cnn/` | `parsenet.pt` | white blocks are lines: a baseline at the bottom row, the block's height as ascender and 0.3 of it as descender; yellow marks are line ends, red bars region separators. The input is nine pages, each run under the 2022-04-13 layout config of the production engines and the experimental 2024-12-08 one: two columns, a title over a paragraph, a column split by a separator, a line cut by a line end, large text (the adaptive second pass), lines of varying heights, a page tilted by 3 degrees, a page with an image region that must be kept, and an empty page. A fresh engine per page; numpy and `random` are seeded before every page, because the engine breaks ties between lines at random (#100) |
 | `region_sorter/` | `model-cuda.pt`, `model-cpu.pt` | a reading-order model with the calling contract of the real one (region boxes, query types, page image → scores for "region *i* comes right after region *j*"); it orders regions by their left edge, then by their top edge, and ignores the image |
 | `lm/` | `lm.pt` | a brnolm torchscript LM (zip of `model.zip`, `decoder.zip`, `vocabulary.pickle`); its state is the last character seen, kept over line ends; after `a` it strongly prefers `b`, otherwise uniform |
 | `smart_sorter/` | none | the input is six region layouts with lines, in a scrambled order: a title over two columns whose gaps do not line up, a small overlap that `FakeIntersectionParameter` ignores, the same title and columns tilted by 4 degrees (the sorter rotates the page to sort it and back), a newspaper-like page, a pinwheel that no straight cut divides (the fallback ordering) and a single region; default config, as in production |
@@ -68,6 +68,13 @@ The inputs are committed, not generated in the check, so that a check depends on
 Text, integers and crops (uint8) must match **exactly**. Floats (logits, baselines, log-probabilities) must match up to a relative and absolute tolerance of 1e-5 (`FLOAT_TOLERANCE` in `frozen_engines.py`): that ignores the last bits of float arithmetic, which can differ between torch builds, but not any change of behaviour. With numpy 2 instead of 1.24 all checks pass; with opencv 5 the cropper check fails.
 
 The frozen outputs record **current** behaviour, not ideal behaviour. For example, the LM output with weight 0.4 includes the known bug that `BagOfHypotheses.best_hyp()` ignores the LM weight. A fix of such a bug changes the output on purpose, and the frozen output is then regenerated with `--outputs-only` (see below).
+
+## Upgrading a stand-in
+
+The stand-ins start simple and grow when a test needs a code path they cannot reach yet (the ParseNet stand-in got real line heights, line ends and separators this way). There is always one class per engine in `test/tiny_models.py`, upgraded in place, never an old and a new one side by side. The frozen data follows:
+
+- While a frozen model was made in the current environment (same torch, practically the same pero-ocr), an upgrade regenerates its engine completely: nothing of value is lost, since the old export is not older in any way that matters.
+- Once a frozen model is genuinely old (an older torch or pero-ocr made it), an upgrade adds a new `data/<engine>_<variant>/` with its own check next to it and keeps the old directory. The old one keeps guarding what it is for: that a real past export still loads and gives the same output. It can still be refreshed with `--outputs-only`, but no longer regenerated completely, since its model class is gone.
 
 ## Why tiny models
 

@@ -20,6 +20,7 @@ change of behaviour.
 import configparser
 import json
 import os
+import random
 
 import numpy as np
 import torch
@@ -29,7 +30,7 @@ from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.decoding.decoders import BLANK_SYMBOL, CTCPrefixLogRawNumpyDecoder
 from pero_ocr.decoding.decoding_itf import construct_lm
 from pero_ocr.decoding.lm_wrapper import LMWrapper
-from pero_ocr.layout_engines.cnn_layout_engine import LayoutEngine
+from pero_ocr.document_ocr.page_parser import LayoutExtractor
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
@@ -69,17 +70,41 @@ def run_transformer(directory, inputs, params):
     return out
 
 
-def run_parsenet(directory, inputs, params):
-    engine = LayoutEngine(os.path.join(directory, 'parsenet.pt'), CPU, **params['engine'])
+def run_layout_cnn(directory, inputs, params):
+    """The [LAYOUT_PARSER] METHOD = LAYOUT_CNN engine (LayoutExtractor, with LayoutEngine and the frozen ParseNet) under
+    every frozen config, on every frozen page: a fresh engine per page, so that the pages do not depend on each other
+    (the engine adapts its downsample from page to page). The engine breaks ties between lines with numpy's and
+    Python's global random state, which decides the order and ids of the regions when lines start at the same x (#100);
+    both are seeded before every page, so the frozen output is reproducible. The page goes in with its frozen non-text regions. Out come
+    the regions in the order of the output layout: ids, categories, polygons, and per line id, baseline, heights and
+    polygon; and the downsample the engine ended up with."""
     out = {}
-    for name in params['pages']:
-        regions, baselines, heights, *_ = engine.detect(inputs[f'page/{name}'])
-        out[f'{name}/region_count'] = np.array(len(regions))
-        for i, region in enumerate(regions):
-            out[f'{name}/region/{i}'] = np.asarray(region, dtype=np.float64)
-        for i, (baseline, height) in enumerate(zip(baselines, heights)):
-            out[f'{name}/baseline/{i}'] = np.asarray(baseline, dtype=np.float64)
-            out[f'{name}/heights/{i}'] = np.asarray(height, dtype=np.float64)
+    for config_name, options in params['configs'].items():
+        config = configparser.ConfigParser()
+        config.read_dict({'S': {'MODEL_PATH': os.path.join(directory, 'parsenet.pt'), 'USE_CPU': 'yes',
+                                **{key.upper(): str(value) for key, value in options.items()}}})
+        for name in params['pages']:
+            image = inputs[f'page/{name}']
+            layout = PageLayout(id=name, page_size=image.shape[:2])
+            for region in params['non_text'].get(name, []):
+                layout.regions.append(RegionLayout(region['id'], np.array(region['polygon'], dtype=np.float64),
+                                                   category=region['category']))
+            extractor = LayoutExtractor(config['S'], CPU)
+            np.random.seed(0)
+            random.seed(0)
+            layout = extractor.process_page(image, layout)
+            prefix = f'{config_name}/{name}'
+            out[f'{prefix}/downsample'] = np.array(float(extractor.engine.parsenet.last_downsample))
+            out[f'{prefix}/region_ids'] = np.array([region.id for region in layout.regions], dtype=str)
+            out[f'{prefix}/region_categories'] = np.array([str(region.category) for region in layout.regions],
+                                                          dtype=str)
+            for k, region in enumerate(layout.regions):
+                out[f'{prefix}/region/{k}'] = np.asarray(region.polygon, dtype=np.float64)
+                out[f'{prefix}/line_ids/{k}'] = np.array([line.id for line in region.lines], dtype=str)
+                for j, line in enumerate(region.lines):
+                    out[f'{prefix}/baseline/{k}/{j}'] = np.asarray(line.baseline, dtype=np.float64)
+                    out[f'{prefix}/heights/{k}/{j}'] = np.asarray(line.heights, dtype=np.float64)
+                    out[f'{prefix}/line_polygon/{k}/{j}'] = np.asarray(line.polygon, dtype=np.float64)
     return out
 
 
@@ -171,7 +196,7 @@ def run_cropper(directory, inputs, params):
     return out
 
 
-RUNNERS = {'ctc': run_ctc, 'transformer': run_transformer, 'parsenet': run_parsenet, 'lm': run_lm,
+RUNNERS = {'ctc': run_ctc, 'transformer': run_transformer, 'layout_cnn': run_layout_cnn, 'lm': run_lm,
            'region_sorter': run_region_sorter, 'smart_sorter': run_smart_sorter, 'cropper': run_cropper}
 
 

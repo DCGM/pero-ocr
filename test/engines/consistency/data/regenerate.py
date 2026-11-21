@@ -5,7 +5,7 @@
     python test/engines/consistency/data/regenerate.py lm                   # only the named engines
     python test/engines/consistency/data/regenerate.py --outputs-only ctc   # keep model and input, recompute output
 
-Names: ctc, transformer, parsenet, lm, region_sorter (tiny models), smart_sorter and cropper (no model).
+Names: ctc, transformer, layout_cnn, lm, region_sorter (tiny models), smart_sorter and cropper (no model).
 
 For every name, data/<name>/ holds the frozen model, the frozen input (input.npz, input.json), the output the engine
 gave for it (output.npz) and generated_with.json. The checks in test/engines/consistency run the current code with the
@@ -40,7 +40,7 @@ import torch  # noqa: E402
 
 from test import tiny_models  # noqa: E402
 from test.engines.consistency import frozen_engines  # noqa: E402
-from test.synthetic import line_image, page_image  # noqa: E402
+from test.synthetic import layout_page, line_image  # noqa: E402
 
 
 def write_generated_with(directory):
@@ -80,9 +80,52 @@ def transformer_input():
     return line_inputs(), {'beam_sizes': [1, 3]}
 
 
-def parsenet_input():
-    pages = {'three_lines': page_image(3), 'five_narrow_lines': page_image(5, line_height=24, line_gap=40)}
-    params = {'engine': {'downsample': 4, 'detection_threshold': 0.2, 'max_mp': 5}, 'pages': list(pages)}
+def tilted_text(page, left, baseline_y, length, height, angle_deg):
+    """A white text block whose bottom edge runs from (left, baseline_y) at angle_deg, drawn into page."""
+    a = np.deg2rad(angle_deg)
+    along, up = np.array([np.cos(a), np.sin(a)]), np.array([np.sin(a), -np.cos(a)])
+    p0 = np.array([left, baseline_y], dtype=np.float64)
+    corners = np.stack([p0, p0 + length * along, p0 + length * along + height * up, p0 + height * up])
+    cv2.fillPoly(page, [np.round(corners).astype(np.int32)], (255, 255, 255))
+
+
+def layout_cnn_input():
+    """Pages for the ParseNet stand-in (white text blocks, yellow line-end marks, red separators; see
+    test/tiny_models.py), each run under the two LAYOUT_CNN configs of the production engines: the 2022-04-13 layout
+    used by all current engines, and the experimental 2024-12-08 one (DETECTION_THRESHOLD 0.4, LINE_END_WEIGHT 0.6).
+    The pages reach every step the production configs run: line detection with line ends, paragraph clustering with
+    separators, region outlines, the adaptive second pass for large text, lines cut to their regions, and non-text
+    regions kept."""
+    column = [(100, 80 + 60 * i, 700, 112 + 60 * i) for i in range(6)]
+    tilted = np.zeros((600, 800, 3), dtype=np.uint8)
+    for i in range(4):
+        tilted_text(tilted, 120, 160 + 70 * i, 520, 30, -3.0)
+    pages = {
+        'two_columns': layout_page(text=[(80, 100 + 50 * i, 380, 130 + 50 * i) for i in range(5)] +
+                                   [(420, 100 + 50 * i, 720, 130 + 50 * i) for i in range(4)]),
+        'title_and_paragraph': layout_page(text=[(150, 60, 650, 120)] +
+                                           [(100, 150 + 50 * i, 700, 180 + 50 * i) for i in range(5)]),
+        'separated_paragraphs': layout_page(text=column, separators=[(100, 252, 700, 260)]),
+        'line_end': layout_page(text=[(100, 100, 700, 136), (100, 170, 700, 206)],
+                                line_ends=[(390, 170, 410, 206)]),
+        'large_text': layout_page(text=[(100, 60 + 160 * i, 700, 160 + 160 * i) for i in range(3)]),
+        'varying_heights': layout_page(text=[(100, 100, 700, 124), (100, 150, 700, 186), (100, 212, 700, 242),
+                                             (100, 268, 520, 296)]),
+        'tilted_3deg': tilted,
+        'with_an_image_region': layout_page(text=[(100, 100 + 50 * i, 420, 130 + 50 * i) for i in range(4)]),
+        'empty': layout_page(),
+    }
+    production = dict(DETECT_LINES='yes', DETECT_REGIONS='yes', MERGE_LINES='no', ADJUST_HEIGHTS='no',
+                      MAX_MEGAPIXELS=5, DOWNSAMPLE=3, DETECTION_THRESHOLD=0.3, LINE_END_WEIGHT=1.0,
+                      VERTICAL_LINE_CONNECTION_RANGE=3, SMOOTH_LINE_PREDICTIONS='no')
+    params = {
+        'configs': {'layout_2022_04_13': production,
+                    'experimental_2024_12_08': {**production, 'ADAPTIVE_DOWNSAMPLE': 1, 'DETECTION_THRESHOLD': 0.4,
+                                                'LINE_END_WEIGHT': 0.6}},
+        'pages': list(pages),
+        'non_text': {'with_an_image_region': [
+            {'id': 'image_1', 'category': 'image', 'polygon': [[480, 100], [720, 100], [720, 380], [480, 380]]}]},
+    }
     return {f'page/{name}': page for name, page in pages.items()}, params
 
 
@@ -239,9 +282,16 @@ def cropper_input():
     return {'page': synthetic_text_page()}, {'cases': cases}
 
 
-INPUTS = {'ctc': ctc_input, 'transformer': transformer_input, 'parsenet': parsenet_input, 'lm': lm_input,
+INPUTS = {'ctc': ctc_input, 'transformer': transformer_input, 'layout_cnn': layout_cnn_input, 'lm': lm_input,
           'region_sorter': region_sorter_input, 'smart_sorter': smart_sorter_input, 'cropper': cropper_input}
 assert set(INPUTS) == set(frozen_engines.RUNNERS)
+MODELS = {  # the frozen models, written into data/<name>/ (the smart sorter and the cropper have none)
+    'ctc': tiny_models.write_ctc,
+    'transformer': tiny_models.write_transformer,
+    'layout_cnn': tiny_models.write_parsenet,
+    'lm': tiny_models.write_lm,
+    'region_sorter': tiny_models.write_region_sorter,
+}
 
 
 # --- writing ------------------------------------------------------------------------------------------------------
@@ -251,14 +301,14 @@ def regenerate(name, outputs_only):
     if outputs_only:
         directory, inputs, params, _ = frozen_engines.load(name)
     else:
-        if name in tiny_models.WRITERS:
-            tiny_models.WRITERS[name](DATA_DIR)
+        if name in MODELS:
+            MODELS[name](directory)
         inputs, params = INPUTS[name]()
         frozen_engines.save_input(directory, inputs, params)
         _, inputs, params, _ = frozen_engines.load(name, with_output=False)  # run on exactly what the check reads
     frozen_engines.save_output(directory, frozen_engines.RUNNERS[name](directory, inputs, params))
     write_generated_with(directory)
-    what = 'output' if outputs_only else 'model, input and output' if name in tiny_models.WRITERS else 'input and output'
+    what = 'output' if outputs_only else 'model, input and output' if name in MODELS else 'input and output'
     print(f'wrote {name}: {what} in {os.path.relpath(directory, REPO_DIR)}')
 
 
