@@ -1,5 +1,7 @@
 # Tests
 
+The rules for where a test goes and when an engine needs a consistency check are summarized in `AGENTS.md` at the repository root.
+
     pip install -e ".[test]"
     pytest                       # everything that runs on CPU without external data (the default)
     pytest test/stages           # one tier
@@ -30,18 +32,18 @@ Each tier tests its own logic and treats the tier below as a black box:
 - **`cli/`** tests `parse_folder.py` itself: arguments, files, skipping, errors, exit codes, and full runs.
 - **`unit/`** tests what has no config section and is not an engine: the internals that the engines and stages are built from. A test that drives an engine through its public interface belongs to `engines/`, even if it checks exact numbers.
 
-| config section | stage (`stages/`) | engine | engine tests (`engines/`) |
-|---|---|---|---|
-| `[LAYOUT_PARSER] METHOD = LAYOUT_CNN` | `test_layout_stage.py` | `LayoutExtractor`, `LayoutEngine` | `test_layout_cnn.py`, `test_layout_engine.py` |
-| `METHOD = LAYOUT_YOLO` | | `LayoutExtractorYolo`, `LayoutEngineYolo` | `test_layout_yolo.py` |
-| `METHOD = REGION_SORTER_SMART`, `REGION_SORTER_NAIVE` | | `SmartRegionSorter`, `NaiveRegionSorter` | `test_region_sorters.py` |
-| `METHOD = REGION_SORTER_TRANSFORMER` | | `TransformerRegionSorter` | `test_region_sorter_transformer.py` |
-| `METHOD = REGION_WHOLE_PAGE` | | `WholePageRegion` | `test_region_whole_page.py` |
-| `METHOD = LINE_POSTPROCESSING` | | `LinePostprocessor`, `PostprocessingEngine` | `test_line_postprocessing.py` |
-| `METHOD = LAYOUT_POSTPROCESSING` | | `LayoutPostprocessor` (`layout_helpers.retrace_region`) | `test_layout_postprocessing.py` |
-| `[LINE_CROPPER]` | `test_cropper_stage.py` | `EngineLineCropper` | `test_line_cropper.py` |
-| `[OCR]` | `test_ocr_stage.py` | `PytorchEngineLineOCR`, `TransformerEngineLineOCR` | `test_ctc_engine.py`, `test_transformer_engine.py` |
-| `[DECODER]` | `test_decoder_stage.py` | `GreedyDecoder`, `CTCPrefixLogRawNumpyDecoder`, the language model (`construct_lm`, `LMWrapper`) | `test_decoders.py`, `test_lm.py` |
+| config section | stage (`stages/`) | engine | engine tests (`engines/`) | consistency check (`engines/consistency/`) |
+|---|---|---|---|---|
+| `[LAYOUT_PARSER] METHOD = LAYOUT_CNN` | `test_layout_stage.py` | `LayoutExtractor`, `LayoutEngine` | `test_layout_cnn.py`, `test_layout_engine.py` | `test_layout_cnn.py` |
+| `METHOD = LAYOUT_YOLO` | | `LayoutExtractorYolo`, `LayoutEngineYolo` | `test_layout_yolo.py` | none: ultralytics loads the model |
+| `METHOD = REGION_SORTER_SMART`, `REGION_SORTER_NAIVE` | | `SmartRegionSorter`, `NaiveRegionSorter` | `test_region_sorters.py` | `test_smart_sorter.py` (smart only; the naive sorter after its bug is fixed) |
+| `METHOD = REGION_SORTER_TRANSFORMER` | | `TransformerRegionSorter` | `test_region_sorter_transformer.py` | `test_region_sorter_transformer.py` |
+| `METHOD = REGION_WHOLE_PAGE` | | `WholePageRegion` | `test_region_whole_page.py` | none: trivial |
+| `METHOD = LINE_POSTPROCESSING` | | `LinePostprocessor`, `PostprocessingEngine` | `test_line_postprocessing.py` | `test_line_postprocessing.py` |
+| `METHOD = LAYOUT_POSTPROCESSING` | | `LayoutPostprocessor` (`layout_helpers.retrace_region`) | `test_layout_postprocessing.py` | `test_layout_postprocessing.py` |
+| `[LINE_CROPPER]` | `test_cropper_stage.py` | `EngineLineCropper` | `test_line_cropper.py` | `test_line_cropper.py` |
+| `[OCR]` | `test_ocr_stage.py` | `PytorchEngineLineOCR`, `TransformerEngineLineOCR` | `test_ctc_engine.py`, `test_transformer_engine.py` | `test_ctc_engine.py`, `test_transformer_engine.py` |
+| `[DECODER]` | `test_decoder_stage.py` | `GreedyDecoder`, `CTCPrefixLogRawNumpyDecoder`, the language model (`construct_lm`, `LMWrapper`) | `test_decoders.py`, `test_lm.py` | `test_lm.py` (FAST-LOG-RAW with the LM) |
 
 Not covered: `REGION_SIMPLE_THRESHOLD`, `LINES_SIMPLE_THRESHOLD` and `LINE_FILTER`, which may be dropped (issues #101 and #102).
 
@@ -63,9 +65,16 @@ Each `data/` directory has its own `regenerate.py`, the only thing that writes t
 
 ## Tiny models
 
-pero-ocr loads every network as a torchscript file, so the engine tests use small stand-ins (`tiny_models.py`) that follow the same calling contract and read synthetic bright-on-black images (`synthetic.py`) predictably. For example, a line crop with *n* bright blocks decodes to *n* characters, and the tiny language model prefers `b` after `a`. The stand-ins are built from the current code for each test session.
+pero-ocr loads every network as a torchscript file, so the tests use tiny models (`tiny_models.py`) that follow the same calling contract and read synthetic images (`synthetic.py`) predictably. Ink is bright on black; colours encode what a real network would recognize: a block of ink is one character for the OCR models (its colour picks the character and how sure the model is), white blocks are text lines for ParseNet (yellow marks line ends, red bars separate regions), grey marks in the page image set the order for the reading-order model, and the language model prefers `b` after `a`. `text_line()`, `draw_text()`, `layout_page()` and `mark_reading_order()` draw such inputs. The tiny models are built from the current code for each test session; frozen copies are committed for the consistency checks.
 
 The YOLO layout engine (`LAYOUT_YOLO`) is the exception: ultralytics, not pero-ocr, loads its model, so a stand-in model file would only test ultralytics. `fake_yolo.py` replaces the `ultralytics.YOLO` class instead (fixture `fake_yolo`), returns fixed detections, and the tests need neither ultralytics nor a model. One test runs the real ultralytics with an untrained YOLOv8n to check that the fake matches it; it is skipped when ultralytics is not installed.
+
+## Adding an engine
+
+1. Engine tests in `engines/test_<engine>.py`: the engine built directly, every option it has, as a black box.
+2. If its config section kind is new, a stage file in `stages/`; otherwise add it to the stage's `METHOD` / `TYPE` dispatch tests.
+3. A consistency check in `engines/consistency/test_<engine>.py`, with a tiny model if it has a network, run as production would configure it. Engines without a meaningful one (a model loaded by a third-party library, or trivial code with no library underneath) are listed with the reason in `engines/consistency/README.md`.
+4. The row in the table of config sections above, and a production-shaped pipeline in `page_parser/` if production will use it.
 
 ## Known bugs and limits
 

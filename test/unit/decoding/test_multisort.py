@@ -1,3 +1,4 @@
+"""top_k over 2-D score arrays (pero_ocr.decoding.multisort), used by the beam search."""
 import unittest
 import numpy as np
 

@@ -1,3 +1,5 @@
+"""Confidence estimation from CTC log-probabilities (pero_ocr.core.confidence_estimation): character, word,
+transcription and page confidences."""
 import numpy as np
 import pytest
 

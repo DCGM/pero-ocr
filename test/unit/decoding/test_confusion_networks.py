@@ -1,3 +1,5 @@
+"""Confusion networks built from bags of hypotheses (pero_ocr.decoding.confusion_networks): pivots, normalization,
+adding hypotheses, decoding and sorted paths."""
 from unittest import TestCase
 import math
 

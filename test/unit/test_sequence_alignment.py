@@ -1,3 +1,4 @@
+"""Levenshtein distances and alignments (pero_ocr.sequence_alignment), whole sequences and substrings."""
 import unittest
 from pero_ocr.sequence_alignment import levenshtein_distance
 from pero_ocr.sequence_alignment import levenshtein_alignment

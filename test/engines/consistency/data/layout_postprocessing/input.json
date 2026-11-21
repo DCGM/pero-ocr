@@ -1,0 +1,17 @@
+{
+ "configs": {
+  "retrace": {
+   "RETRACE_REGIONS": "yes"
+  }
+ },
+ "page_size": [
+  600,
+  800
+ ],
+ "pages": [
+  "column",
+  "tilted_column",
+  "lines_far_apart",
+  "two_regions"
+ ]
+}

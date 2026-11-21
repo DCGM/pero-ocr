@@ -1,3 +1,5 @@
+"""CTC forced alignment (pero_ocr.core.force_alignment), used for ALTO word positions: HMM transitions, costs,
+backtracking, Viterbi alignment."""
 import unittest
 import numpy as np
 

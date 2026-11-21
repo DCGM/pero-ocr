@@ -1,4 +1,4 @@
-"""The LAYOUT_CNN stage (LayoutExtractor in pero_ocr.document_ocr.page_parser) as a black box: a config section and a
+"""The LAYOUT_CNN engine (LayoutExtractor in pero_ocr.document_ocr.page_parser) as a black box: a config section and a
 page in, a PageLayout out. LayoutEngine underneath, which turns ParseNet maps into baselines, is tested in
 test_layout_engine.py.
 

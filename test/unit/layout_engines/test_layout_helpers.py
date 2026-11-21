@@ -1,3 +1,4 @@
+"""Layout helpers (pero_ocr.layout_engines.layout_helpers) used inside the layout engines: filtering lists by a mask."""
 import unittest
 from pero_ocr.layout_engines import layout_helpers
 

@@ -1,3 +1,5 @@
+"""The layout data model (PageLayout, RegionLayout, TextLine in pero_ocr.core.layout) apart from import and export:
+iterating lines, confidences, renaming, bounding boxes, rendering and dense logits."""
 import numpy as np
 import pytest
 from scipy import sparse

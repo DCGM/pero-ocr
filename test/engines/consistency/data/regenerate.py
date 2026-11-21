@@ -5,7 +5,8 @@
     python test/engines/consistency/data/regenerate.py lm                   # only the named engines
     python test/engines/consistency/data/regenerate.py --outputs-only ctc   # keep model and input, recompute output
 
-Names: ctc, transformer, layout_cnn, lm, region_sorter (tiny models), smart_sorter and cropper (no model).
+Names: ctc, transformer, layout_cnn, lm, region_sorter_transformer (tiny models); smart_sorter, line_postprocessing,
+layout_postprocessing and cropper (no model).
 
 For every name, data/<name>/ holds the frozen model, the frozen input (input.npz, input.json), the output the engine
 gave for it (output.npz) and generated_with.json. The checks in test/engines/consistency run the current code with the
@@ -158,7 +159,7 @@ def lm_input():
     return {f'frames/{name}': f for name, f in frames.items()}, params
 
 
-def region_sorter_input():
+def region_sorter_transformer_input():
     """Region boxes [left, top, right, bottom] on a 1000 x 800 page, deliberately not in reading order, and one page
     whose image carries reading-order marks that contradict the geometry (the tiny model reads them as a learned model
     reads the page). The pages stay
@@ -237,6 +238,71 @@ def smart_sorter_input():
     return inputs, {'config': {}, 'page_size': [1000, 800], 'pages': list(pages)}
 
 
+def postprocessing_region(box, lines, angle=0.0, curve=0.0):
+    """Region polygon and lines for a box [left, top, right, bottom] and lines (x0, x1, y), the baselines with 7 points
+    bent by ``curve`` px in the middle, everything rotated by angle degrees around the box centre."""
+    l, t, r, b = box
+    polygon = np.array([[l, t], [r, t], [r, b], [l, b]], dtype=np.float64)
+    out = []
+    for x0, x1, y in lines:
+        xs = np.linspace(x0, x1, 7)
+        baseline = np.stack([xs, y + curve * (1 - ((xs - (x0 + x1) / 2) / ((x1 - x0) / 2)) ** 2)], axis=1)
+        line_polygon = np.concatenate([baseline + [0, -20], (baseline + [0, 6])[::-1]])
+        out.append((baseline, np.array([20.0, 6.0]), line_polygon))
+    if angle:
+        a = np.deg2rad(angle)
+        rotation = np.array([[np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]]).T
+        centre = np.array([(l + r) / 2, (t + b) / 2])
+        polygon = (polygon - centre) @ rotation + centre
+        out = [((bl - centre) @ rotation + centre, h, (lp - centre) @ rotation + centre) for bl, h, lp in out]
+    return polygon, out
+
+
+def _region_inputs(pages):
+    inputs = {}
+    for name, regions in pages.items():
+        for i, (polygon, lines) in enumerate(regions):
+            inputs[f'polygon/{name}/{i}'] = polygon
+            for j, (baseline, heights, line_polygon) in enumerate(lines):
+                inputs[f'baseline/{name}/{i}/{j}'] = baseline
+                inputs[f'heights/{name}/{i}/{j}'] = heights
+                inputs[f'line_polygon/{name}/{i}/{j}'] = line_polygon
+    return inputs
+
+
+def line_postprocessing_input():
+    """Lines shorter than their regions, under the three things LINE_POSTPROCESSING does: stretching to the region
+    border, stretching by pixels, resampling to ten points. Tilted regions only with a single line: with more,
+    stretching to the border is a known bug (test/engines/test_line_postprocessing.py)."""
+    column = [(120, 560, 140 + 50 * i) for i in range(4)]
+    pages = {
+        'straight_column': [postprocessing_region((80, 100, 640, 330), column)],
+        'single_tilted_line': [postprocessing_region((80, 100, 640, 200), [(150, 520, 160)], angle=6.0)],
+        'curved_lines': [postprocessing_region((80, 100, 640, 330), column[:3], curve=8.0)],
+        'two_regions': [postprocessing_region((40, 60, 360, 300), [(80, 300, 120 + 50 * i) for i in range(3)]),
+                        postprocessing_region((420, 60, 760, 300), [(470, 700, 120 + 50 * i) for i in range(3)])],
+    }
+    off = dict(STRETCH_LINES=0, RESAMPLE_LINES='no', HEIGHTS_FROM_REGIONS='no')
+    configs = {'stretch_to_border': {**off, 'STRETCH_LINES': 'max'}, 'stretch_by_20px': {**off, 'STRETCH_LINES': 20},
+               'resample': {**off, 'RESAMPLE_LINES': 'yes'}}
+    return _region_inputs(pages), {'configs': configs, 'page_size': [600, 800], 'pages': list(pages)}
+
+
+def layout_postprocessing_input():
+    """Regions whose outlines do not fit their lines, retraced around them: a column, the same tilted by 8 degrees,
+    lines far apart, and two regions. Regions without lines are a known bug (test_layout_postprocessing.py)."""
+    column = [(120, 560, 140 + 50 * i) for i in range(4)]
+    pages = {
+        'column': [postprocessing_region((40, 40, 760, 560), column)],
+        'tilted_column': [postprocessing_region((40, 40, 760, 560), column, angle=8.0)],
+        'lines_far_apart': [postprocessing_region((40, 40, 760, 560), [(100, 300, 120), (450, 700, 480)])],
+        'two_regions': [postprocessing_region((20, 20, 390, 580), [(60, 340, 100 + 60 * i) for i in range(4)]),
+                        postprocessing_region((410, 20, 780, 580), [(450, 740, 300 + 60 * i) for i in range(3)])],
+    }
+    return _region_inputs(pages), {'configs': {'retrace': {'RETRACE_REGIONS': 'yes'}}, 'page_size': [600, 800],
+                                   'pages': list(pages)}
+
+
 PAGE_HEIGHT, PAGE_WIDTH = 480, 640
 
 
@@ -291,14 +357,16 @@ def cropper_input():
 
 
 INPUTS = {'ctc': ctc_input, 'transformer': transformer_input, 'layout_cnn': layout_cnn_input, 'lm': lm_input,
-          'region_sorter': region_sorter_input, 'smart_sorter': smart_sorter_input, 'cropper': cropper_input}
+          'region_sorter_transformer': region_sorter_transformer_input, 'smart_sorter': smart_sorter_input,
+          'line_postprocessing': line_postprocessing_input, 'layout_postprocessing': layout_postprocessing_input,
+          'cropper': cropper_input}
 assert set(INPUTS) == set(frozen_engines.RUNNERS)
 MODELS = {  # the frozen models, written into data/<name>/ (the smart sorter and the cropper have none)
     'ctc': tiny_models.write_ctc,
     'transformer': tiny_models.write_transformer,
     'layout_cnn': tiny_models.write_parsenet,
     'lm': tiny_models.write_lm,
-    'region_sorter': tiny_models.write_region_sorter,
+    'region_sorter_transformer': tiny_models.write_region_sorter,
 }
 
 

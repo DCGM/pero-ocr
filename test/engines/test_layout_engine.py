@@ -1,3 +1,6 @@
+"""The ParseNet layout engine (LayoutEngine in pero_ocr.layout_engines.cnn_layout_engine), inside the LAYOUT_CNN
+engine, with the tiny ParseNet: lines and their heights, line ends, separators between paragraphs, columns,
+rotated detection and the adaptive downsampling."""
 import numpy as np
 import pytest
 

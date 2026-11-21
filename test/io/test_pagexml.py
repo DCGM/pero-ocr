@@ -1,3 +1,5 @@
+"""PAGE XML export and round trip of hand-built pages (test/io/reference_layout.py): versions, ids, coordinates,
+reading order, categories, confidences and the metadata pero-ocr writes."""
 import json
 
 import lxml.etree as ET

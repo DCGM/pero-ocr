@@ -1,5 +1,5 @@
 """REGION_WHOLE_PAGE (WholePageRegion in pero_ocr.document_ocr.page_parser) as a black box: it replaces all regions
-with one region over the whole page, without lines. Followed by a stage that puts lines into existing regions (e.g.
+with one region over the whole page, without lines. Followed by a layout section that puts lines into existing regions (e.g.
 LAYOUT_CNN with DETECT_REGIONS = no), it forces one region, so that the layout engine only gives lines."""
 import numpy as np
 

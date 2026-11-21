@@ -30,7 +30,7 @@ from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.decoding.decoders import BLANK_SYMBOL, CTCPrefixLogRawNumpyDecoder
 from pero_ocr.decoding.decoding_itf import construct_lm
 from pero_ocr.decoding.lm_wrapper import LMWrapper
-from pero_ocr.document_ocr.page_parser import LayoutExtractor
+from pero_ocr.document_ocr.page_parser import LayoutExtractor, LayoutPostprocessor, LinePostprocessor
 from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
@@ -124,7 +124,7 @@ def run_lm(directory, inputs, params):
     return out
 
 
-def run_region_sorter(directory, inputs, params):
+def run_region_sorter_transformer(directory, inputs, params):
     """Reading order of the frozen pages: output order/<page> lists the input regions in the order the sorter put them."""
     config = configparser.ConfigParser()
     config.read_dict({'S': {key.upper(): str(value) for key, value in params['config'].items()}})
@@ -177,6 +177,41 @@ def run_smart_sorter(directory, inputs, params):
     return out
 
 
+def _layout_engine_outputs(layout, prefix):
+    out = {}
+    for k, region in enumerate(layout.regions):
+        out[f'{prefix}/polygon/{k}'] = np.asarray(region.polygon, dtype=np.float64)
+        for j, line in enumerate(region.lines):
+            out[f'{prefix}/baseline/{k}/{j}'] = np.asarray(line.baseline, dtype=np.float64)
+            out[f'{prefix}/heights/{k}/{j}'] = np.asarray(line.heights, dtype=np.float64)
+            out[f'{prefix}/line_polygon/{k}/{j}'] = np.asarray(line.polygon, dtype=np.float64)
+    return out
+
+
+def _run_model_free_layout_engine(engine_class, inputs, params):
+    """Every frozen config on every frozen page (region layouts, see _layout_from_arrays): the geometry out."""
+    out = {}
+    for config_name, options in params['configs'].items():
+        config = configparser.ConfigParser()
+        config.read_dict({'S': {key.upper(): str(value) for key, value in options.items()}})
+        engine = engine_class(config['S'])
+        for name in params['pages']:
+            layout = engine.process_page(None, _layout_from_arrays(inputs, name, params['page_size']))
+            out.update(_layout_engine_outputs(layout, f'{config_name}/{name}'))
+    return out
+
+
+def run_line_postprocessing(directory, inputs, params):
+    """LINE_POSTPROCESSING (LinePostprocessor, PostprocessingEngine): stretched and resampled baselines, heights and
+    rebuilt line polygons."""
+    return _run_model_free_layout_engine(LinePostprocessor, inputs, params)
+
+
+def run_layout_postprocessing(directory, inputs, params):
+    """LAYOUT_POSTPROCESSING (LayoutPostprocessor): region outlines retraced around their lines."""
+    return _run_model_free_layout_engine(LayoutPostprocessor, inputs, params)
+
+
 def run_cropper(directory, inputs, params):
     page = inputs['page']
     out = {}
@@ -197,7 +232,9 @@ def run_cropper(directory, inputs, params):
 
 
 RUNNERS = {'ctc': run_ctc, 'transformer': run_transformer, 'layout_cnn': run_layout_cnn, 'lm': run_lm,
-           'region_sorter': run_region_sorter, 'smart_sorter': run_smart_sorter, 'cropper': run_cropper}
+           'region_sorter_transformer': run_region_sorter_transformer, 'smart_sorter': run_smart_sorter,
+           'line_postprocessing': run_line_postprocessing, 'layout_postprocessing': run_layout_postprocessing,
+           'cropper': run_cropper}
 
 
 # --- reading, writing, comparing ----------------------------------------------------------------------------------

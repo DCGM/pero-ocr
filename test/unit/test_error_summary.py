@@ -1,3 +1,5 @@
+"""ErrorsSummary (pero_ocr.error_summary): character errors of hypotheses against references, aggregated, detailed
+and at line boundaries."""
 import unittest
 from pero_ocr.error_summary import ErrorsSummary
 

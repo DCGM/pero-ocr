@@ -1,3 +1,5 @@
+"""Merging the parts of a long line that the OCR engines split (pero_ocr.ocr_engine.line_ocr_engine): finding the
+overlap and merging transcriptions and logits."""
 import numpy as np
 import pytest
 

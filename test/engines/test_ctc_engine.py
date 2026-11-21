@@ -1,3 +1,6 @@
+"""The CTC OCR engine (PytorchEngineLineOCR) with the tiny CTC model: loading the model and its json (checkpoint
+paths, the CPU checkpoint, embeddings, output substitution), batching by width, extreme line sizes, the logits
+format, and reading the text and doubt that the colours of the crop encode (test/tiny_models.py)."""
 import os
 import shutil
 

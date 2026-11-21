@@ -1,3 +1,4 @@
+"""BagOfHypotheses (pero_ocr.decoding.bag_of_hypotheses): total scores and the best hypothesis with LM weights."""
 import pytest
 
 from pero_ocr.decoding.bag_of_hypotheses import BagOfHypotheses

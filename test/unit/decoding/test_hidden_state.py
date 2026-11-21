@@ -1,3 +1,4 @@
+"""HiddenState (pero_ocr.decoding.lm_wrapper), the LM state the decoders carry: it keeps the values it gets."""
 import unittest
 
 import numpy as np

@@ -86,7 +86,7 @@ def test_text_regions_are_kept_and_new_ids_continue_after_them(fake_yolo):
 
 
 def test_earlier_non_text_regions_are_replaced(fake_yolo):
-    """Running the stage again (or after another non-text detector) replaces all non-text regions."""
+    """Running the engine again (or after another non-text detector) replaces all non-text regions."""
     layout = make_extractor().process_page(IMAGE, new_page([box_region('r000', 10, 10, 20, 20, category='logo')]))
     assert summary(layout) == [('r000', 'image'), ('r001', 'stamp'), ('r002', 'page_number')]
 

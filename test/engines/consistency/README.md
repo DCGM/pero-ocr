@@ -13,16 +13,26 @@ The checks are small and run in about a second, so they show such changes long b
 | `test_transformer_engine.py` | `TransformerEngineLineOCR`: frozen transformer, frozen line crops → frozen text, logits and logit coordinates, with greedy decoding and beam search |
 | `test_layout_cnn.py` | the `LAYOUT_CNN` engine (`LayoutExtractor` with `LayoutEngine`) under the configs of the production engines: frozen ParseNet, frozen pages → frozen page layouts: region ids, categories and outlines, line ids, baselines, heights and outlines |
 | `test_lm.py` | `construct_lm()`, `LMWrapper`, the `FAST-LOG-RAW` decoder: frozen language model, frozen CTC frames → frozen next-character probabilities and decoded text, with LM weights 1.0 and 0.4 |
-| `test_region_sorter.py` | `TransformerRegionSorter` (`REGION_SORTER_TRANSFORMER`): frozen reading-order model, frozen region boxes → frozen reading order |
+| `test_region_sorter_transformer.py` | `TransformerRegionSorter` (`REGION_SORTER_TRANSFORMER`): frozen reading-order model, frozen region boxes → frozen reading order |
 | `test_smart_sorter.py` | `SmartRegionSorter` (`REGION_SORTER_SMART`, no model): frozen region layouts → frozen reading order and the geometry it returns |
 | `test_line_cropper.py` | `EngineLineCropper` (no model): frozen page and lines → frozen crops, mappings and `blend_in()` result |
+| `test_line_postprocessing.py` | `LINE_POSTPROCESSING` (no model): frozen region layouts → frozen baselines, heights and line polygons after stretching to the region border, by pixels, and resampling |
+| `test_layout_postprocessing.py` | `LAYOUT_POSTPROCESSING` (no model): frozen region layouts → frozen region outlines retraced around their lines |
 | `frozen_engines.py` | what the checks and the script share: how each engine is run on its frozen input (`RUNNERS`), how the data is read and written, and how outputs are compared |
 | `data/<engine>/` | the committed frozen data |
 | `data/regenerate.py` | the script that writes `data/`; all code used only for regenerating is in it, including the frozen inputs (the models themselves are in `test/tiny_models.py`, because the engine tests build fresh copies of them in every session) |
 
 The general engine tests are one level up in `test/engines/`.
 
-The YOLO layout engine (`LAYOUT_YOLO`) has no check here: its model is loaded and run by ultralytics, whose model format and results pero-ocr does not control, and the tests replace ultralytics with a fake (`test/fake_yolo.py`). What pero-ocr does with the detections is covered by `test/engines/test_layout_yolo.py`.
+Every engine gets a check here unless it cannot have a meaningful one. Those without a check, and why:
+
+| engine | why no check |
+|---|---|
+| `LAYOUT_YOLO` | its model is loaded and run by ultralytics, whose model format and results pero-ocr does not control, and the tests replace ultralytics with a fake (`test/fake_yolo.py`); what pero-ocr does with the detections is covered by `test/engines/test_layout_yolo.py` |
+| `REGION_SORTER_NAIVE` | its column clustering is a known bug (strict `xfail`s in `test/engines/test_region_sorters.py`); freezing it would freeze the bug. Add a check with the fix |
+| `REGION_WHOLE_PAGE` | trivial: one rectangle from the page size, no library underneath |
+| `[DECODER] TYPE = GREEDY` | trivial: the best class per frame; the production decoder, `FAST-LOG-RAW` with an LM, is frozen in `test_lm.py` |
+| `REGION_SIMPLE_THRESHOLD`, `LINES_SIMPLE_THRESHOLD`, `LINE_FILTER` | not covered by any test yet; they may be dropped (#101, #102) |
 
 ## Why
 
@@ -39,7 +49,7 @@ Each `data/<engine>/` holds:
 
 | file | what |
 |---|---|
-| the model | small, fake networks saved as torchscript by `test/tiny_models.py` (see below); the smart sorter and the cropper have none |
+| the model | small, fake networks saved as torchscript by `test/tiny_models.py` (see below); the engines without a network (smart sorter, postprocessing, cropper) have none |
 | `input.npz` | the frozen input arrays: line crops, pages, CTC frames |
 | `input.json` | the parameters of the run: beam sizes, layout-engine settings, LM weights, the cropper's lines and settings |
 | `output.npz` | what the engine returned for that input, when the data was frozen |
@@ -52,10 +62,12 @@ The tiny models have no trained weights; their output is a deterministic functio
 | `ctc/` | `model.pt`, `ocr_engine.json` | every block of ink in the line crop is one character: its green channel (relative to blue) picks the character, white is `characters[1]`; lowering its red channel makes the previous character as likely (equal at doubt 0.5). Peaky like a real CTC model: the character on the first frame of the block, blank elsewhere. With an embedding id `e` every character is shifted by `e` places. The input: an empty line, white blocks, `bad cab`, a line long enough for another batch, and a doubtful `c` that is still read and one that loses to `b` |
 | `transformer/` | `model.pt`, `ocr_engine.json` (`exported: true`) | the same reading as the CTC model, one character per decoding step, then the end-of-sequence token, so a CTC + transformer pair reads the same text; the same input lines, with greedy decoding and beam search |
 | `layout_cnn/` | `parsenet.pt` | white blocks are lines: a baseline at the bottom row, the block's height as ascender and 0.3 of it as descender; yellow marks are line ends, red bars region separators. The input is nine pages, each run under the 2022-04-13 layout config of the production engines and the experimental 2024-12-08 one: two columns, a title over a paragraph, a column split by a separator, a line cut by a line end, large text (the adaptive second pass), lines of varying heights, a page tilted by 3 degrees, a page with an image region that must be kept, and an empty page. A fresh engine per page; numpy and `random` are seeded before every page, because the engine breaks ties between lines at random (#100) |
-| `region_sorter/` | `model-cuda.pt`, `model-cpu.pt` | a reading-order model with the calling contract of the real one (region boxes, query types, page image → scores for "region *i* comes right after region *j*"); regions whose box in the page image carries a reading-order mark (a grey fill) come first, brightest first, whatever their position; the others follow by left edge, then top edge. The input: two columns, twelve regions in a column (the path search merges above eight), a single region, and two columns whose marks impose an order the geometry contradicts |
+| `region_sorter_transformer/` | `model-cuda.pt`, `model-cpu.pt` | a reading-order model with the calling contract of the real one (region boxes, query types, page image → scores for "region *i* comes right after region *j*"); regions whose box in the page image carries a reading-order mark (a grey fill) come first, brightest first, whatever their position; the others follow by left edge, then top edge. The input: two columns, twelve regions in a column (the path search merges above eight), a single region, and two columns whose marks impose an order the geometry contradicts |
 | `lm/` | `lm.pt` | a brnolm torchscript LM (zip of `model.zip`, `decoder.zip`, `vocabulary.pickle`); its state is the last character seen, kept over line ends; after `a` it strongly prefers `b`, otherwise uniform |
 | `smart_sorter/` | none | the input is six region layouts with lines, in a scrambled order: a title over two columns whose gaps do not line up, a small overlap that `FakeIntersectionParameter` ignores, the same title and columns tilted by 4 degrees (the sorter rotates the page to sort it and back), a newspaper-like page, a pinwheel that no straight cut divides (the fallback ordering) and a single region; default config, as in production |
 | `cropper/` | none | the input is a synthetic page with text-like strokes and lines cut from it with the settings pero-ocr uses: the production `LineCropper` (`LINE_HEIGHT 48`, `INTERP 2`, `LINE_SCALE 1.15`) on straight lines at several angles, a gentle arc, a short line and a line partly outside the page; the ALTO word alignment (height 32, `INTERP 2`, with its forward mapping); the baseline refiner (height 32, `INTERP 0`); and `blend_in()` |
+| `line_postprocessing/` | none | four region layouts with lines shorter than their regions (a column, a single line tilted by 6 degrees, slightly curved lines, two regions) under three configs: `STRETCH_LINES = max`, `STRETCH_LINES = 20`, `RESAMPLE_LINES = yes`. Tilted regions with several lines are left out: stretching them is a known bug |
+| `layout_postprocessing/` | none | four region layouts whose outlines do not fit their lines (a column, the same tilted by 8 degrees, two lines far apart, two regions), retraced with `RETRACE_REGIONS = yes`. Regions without lines are left out: they are a known bug |
 
 The OCR and layout models are saved twice, as `X` and `X.cpu`, because those engines append `.cpu` to the checkpoint path when they run on CPU. The reading-order sorter instead replaces `cuda` with `cpu` in the file name, hence `model-cuda.pt` and `model-cpu.pt`. The LM loader does neither.
 

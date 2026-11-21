@@ -7,7 +7,6 @@ test/engines/test_lm.py.
 
 The lines carry hand-made CTC frames (test/synthetic.py); the tiny LM prefers 'b' after 'a' and keeps its state over
 line ends."""
-import math
 import os
 
 import numpy as np
@@ -16,9 +15,7 @@ import torch
 from scipy import sparse
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
-from pero_ocr.decoding.decoders import BLANK_SYMBOL, CTCPrefixLogRawNumpyDecoder, GreedyDecoder
-from pero_ocr.decoding.decoding_itf import construct_lm
-from pero_ocr.decoding.lm_wrapper import LMWrapper
+from pero_ocr.decoding.decoders import BLANK_SYMBOL, GreedyDecoder
 from pero_ocr.document_ocr.page_parser import PageDecoder, page_decoder_factory
 from test import tiny_models
 from test.configs import sections
@@ -52,11 +49,6 @@ def page_with_lines(*line_logits, categories=None):
 
 def texts(page):
     return [line.transcription for line in page.lines_iterator()]
-
-
-@pytest.fixture(scope='module')
-def lm_decoder(lm_path):
-    return CTCPrefixLogRawNumpyDecoder(CHARS + [BLANK_SYMBOL], 8, LMWrapper(construct_lm(lm_path), CHARS, CPU), 1.0)
 
 
 # --- decoders from config -----------------------------------------------------------------------------------------
@@ -145,26 +137,25 @@ def test_carry_h_over_continues_on_the_next_page(ctc_json, lm_path):
     assert texts(decoder.process_page(page_with_lines(B_OR_C_AT_LINE_START))) == ['b']
 
 
-# --- PageDecoder ----------------------------------------------------------------------------------------------------
+# --- around the decoder --------------------------------------------------------------------------------------------
 
-def test_confident_lines_still_guide_the_next_line(lm_decoder):
+def test_confident_lines_still_guide_the_next_line(ctc_json, lm_path):
     """A line skipped as confident still passes its transcription on to the next line with CARRY_H_OVER."""
+    decoder = make(ctc_json, LM=lm_path, CONFIDENCE_THRESHOLD=0.9, CARRY_H_OVER='yes', **LM_DECODER)
     page = page_with_lines(ctc_frames(A, BLANK), B_OR_C_AT_LINE_START)
     page.regions[0].lines[0].transcription = 'a'
-    PageDecoder(lm_decoder, line_confidence_threshold=0.9, carry_h_over=True).process_page(page)
-    assert texts(page) == ['a', 'b']
+    assert texts(decoder.process_page(page)) == ['a', 'b']
 
 
-def test_a_failing_line_does_not_stop_the_page(lm_decoder):
-    page = page_with_lines(None, AMBIGUOUS_AFTER_A)
-    PageDecoder(lm_decoder, line_confidence_threshold=math.inf).process_page(page)
-    assert texts(page) == ['?', 'ab']
+def test_a_failing_line_does_not_stop_the_page(ctc_json, lm_path):
+    decoder = make(ctc_json, LM=lm_path, **LM_DECODER)
+    assert texts(decoder.process_page(page_with_lines(None, AMBIGUOUS_AFTER_A))) == ['?', 'ab']
 
 
-def test_summary(lm_decoder):
-    page_decoder = PageDecoder(lm_decoder, line_confidence_threshold=0.9)
-    assert page_decoder.decoding_summary() == 'This PageDecoder has not processed a single line yet'
-    page_decoder.process_page(page_with_lines(ctc_frames(A, BLANK)))
-    assert page_decoder.decoding_summary() == 'Processed 1 lines, but none required actual decoding'
-    page_decoder.process_page(page_with_lines(AMBIGUOUS_AFTER_A))
-    assert page_decoder.decoding_summary().startswith('Ran on 2, decoded 1 lines (50.0 %)')
+def test_summary(ctc_json, lm_path):
+    decoder = make(ctc_json, LM=lm_path, CONFIDENCE_THRESHOLD=0.9, **LM_DECODER)
+    assert decoder.decoding_summary() == 'This PageDecoder has not processed a single line yet'
+    decoder.process_page(page_with_lines(ctc_frames(A, BLANK)))
+    assert decoder.decoding_summary() == 'Processed 1 lines, but none required actual decoding'
+    decoder.process_page(page_with_lines(AMBIGUOUS_AFTER_A))
+    assert decoder.decoding_summary().startswith('Ran on 2, decoded 1 lines (50.0 %)')

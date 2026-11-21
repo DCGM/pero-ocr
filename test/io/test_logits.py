@@ -1,3 +1,5 @@
+"""Logits export and import (PageLayout.save_logits, load_logits): the file structure, lines without logits, byte
+round trips and legacy files."""
 import pickle
 
 import numpy as np

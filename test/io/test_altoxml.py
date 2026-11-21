@@ -1,3 +1,5 @@
+"""ALTO export of hand-built pages (test/io/reference_layout.py): versions, words and their boxes, hyphenation,
+confidences, coordinates and known bugs."""
 import lxml.etree as ET
 import numpy as np
 import pytest
