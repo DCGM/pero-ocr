@@ -16,7 +16,7 @@ Inputs, given as environment variables or options:
 | variable | content |
 |---|---|
 | `PERO_TEST_DATA` | the benchmark sample: `metadata.tsv`, `<access>/images/`, `<access>/page_xml/` (the input layout), `test_lists/` (the reference texts) |
-| `PERO_TEST_MODELS` | the models: `models.tsv` (name, kind, folder, ...), `pairings.tsv` (which LM decodes which OCR model, as which service does it, on which lists), one folder per model |
+| `PERO_TEST_MODELS` | the registry: `models.tsv`, one row per model (name, kind, folder; for an LM also the OCR models whose results it decodes, how the service runs it, on which lists), and one folder per model |
 | `PERO_INFERENCE` | the records, one folder per commit |
 
 The data and the models are not public; the benchmark's definition (lists, page metadata, how they were made) is kept
@@ -24,19 +24,28 @@ in the ScribbleSense repository, `backend/tools/ocr_production_data/tst/<date>/`
 
 Running it (in the basis environment, `requirements/lock.txt`; GPU):
 
+    python benchmark/infer.py --jobs 6            # everything in the registry that is not in the records yet
     python benchmark/infer.py --list              # the units and which are done
-    python benchmark/infer.py --jobs 6            # everything missing, 6 units at a time
-    python benchmark/infer.py --units ocr/universal.ctc.2025-03-19 --jobs 2
+    python benchmark/score.py                     # the benchmark of the records
+
+Adding a model is adding its row to `models.tsv` and running the same command; only the missing units run, on any
+commit whose records are kept (check out the commit first). `--units` restricts a run to some units, which is rarely
+needed.
+
+- OCR or layout model: `name`, `kind`, `folder`. An OCR model runs with the `[LINE_CROPPER]` of its config; more cropper
+  setups to try go to `croppers` (comma-separated, e.g. `interp2_scale1.25_height48`; the height must be the model's),
+  each giving the unit `ocr/<name>@<setup>`.
+- Language model: also `decodes` (the OCR runs whose results it decodes, comma-separated: `<name>` or
+  `<name>@<setup>`), `lm_style` (`scribble`:
+  a separate stage with the LM package's alphabet, as ScribbleSense runs it; `pero`: OCR and LM in one config with
+  the OCR model's alphabet, as the pero-ocr web runs it) and `lm_lists` (`*`, `A,B` or `-A,B`: the pages it decodes).
+  An LM is benchmarked on OCR results; the OCR results themselves are already in the records and are not computed
+  again.
+
+Nothing is computed twice: the OCR models read the crops of the crops units; a model that differs from another only
+in a higher `FILTER_CONFIDENT_LINES_THRESHOLD` is derived from the other's run; the LMs decode the stored output of the
+OCR runs. That output (PAGE XML and logits of every page) is kept for the OCR models an LM decodes;
+`python benchmark/infer.py --prune-logits` deletes the logits once all LMs of a model are done (an LM added later then
+runs its OCR model again on its pages, and must get the recorded lines).
 
 See the docstring of `infer.py` for what each unit records.
-
-Adding models to the records of a commit (check out the commit, then run `infer.py`; only the new units run):
-
-- an OCR or layout model: a row in `models.tsv` and its folder;
-- a language model: a row in `models.tsv`, its folder, and a row in `pairings.tsv` for every OCR model it is to decode
-  (an LM alone is not benchmarked; the OCR model's own results are already there). The LM unit decodes the OCR
-  output stored by the OCR unit; where it is not stored (pruned, or the OCR model had no LM pair when it ran) the OCR
-  model runs again on the pages of the pairing and must give the recorded lines.
-
-The OCR units of models with an LM pair keep their full output (PAGE XML and logits of every page) for the LM units.
-`python benchmark/infer.py --prune-logits` deletes the logits once all LM pairs of a model are done.
