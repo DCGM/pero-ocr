@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15/pagecontent.xsd">
+  <Metadata>
+    <Creator>Pero OCR</Creator>
+    <Created>MASKED</Created>
+    <LastChange>MASKED</LastChange>
+  </Metadata>
+  <Page imageFilename="empty_page.jpg" imageWidth="300" imageHeight="400"/>
+</PcGts>

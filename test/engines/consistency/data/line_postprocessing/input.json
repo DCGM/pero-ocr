@@ -1,0 +1,29 @@
+{
+ "configs": {
+  "stretch_to_border": {
+   "STRETCH_LINES": "max",
+   "RESAMPLE_LINES": "no",
+   "HEIGHTS_FROM_REGIONS": "no"
+  },
+  "stretch_by_20px": {
+   "STRETCH_LINES": 20,
+   "RESAMPLE_LINES": "no",
+   "HEIGHTS_FROM_REGIONS": "no"
+  },
+  "resample": {
+   "STRETCH_LINES": 0,
+   "RESAMPLE_LINES": "yes",
+   "HEIGHTS_FROM_REGIONS": "no"
+  }
+ },
+ "page_size": [
+  600,
+  800
+ ],
+ "pages": [
+  "straight_column",
+  "single_tilted_line",
+  "curved_lines",
+  "two_regions"
+ ]
+}
