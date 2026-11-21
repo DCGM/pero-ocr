@@ -4,6 +4,7 @@
     python benchmark/infer.py                        # every unit that is not in <results>/<commit>/ yet
     python benchmark/infer.py --units ocr/universal.ctc.2025-03-19 lm/
     python benchmark/infer.py --list                 # what would run
+    python benchmark/infer.py --prune-logits         # delete the stored logits no LM pair still needs
 
 Inference is not a test: it only records what the code at this commit produces. benchmark/score.py turns the records
 into the benchmark, and test/inference/ compares the records of two commits.
@@ -19,18 +20,22 @@ Units (one folder each, complete when it holds unit.json; a run only fills in th
                           models: key "<sample_id>/<line_id>", value the crop as PNG
     ocr/<model>           the OCR model (with its line cropper and PAGE_PARSER settings) on every line of the sample's
                           PAGE XML: lines.tsv, logprobs.npz (full log-probabilities of a fixed subset of lines, the
-                          same subset for every model)
-    lm/<lm>+<ocr>         the LM decoder on the logits of the OCR model, as the service that pairs them runs it
-                          (style "scribble": a separate stage with the LM package's alphabet; "pero": OCR and LM in one
-                          config, alphabet of the OCR model), on the pages of the pairing's lists (an Arabic LM decodes
-                          the Arabic pages only): lines.tsv
+                          same subset for every model); a model that an LM pair decodes also keeps its full output
+                          of every page, as the ScribbleSense worker stores it for the LM stage:
+                          page_xml/<sample_id>.xml and logits/<sample_id>.logits (PageLayout.save_logits_bytes);
+                          --prune-logits deletes logits/ once every LM pair of the model is done
+    lm/<lm>+<ocr>         the LM decoder on the stored output of ocr/<ocr> (which must be done; where that output is
+                          not stored, pruned or never kept, the unit runs the OCR model again on its pages, requires
+                          the same lines as ocr/<ocr>/lines.tsv and stores the output), as the service that
+                          pairs them runs it (style "scribble": the LM package's alphabet; "pero": the alphabet of the
+                          OCR model, [OCR] OCR_JSON), on the pages of the pairing's lists (an Arabic LM decodes the
+                          Arabic pages only): lines.tsv
 
 Every page is processed by a fresh numpy random state seeded from its sample id, so a rerun gives the same result
 (the layout engine breaks ties with np.random, issue #100).
 """
 import argparse
 import configparser
-import copy
 import csv
 import datetime
 import hashlib
@@ -153,6 +158,9 @@ class Models:
 
     def folder(self, name):
         return os.path.join(self.root, self.models[name]['folder'])
+
+    def paired_ocr(self):
+        return {p['ocr'] for p in self.pairings}
 
     def of_kind(self, kind):
         return sorted(n for n, m in self.models.items() if m['kind'] == kind)
@@ -364,7 +372,7 @@ def run_crops(units, models, sample, workers):
 
 class LineWriter:
     def __init__(self, path):
-        self.f = open(path, 'w', encoding='utf-8', newline='')
+        self.f = path if isinstance(path, io.StringIO) else open(path, 'w', encoding='utf-8', newline='')
         self.w = csv.writer(self.f, delimiter='\t', lineterminator='\n', quoting=csv.QUOTE_NONE, escapechar='\\')
         self.w.writerow(['sample_id', 'line_id', 'text', 'confidence', 'kept'])
         self.n = 0
@@ -399,59 +407,132 @@ def decoder_config(models, pairing, ocr_folder):
     return config, lm_folder
 
 
-def run_ocr(ocr_name, ocr_unit, lm_units, models, sample):
-    """One OCR model on every page; the LM pairs of it decode its logits on the way."""
-    import scipy.sparse
+def run_ocr(unit, models, sample):
+    """One OCR model on every page."""
     from pero_ocr.document_ocr.page_parser import PageParser, prepare_dense_logits
-    folder = models.folder(ocr_name)
+    folder = models.folder(unit.name)
     config = read_config(folder)
     parser = PageParser(config, config_path=folder)
-    decoders = []
-    for unit, pairing in lm_units:
-        dconfig, lm_folder = decoder_config(models, pairing, folder)
-        scope = sample.in_scope(pairing['lists'])
-        decoders.append((unit, pairing, dconfig, scope, PageParser(dconfig, config_path=lm_folder)))
-        unit.start()
-    if ocr_unit:
-        ocr_unit.start()
-        writer = LineWriter(os.path.join(ocr_unit.partial, 'lines.tsv'))
-        logits = {}
-    lm_writers = [LineWriter(os.path.join(u.partial, 'lines.tsv')) for u, *_ in decoders]
-    pages = sample.pages if ocr_unit else [p for p in sample.pages if any(p['sample_id'] in d[3] for d in decoders)]
-    for page, image, layout in read_pages(sample, pages):
+    keep = unit.name in models.paired_ocr()
+    unit.start()
+    if keep:
+        os.makedirs(os.path.join(unit.partial, 'page_xml'))
+        os.makedirs(os.path.join(unit.partial, 'logits'))
+    writer = LineWriter(os.path.join(unit.partial, 'lines.tsv'))
+    logits = {}
+    for page, image, layout in read_pages(sample, sample.pages):
         sid = page['sample_id']
         np.random.seed(page_seed(sid))
         line_ids = [line.id for line in layout.lines_iterator()]
         for line in layout.lines_iterator():
             line.transcription = None
         layout = parser.process_page(image, layout)
-        if ocr_unit:
-            writer.page(sid, line_ids, layout)
-            for line in layout.lines_iterator():
-                if line.logits is not None and in_logits_subset(f'{sid}/{line.id}'):
-                    logits[f'{sid}/{line.id}'] = prepare_dense_logits(line).astype(np.float32)
-        for (unit, pairing, _, scope, decoder), lm_writer in zip(decoders, lm_writers):
-            if sid not in scope:
-                continue
-            decoded = copy.deepcopy(layout)
-            if pairing['style'] == 'scribble':  # the worker stores the logits and the LM stage loads them
-                decoded.load_logits(layout.save_logits_bytes(missing_line_logits_ok=True))
-            decoded = decoder.process_page(image, decoded)
-            lm_writer.page(sid, line_ids, decoded)
+        writer.page(sid, line_ids, layout)
+        for line in layout.lines_iterator():
+            if line.logits is not None and in_logits_subset(f'{sid}/{line.id}'):
+                logits[f'{sid}/{line.id}'] = prepare_dense_logits(line).astype(np.float32)
+        if keep:
+            layout.to_pagexml(os.path.join(unit.partial, 'page_xml', sid + '.xml'))
+            with open(os.path.join(unit.partial, 'logits', sid + '.logits'), 'wb') as f:
+                f.write(layout.save_logits_bytes(missing_line_logits_ok=True))
     del parser
-    if ocr_unit:
-        writer.close()
-        np.savez(os.path.join(ocr_unit.partial, 'logprobs.npz'), **logits)
-        ocr_unit.finish(dict(model=ocr_name, weights=models.weights(ocr_name), config=config_text(config),
-                             cropper_setup=cropper_setup(config), pages=len(sample.pages), lines=writer.n,
-                             logprobs_lines=len(logits),
-                             logprobs_subset=f'1/{LOGITS_SUBSET} by md5 of "<sample_id>/<line_id>"'))
-    for (unit, pairing, dconfig, scope, _), lm_writer in zip(decoders, lm_writers):
-        lm_writer.close()
-        unit.finish(dict(lm=pairing['lm'], ocr=ocr_name, style=pairing['style'], lists=pairing['lists'],
-                         lm_weights=models.weights(pairing['lm']), ocr_weights=models.weights(ocr_name),
-                         decoder_config=config_text(dconfig), pages=len(scope & {p['sample_id'] for p in sample.pages}),
-                         lines=lm_writer.n))
+    writer.close()
+    np.savez(os.path.join(unit.partial, 'logprobs.npz'), **logits)
+    unit.finish(dict(model=unit.name, weights=models.weights(unit.name), config=config_text(config),
+                     cropper_setup=cropper_setup(config), pages=len(sample.pages), lines=writer.n,
+                     logprobs_lines=len(logits),
+                     logprobs_subset=f'1/{LOGITS_SUBSET} by md5 of "<sample_id>/<line_id>"',
+                     page_output=keep))
+
+
+def ocr_output(ocr_name, pages, models, sample, out):
+    """The folder with the stored output (page_xml/, logits/) of ocr/<ocr_name> for these pages. Pages whose output is
+    not stored (pruned, or the model had no LM pair when it ran) are run again with the OCR model; their lines must
+    equal the unit's lines.tsv (same code, same seeds), otherwise the records do not belong together."""
+    from pero_ocr.document_ocr.page_parser import PageParser
+    folder = os.path.join(out, 'ocr', ocr_name)
+    if not os.path.exists(os.path.join(folder, 'unit.json')):
+        sys.exit(f'ocr/{ocr_name} is not done: the LM pairs of it need its output')
+    missing = [p for p in pages if not os.path.exists(os.path.join(folder, 'logits', p['sample_id'] + '.logits'))]
+    if not missing:
+        return folder
+    logger.info(f'ocr/{ocr_name}: output of {len(missing)} pages is not stored, running the OCR model again')
+    recorded = {}
+    with open(os.path.join(folder, 'lines.tsv'), encoding='utf-8', newline='') as f:
+        for row in csv.reader(f, delimiter='\t', quoting=csv.QUOTE_NONE, escapechar='\\'):
+            recorded.setdefault(row[0], []).append(row)
+    model_folder = models.folder(ocr_name)
+    parser = PageParser(read_config(model_folder), config_path=model_folder)
+    for sub in ('page_xml', 'logits'):
+        os.makedirs(os.path.join(folder, sub), exist_ok=True)
+    check = io.StringIO()
+    for page, image, layout in read_pages(sample, missing):
+        sid = page['sample_id']
+        np.random.seed(page_seed(sid))
+        line_ids = [line.id for line in layout.lines_iterator()]
+        for line in layout.lines_iterator():
+            line.transcription = None
+        layout = parser.process_page(image, layout)
+        check.seek(0)
+        check.truncate()
+        writer = LineWriter(check)
+        writer.page(sid, line_ids, layout)
+        rows = list(csv.reader(io.StringIO(check.getvalue()), delimiter='\t', quoting=csv.QUOTE_NONE,
+                               escapechar='\\'))[1:]
+        if rows != recorded.get(sid, []):
+            sys.exit(f'ocr/{ocr_name}: page {sid} run again differs from its lines.tsv; the OCR unit was recorded '
+                     f'differently (another environment?): delete ocr/{ocr_name} and run it again')
+        for sub, name, data in (('page_xml', sid + '.xml', None),
+                                ('logits', sid + '.logits', layout.save_logits_bytes(missing_line_logits_ok=True))):
+            tmp = os.path.join(folder, sub, f'.{name}.{os.getpid()}')
+            if data is None:
+                layout.to_pagexml(tmp)
+            else:
+                with open(tmp, 'wb') as f:
+                    f.write(data)
+            os.rename(tmp, os.path.join(folder, sub, name))
+    del parser
+    return folder
+
+
+def run_lm(unit, models, sample, out):
+    """The LM decoder on the stored output of its OCR model (PAGE XML and logits, as the worker stores them)."""
+    from pero_ocr.core.layout import PageLayout
+    from pero_ocr.document_ocr.page_parser import PageParser
+    pairing = next(p for p in models.pairings if f"{p['lm']}+{p['ocr']}" == unit.name)
+    scope = sample.in_scope(pairing['lists'])
+    pages = [p for p in sample.pages if p['sample_id'] in scope]
+    ocr_folder = ocr_output(pairing['ocr'], pages, models, sample, out)
+    config, lm_folder = decoder_config(models, pairing, models.folder(pairing['ocr']))
+    decoder = PageParser(config, config_path=lm_folder)
+    unit.start()
+    writer = LineWriter(os.path.join(unit.partial, 'lines.tsv'))
+    for page in pages:
+        sid = page['sample_id']
+        np.random.seed(page_seed(sid))
+        line_ids = [line.id for line in PageLayout(file=sample.page_xml(page)).lines_iterator()]
+        layout = PageLayout(file=os.path.join(ocr_folder, 'page_xml', sid + '.xml'))
+        layout.load_logits(os.path.join(ocr_folder, 'logits', sid + '.logits'))
+        layout = decoder.process_page(None, layout)
+        writer.page(sid, line_ids, layout)
+    writer.close()
+    with open(os.path.join(ocr_folder, 'unit.json')) as f:
+        ocr_info = json.load(f)
+    unit.finish(dict(lm=pairing['lm'], ocr=pairing['ocr'], style=pairing['style'], lists=pairing['lists'],
+                     lm_weights=models.weights(pairing['lm']), ocr_weights=models.weights(pairing['ocr']),
+                     ocr_unit_finished_utc=ocr_info['finished_utc'], decoder_config=config_text(config),
+                     pages=len(pages), lines=writer.n))
+
+
+def prune_logits(models, out):
+    """Delete ocr/<model>/logits/ of the OCR units whose LM pairs are all done (an LM pair added later runs the OCR
+    model again on its pages)."""
+    for ocr_name in sorted(models.paired_ocr()):
+        folder = os.path.join(out, 'ocr', ocr_name, 'logits')
+        pairs = [f"{p['lm']}+{ocr_name}" for p in models.pairings if p['ocr'] == ocr_name]
+        if os.path.isdir(folder) and all(os.path.exists(os.path.join(out, 'lm', n, 'unit.json')) for n in pairs):
+            shutil.rmtree(folder)
+            logger.info(f'pruned the logits of ocr/{ocr_name}')
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -494,19 +575,25 @@ def mem_available_gb():
 
 
 def groups(todo, models, sample):
-    """Units that run in one process, most expensive first: a layout unit, an OCR unit, or an LM pair (which runs its
-    OCR model again, on the pages of its lists only)."""
-    result = []
+    """Units that run in one process, most expensive first; an OCR unit counts with the LM pairs that wait for it."""
     n = len(sample.pages)
+    ids = {p['sample_id'] for p in sample.pages}
+    lm_cost = {f"{p['lm']}+{p['ocr']}": 5.0 * len(sample.in_scope(p['lists']) & ids) for p in models.pairings}
+    result = []
     for u in todo:
         if u.kind == 'layout':
             result.append(([u], 0.5 * n))
         elif u.kind == 'ocr':
-            result.append(([u], (1.6 if 'transformer' in u.name else 0.6) * n))
+            waiting = [c for name, c in lm_cost.items() if name.endswith('+' + u.name)]
+            result.append(([u], (1.6 if 'transformer' in u.name else 0.6) * n + max(waiting, default=0)))
         elif u.kind == 'lm':
-            pairing = next(p for p in models.pairings if f"{p['lm']}+{p['ocr']}" == u.name)
-            result.append(([u], 6.0 * len(sample.in_scope(pairing['lists']) & {p['sample_id'] for p in sample.pages})))
+            result.append(([u], lm_cost[u.name]))
     return [g for g, _ in sorted(result, key=lambda x: -x[1])]
+
+
+def needs(unit):
+    """The unit id a unit waits for."""
+    return f"ocr/{unit.name.split('+', 1)[1]}" if unit.kind == 'lm' else None
 
 
 def run_inline(todo, models, sample, out, folder_name, crop_workers):
@@ -518,21 +605,17 @@ def run_inline(todo, models, sample, out, folder_name, crop_workers):
     for unit in (u for u in todo if u.kind == 'layout'):
         unit.start()
         unit.finish(run_layout(unit, models, sample))
-    lm_todo = {u.id: u for u in todo if u.kind == 'lm'}
-    for ocr_name in models.of_kind('ocr'):
-        ocr_unit = next((u for u in todo if u.id == f'ocr/{ocr_name}'), None)
-        lm_units = [(lm_todo[f'lm/{p["lm"]}+{ocr_name}'], p) for p in models.pairings
-                    if p['ocr'] == ocr_name and f'lm/{p["lm"]}+{ocr_name}' in lm_todo]
-        if ocr_unit or lm_units:
-            logger.info(f'ocr {ocr_name}' + (f' with {len(lm_units)} LM' if lm_units else ''))
-            run_ocr(ocr_name, ocr_unit, lm_units, models, sample)
+    for unit in (u for u in todo if u.kind == 'ocr'):
+        run_ocr(unit, models, sample)
+    for unit in (u for u in todo if u.kind == 'lm'):
+        run_lm(unit, models, sample, out)
     if crop_thread:
         crop_thread.join()
 
 
 def run_parallel(todo, models, sample, out, args, folder_name):
     """Crops in this process (a CPU pool), every other unit in a process of its own, args.jobs at a time, at low CPU
-    priority; a new process starts only when enough memory is free."""
+    priority; a new process starts only when enough memory is free, an LM pair only after its OCR unit is done."""
     crops = [u for u in todo if u.kind == 'crops']
     crop_thread = None
     if crops:
@@ -543,25 +626,47 @@ def run_parallel(todo, models, sample, out, args, folder_name):
     base = [sys.executable, os.path.abspath(__file__), '--exact', '--data', args.data, '--models', args.models,
             '--results', args.results, '--crop-workers', '0'] + (['--pages', str(args.pages)] if args.pages else []) + \
            (['--allow-dirty'] if args.allow_dirty else []) + (['--force-environment'] if args.force_environment else [])
-    lock, failed = threading.Lock(), []
+    lock, failed, running = threading.Lock(), [], set()
+
+    def next_group():
+        """The first pending group that can start now, 'wait', or None when nothing is left."""
+        for i, group in enumerate(pending):
+            dep = needs(group[0])
+            if dep is None or os.path.exists(os.path.join(out, dep, 'unit.json')):
+                return pending.pop(i)
+            if dep not in running and not any(g[0].id == dep for g in pending):
+                pending.pop(i)
+                failed.append(group[0].id)
+                logger.error(f'{group[0].id} not run: {dep} failed')
+                return 'wait'
+        return 'wait' if pending else None
 
     def worker():
         while True:
             with lock:
-                if not pending:
+                group = next_group()
+                if group is None:
                     return
+                if group == 'wait':
+                    lock.release()
+                    time.sleep(10)
+                    lock.acquire()
+                    continue
                 while mem_available_gb() < args.min_free_gb:
                     time.sleep(30)
-                group = pending.pop(0)
+                running.add(group[0].id)
                 name = '_'.join(u.id.replace('/', '__') for u in group)
                 logger.info(f'start {" ".join(u.id for u in group)}')
                 log = open(os.path.join(out, 'logs', name + '.log'), 'w')
                 proc = subprocess.Popen(base + ['--units'] + [u.id for u in group], stdout=log, stderr=subprocess.STDOUT,
                                         preexec_fn=lambda: os.nice(10))
                 time.sleep(args.stagger)  # let it load its models before the memory check of the next one
-            if proc.wait() != 0:
-                failed.append(name)
-                logger.error(f'{name} failed, see logs/{name}.log')
+            code = proc.wait()
+            with lock:
+                running.discard(group[0].id)
+                if code != 0:
+                    failed.append(name)
+                    logger.error(f'{name} failed, see logs/{name}.log')
             log.close()
             write_report(out, folder_name)
 
@@ -588,6 +693,8 @@ def main():
     p.add_argument('--min-free-gb', type=float, default=5.0, help='start a unit process only with this much free RAM')
     p.add_argument('--stagger', type=float, default=45.0, help='seconds between starting two unit processes')
     p.add_argument('--list', action='store_true', help='show the units and whether they are done, run nothing')
+    p.add_argument('--prune-logits', action='store_true',
+                   help='delete the stored logits of the OCR units whose LM pairs are all done, run nothing')
     p.add_argument('--allow-dirty', action='store_true')
     p.add_argument('--force-environment', action='store_true')
     args = p.parse_args()
@@ -607,6 +714,9 @@ def main():
         units = [u for u in plan(models, out) if u.id in set(args.units)]
     else:
         units = [u for u in plan(models, out) if any(u.id.startswith(prefix) for prefix in args.units)]
+    if args.prune_logits:
+        prune_logits(models, out)
+        return
     if args.list:
         for u in units:
             print('done   ' if u.done() else 'missing', u.id)

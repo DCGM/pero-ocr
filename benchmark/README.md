@@ -29,3 +29,14 @@ Running it (in the basis environment, `requirements/lock.txt`; GPU):
     python benchmark/infer.py --units ocr/universal.ctc.2025-03-19 --jobs 2
 
 See the docstring of `infer.py` for what each unit records.
+
+Adding models to the records of a commit (check out the commit, then run `infer.py`; only the new units run):
+
+- an OCR or layout model: a row in `models.tsv` and its folder;
+- a language model: a row in `models.tsv`, its folder, and a row in `pairings.tsv` for every OCR model it is to decode
+  (an LM alone is not benchmarked; the OCR model's own results are already there). The LM unit decodes the OCR
+  output stored by the OCR unit; where it is not stored (pruned, or the OCR model had no LM pair when it ran) the OCR
+  model runs again on the pages of the pairing and must give the recorded lines.
+
+The OCR units of models with an LM pair keep their full output (PAGE XML and logits of every page) for the LM units.
+`python benchmark/infer.py --prune-logits` deletes the logits once all LM pairs of a model are done.
