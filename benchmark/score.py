@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Score the inference records of one commit: the benchmark.
+"""Score the inference records of one commit against each dataset's test lists: the benchmark.
 
     python benchmark/score.py                     # the records of the current commit
     python benchmark/score.py --commit <hash>     # any commit with records in $PERO_INFERENCE
 
-Writes <records>/benchmark/: cer.tsv, layout.tsv and report.md. Run it again after more units were inferred; it scores
-whatever is there.
+Reads <commit>/inference/<dataset>/ and <data>/<dataset>/test_lists/, writes <commit>/score/<dataset>/: cer.tsv,
+layout.tsv and report.md. Run it again after more units were inferred; it scores whatever is there.
 
-Text (ocr/ and lm/ units): on every line of every test list, CER = edit distance / reference length, summed over the
-list's lines. Both texts are NFC with single spaces and no space at the start or end (the references are stored that
-way). A line the model removed (the PAGE_PARSER confidence filter) counts as an empty transcription.
+A test list has one line per row, "<page>-<line_id>.jpg <reference text>", where <page> is the page's file name in
+the dataset.
 
-Layout (layout/ units): the annotated lines of the test lists are the reference (the service's layout; only their
-baselines are known to be right, regions are not annotated). A reference baseline is sampled at 20 points; a point is
-covered by a detected line if its distance to the detected baseline is below half the reference line's height and it
-projects inside the detected baseline. The best detected line of a reference line is the one that covers most points.
+Text (OCR/ and DECODER/ units): on every line of every test list, CER = edit distance / reference length, summed over
+the list's lines. Both texts are NFC with single spaces and no space at the start or end (the references are stored
+that way). A line the engine removed (the PAGE_PARSER confidence filter) counts as an empty transcription.
+
+Layout (LAYOUT_PARSER/ units): the annotated lines of the test lists are the reference (the dataset's PAGE XML; only
+their baselines are known to be right, regions are not annotated). A reference baseline is sampled at 20 points; a
+point is covered by a detected line if its distance to the detected baseline is below half the reference line's
+height and it projects inside the detected baseline. The best detected line of a reference line is the one that
+covers most points.
     found       the share of reference lines whose best detected line covers at least half of them
     coverage    the mean share of points the best detected line covers
     offset      the mean distance of the covered points to the detected baseline, in reference line heights
@@ -44,39 +48,43 @@ def clean(text):
     return ' '.join(unicodedata.normalize('NFC', text or '').split())
 
 
-def load_lists(data):
-    """{list name: [(sample_id, line_id, reference text)]}."""
-    pages = read_tsv(os.path.join(data, 'metadata.tsv'))
-    by_image = {p['image_id']: p['sample_id'] for p in pages}
+def load_lists(dataset):
+    """{list name: [(page, line_id, reference text)]} of <dataset>/test_lists."""
+    pages = sorted({os.path.splitext(f)[0] for f in os.listdir(os.path.join(dataset, 'page_xml'))}, key=len,
+                   reverse=True)
+    folder = os.path.join(dataset, 'test_lists')
     lists = {}
-    folder = os.path.join(data, 'test_lists')
     for f in sorted(os.listdir(folder)):
+        if not f.endswith('.test_list'):
+            continue
         rows = []
         with open(os.path.join(folder, f), encoding='utf-8') as lines:
             for line in lines:
                 key, _, text = line.rstrip('\n').partition(' ')
-                key = key[:-len('.jpg')]
-                image_id = key[:36] if key[:36] in by_image else next(i for i in by_image if key.startswith(i + '-'))
-                rows.append((by_image[image_id], key[len(image_id) + 1:], text))
+                key = key[:-len('.jpg')] if key.endswith('.jpg') else key
+                page = next((p for p in pages if key.startswith(p + '-')), None)
+                if page is None:
+                    sys.exit(f'{os.path.join(folder, f)}: {key}: no page of the dataset')
+                rows.append((page, key[len(page) + 1:], text))
         lists[f[:-len('.test_list')]] = rows
-    return lists, pages
+    return lists
 
 
 def score_text(records, lists):
     rows = []
-    for kind in ('ocr', 'lm'):
+    for kind in ('OCR', 'DECODER'):
         folder = os.path.join(records, kind)
         if not os.path.isdir(folder):
             continue
         for unit in sorted(os.listdir(folder)):
             if not os.path.exists(os.path.join(folder, unit, 'unit.json')):
                 continue
-            hyp = {(r['sample_id'], r['line_id']): r for r in read_tsv(os.path.join(folder, unit, 'lines.tsv'))}
+            hyp = {(r['page'], r['line_id']): r for r in read_tsv(os.path.join(folder, unit, 'lines.tsv'))}
             for name, refs in lists.items():
                 n = chars = errors = removed = 0
-                for sample_id, line_id, ref in refs:
-                    r = hyp.get((sample_id, line_id))
-                    if r is None:  # an LM pair that does not decode this list's pages
+                for page, line_id, ref in refs:
+                    r = hyp.get((page, line_id))
+                    if r is None:  # a page the unit did not process (a trial)
                         continue
                     n += 1
                     removed += r['kept'] == '0'
@@ -121,32 +129,31 @@ def coverage(points, height, detected):
     return best
 
 
-def score_layout(records, lists, pages, data):
-    folder = os.path.join(records, 'layout')
+def score_layout(records, lists, dataset):
+    folder = os.path.join(records, 'LAYOUT_PARSER')
     if not os.path.isdir(folder):
         return []
-    xml = {p['sample_id']: os.path.join(data, p['page_xml']) for p in pages}
     by_page = {}
-    for name, refs in lists.items():
-        for sample_id, line_id, _ in refs:
-            by_page.setdefault(sample_id, set()).add(line_id)
-    reference = {s: baselines(xml[s]) for s in by_page}
+    for refs in lists.values():
+        for page, line_id, _ in refs:
+            by_page.setdefault(page, set()).add(line_id)
+    reference = {p: baselines(os.path.join(dataset, 'page_xml', p + '.xml')) for p in by_page}
     rows = []
     for unit in sorted(os.listdir(folder)):
         if not os.path.exists(os.path.join(folder, unit, 'unit.json')):
             continue
         result = {}
-        for sample_id, line_ids in by_page.items():
-            path = os.path.join(folder, unit, 'page_xml', sample_id + '.xml')
-            if not os.path.exists(path):  # records of a trial (--pages)
+        for page, line_ids in by_page.items():
+            path = os.path.join(folder, unit, 'page_xml', page + '.xml')
+            if not os.path.exists(path):  # a page the unit did not process (a trial)
                 continue
             detected = [b for b, _ in baselines(path).values()]
             for line_id in line_ids:
-                if line_id in reference[sample_id]:
-                    base, height = reference[sample_id][line_id]
-                    result[(sample_id, line_id)] = coverage(sample_polyline(base), height, detected)
+                if line_id in reference[page]:
+                    base, height = reference[page][line_id]
+                    result[(page, line_id)] = coverage(sample_polyline(base), height, detected)
         for name, refs in lists.items():
-            scored = [result[(s, l)] for s, l, _ in refs if (s, l) in result]
+            scored = [result[(p, l)] for p, l, _ in refs if (p, l) in result]
             if not scored:
                 continue
             offsets = [o for c, o in scored if o is not None]
@@ -176,26 +183,25 @@ def table(rows, row_key, value, lists):
     return out
 
 
-def write_report(path, records, text_rows, layout_rows, lists):
-    with open(os.path.join(records, 'environment.json')) as f:
-        env = json.load(f)
-    lines = [f'# Benchmark of pero-ocr {os.path.basename(records)}', '',
+def write_report(path, commit, dataset_name, env, text_rows, layout_rows, lists):
+    lines = [f'# Benchmark of pero-ocr {commit}: {dataset_name}', '',
              f"Python {env['python']}, torch {env['packages'].get('torch')}, GPU {env['gpu']}. "
              f"{len(lists)} test lists, {sum(len(v) for v in lists.values())} lines.", '',
-             '## CER [%] of the OCR models', '']
-    lines += table([dict(r, model=r['unit']) for r in text_rows if r['kind'] == 'ocr'], 'model', 'cer', lists)
-    if any(r['kind'] == 'lm' for r in text_rows):
-        lines += ['', '## CER [%] with a language model (on the pages of the pairing\'s lists)', '']
-        lines += table([dict(r, pair=r['unit']) for r in text_rows if r['kind'] == 'lm'], 'pair', 'cer', lists)
+             '## CER [%] of the OCR engines', '']
+    lines += table([dict(r, ocr=r['unit']) for r in text_rows if r['kind'] == 'OCR'], 'ocr', 'cer', lists)
+    if any(r['kind'] == 'DECODER' for r in text_rows):
+        lines += ['', '## CER [%] with a decoder', '']
+        lines += table([dict(r, decoder=r['unit']) for r in text_rows if r['kind'] == 'DECODER'], 'decoder', 'cer',
+                       lists)
     removed = [r for r in text_rows if r['removed_lines']]
     if removed:
         lines += ['', '## Lines removed by the confidence filter (counted as empty)', '']
-        lines += table([dict(r, model=r['unit']) for r in removed], 'model', 'removed_lines', lists)
+        lines += table([dict(r, unit=f"{r['kind']}/{r['unit']}") for r in removed], 'unit', 'removed_lines', lists)
     if layout_rows:
         lines += ['', '## Layout: annotated lines found [%]', '']
-        lines += table([dict(r, model=r['unit']) for r in layout_rows], 'model', 'found', lists)
+        lines += table([dict(r, layout=r['unit']) for r in layout_rows], 'layout', 'found', lists)
         lines += ['', '## Layout: mean coverage of annotated baselines [%]', '']
-        lines += table([dict(r, model=r['unit']) for r in layout_rows], 'model', 'coverage', lists)
+        lines += table([dict(r, layout=r['unit']) for r in layout_rows], 'layout', 'coverage', lists)
     with open(path, 'w') as f:
         f.write('\n'.join(lines) + '\n')
 
@@ -205,23 +211,33 @@ def main():
     p.add_argument('--data', default=os.environ.get('PERO_TEST_DATA'))
     p.add_argument('--results', default=os.environ.get('PERO_INFERENCE'))
     p.add_argument('--commit', help='records folder name (default: the current commit)')
+    p.add_argument('--datasets', nargs='*', help='only these datasets')
     args = p.parse_args()
     if not args.data or not args.results:
         sys.exit('--data and --results (or PERO_TEST_DATA and PERO_INFERENCE) are required')
     commit = args.commit or subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], check=True, capture_output=True,
                                            text=True).stdout.strip()
-    records = os.path.join(args.results, commit)
-    if not os.path.isdir(records):
-        sys.exit(f'no records in {records}')
-    lists, pages = load_lists(args.data)
-    text_rows = score_text(records, lists)
-    layout_rows = score_layout(records, lists, pages, args.data)
-    out = os.path.join(records, 'benchmark')
-    os.makedirs(out, exist_ok=True)
-    write_tsv(os.path.join(out, 'cer.tsv'), text_rows)
-    write_tsv(os.path.join(out, 'layout.tsv'), layout_rows)
-    write_report(os.path.join(out, 'report.md'), records, text_rows, layout_rows, lists)
-    print(os.path.join(out, 'report.md'))
+    inference = os.path.join(args.results, commit, 'inference')
+    if not os.path.isdir(inference):
+        sys.exit(f'no records in {inference}')
+    with open(os.path.join(inference, 'environment.json')) as f:
+        env = json.load(f)
+    for name in sorted(os.listdir(inference)):
+        records, dataset = os.path.join(inference, name), os.path.join(args.data, name)
+        if not os.path.isdir(records) or (args.datasets and name not in args.datasets):
+            continue
+        if not os.path.isdir(os.path.join(dataset, 'test_lists')):
+            print(f'{name}: no test lists in {dataset}, not scored')
+            continue
+        lists = load_lists(dataset)
+        text_rows = score_text(records, lists)
+        layout_rows = score_layout(records, lists, dataset)
+        out = os.path.join(args.results, commit, 'score', name)
+        os.makedirs(out, exist_ok=True)
+        write_tsv(os.path.join(out, 'cer.tsv'), text_rows)
+        write_tsv(os.path.join(out, 'layout.tsv'), layout_rows)
+        write_report(os.path.join(out, 'report.md'), commit, name, env, text_rows, layout_rows, lists)
+        print(os.path.join(out, 'report.md'))
 
 
 if __name__ == '__main__':
