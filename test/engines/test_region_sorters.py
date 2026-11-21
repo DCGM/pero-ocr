@@ -115,6 +115,20 @@ def test_smart_sorter_on_a_tilted_page():
     assert ids(layout) == IN_ORDER
 
 
+def test_smart_sorter_on_a_tilted_page_without_lines():
+    """Without lines the smart sorter cannot estimate the rotation and sorts the page as if it were straight, so a
+    tilted page can come out in another order. This is the case of a layout run that detects regions only and adds
+    the lines later (DETECT_LINES = no, then a second LAYOUT_CNN with DETECT_REGIONS = no), as on the pero-ocr web
+    server (#96, Weird behaviour). Pinned as current behaviour."""
+    with_lines = scrambled(angle=8.0)
+    without_lines = scrambled(angle=8.0)
+    for r in without_lines.regions:
+        r.lines = []
+    assert ids(make('REGION_SORTER_SMART').process_page(IMAGE, with_lines)) == IN_ORDER
+    assert ids(make('REGION_SORTER_SMART').process_page(IMAGE, without_lines)) == [
+        'title', 'left_bottom', 'left_top', 'right_bottom', 'right_top']
+
+
 def test_naive_sorter_column_gap_from_image_width_denominator():
     """Columns closer than page width / ImageWidthDenominator are one cluster, read top to bottom."""
     near = page(region('right', 230, 50, 430, 400), region('left', 20, 420, 220, 800))
