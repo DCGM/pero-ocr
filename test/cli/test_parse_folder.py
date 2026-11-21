@@ -343,12 +343,22 @@ def cropper_only_config(directory, categories=None):
 
 
 def test_line_cropping_in_two_processes(full_run, tmp_path):
-    """--process-count works for pipelines without a model (#96: with a model it crashes)."""
+    """--process-count is meant for pipelines that only crop lines, e.g. to export training lines from PAGE XML."""
     _, _, images, out, _ = full_run
     result = run('-c', cropper_only_config(str(tmp_path)), '-i', images, '-x', out['xml'],
                  '--output-line-path', str(tmp_path / 'lines'), '--process-count', '2')
     assert result.returncode == 0, result.stderr
     assert len(os.listdir(tmp_path / 'lines')) == sum(len(lines) for lines in PAGES.values())
+
+
+@pytest.mark.xfail(reason='--process-count is meant only for line cropping, but parse_folder.py does not check the '
+                          'pipeline: with any model the PageParser is pickled to the worker processes, which '
+                          'torchscript models do not support, and the run crashes with a traceback (#104)', strict=True)
+def test_process_count_refuses_pipelines_with_models(full_run, tmp_path):
+    _, config, images, _, _ = full_run
+    result = run('-c', config, '-i', images, '--output-xml-path', str(tmp_path / 'xml'), '--process-count', '2')
+    assert result.returncode == 2
+    assert 'only' in result.stderr and 'line crop' in result.stderr.lower()
 
 
 @pytest.mark.xfail(reason='--output-line-path writes line.crop of every line, which is None for lines the cropper '
