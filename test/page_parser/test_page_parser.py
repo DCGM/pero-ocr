@@ -5,6 +5,7 @@ runs of production-like pipelines.
 Which engine a config section builds and what the stage around it does are tested in test/stages; what each engine does
 with its own options in test/engines."""
 import configparser
+import json
 
 import numpy as np
 import pytest
@@ -206,6 +207,100 @@ def test_relative_paths_resolve_against_config_path(tmp_path, cpu):
     config['PAGE_PARSER']['RUN_DECODER'] = 'yes'
     parser = pp.PageParser(config, device=cpu, config_path=str(model_dir))
     assert texts(parser.process_page(PAGE, new_page())) == ['a'] * 3
+
+
+# --- contracts between the stages ---------------------------------------------------------------------------------
+# Each engine is frozen and tested on its own input; these check that what one stage hands over is what the next one
+# can use.
+
+def ocr_only_config(*ocrs, cropper_height=40, decoder=''):
+    """[LINE_CROPPER] for all lines, then the given OCR sections (suffix, json, method, categories), and a decoder."""
+    text = '[PAGE_PARSER]\nRUN_LINE_CROPPER = yes\nRUN_OCR = yes\n' + ('RUN_DECODER = yes\n' if decoder else '')
+    text += CROPPER.replace('{suffix}', '').replace('LINE_HEIGHT = 40', f'LINE_HEIGHT = {cropper_height}')
+    for suffix, json_path, method, categories in ocrs:
+        text += OCR.replace('{suffix}', suffix).replace('{method}', method).replace('{json}', json_path)
+        text += f'CATEGORIES = {json.dumps(categories)}\n' if categories else ''
+    return make_config(text + decoder)
+
+
+def written_page(*lines):
+    """A page with the given (text, category) lines written for the tiny models, and its layout with those lines."""
+    image = np.zeros((600, 800, 3), dtype=np.uint8)
+    layout = new_page()
+    region = RegionLayout('r1', np.array([[0, 0], [800, 0], [800, 600], [0, 600]]))
+    for i, (text, category) in enumerate(lines):
+        top, bottom = 100 + 80 * i, 130 + 80 * i
+        right = draw_text(image, 100, top, bottom, text)
+        region.lines.append(TextLine(id=f'r1-l{i}', category=category, heights=[30.0, 8.0],
+                                     baseline=np.array([[100.0, bottom], [float(right), bottom]]),
+                                     polygon=np.array([[100, top], [right, top], [right, bottom + 8],
+                                                       [100, bottom + 8]])))
+    layout.regions = [region]
+    return image, layout
+
+
+def test_page_of_written_text(cpu, ctc_json):
+    image, layout = written_page(('bad cab', 'text'), ('dab', 'text'))
+    parser = pp.PageParser(ocr_only_config(('', ctc_json, 'pytorch_ocr', None)), device=cpu)
+    assert texts(parser.process_page(image, layout)) == ['bad cab', 'dab']
+
+
+@pytest.mark.xfail(reason='BaseEngineLineOCR.process_lines means to reject crops of the wrong height, but the check is '
+                          'inverted and the ValueError is never raised, so a [LINE_CROPPER] LINE_HEIGHT that does not '
+                          "match the OCR model's line_px_height fails with a numpy broadcast error",
+                   raises=AssertionError, strict=True)
+def test_crop_height_that_does_not_match_the_ocr_model(cpu, ctc_json):
+    image, layout = written_page(('bad', 'text'))
+    parser = pp.PageParser(ocr_only_config(('', ctc_json, 'pytorch_ocr', None), cropper_height=32), device=cpu)
+    with pytest.raises(ValueError, match='Line height needs to be 40'):
+        parser.process_page(image, layout)
+
+
+@pytest.mark.xfail(reason='page_decoder_factory decodes every line with the characters of [OCR] OCR_JSON instead of '
+                          'the characters of the OCR that read the line, so lines read by another OCR section with '
+                          'another alphabet are decoded into the wrong letters', strict=True)
+def test_decoder_uses_the_alphabet_of_the_ocr_that_read_the_line(cpu, ctc_json, tmp_path):
+    """[OCR] reads the text lines, [OCR_1], a model with another alphabet, the titles; a greedy decoder over both must
+    give back what each OCR read."""
+    other_alphabet = tiny_models.write_ctc(str(tmp_path), characters=tiny_models.CHARACTERS[::-1])
+    image, layout = written_page(('bad', 'text'), ('bad', 'title'))
+    ocrs = [('', ctc_json, 'pytorch_ocr', ['text']), ('_1', other_alphabet, 'pytorch_ocr', ['title'])]
+    read = texts(pp.PageParser(ocr_only_config(*ocrs), device=cpu).process_page(image, layout))
+    assert read[0] != read[1]  # the same picture, read in two alphabets
+    decoder = '\n[DECODER]\nTYPE = GREEDY\nUSE_CPU = yes\nCATEGORIES = ["text", "title"]\n'
+    image, layout = written_page(('bad', 'text'), ('bad', 'title'))
+    decoded = texts(pp.PageParser(ocr_only_config(*ocrs, decoder=decoder), device=cpu).process_page(image, layout))
+    assert decoded == read
+
+
+@pytest.mark.xfail(reason='PageOCR.provides_ctc_logits is true for the transformer engine too, whose logits are per '
+                          'decoding step, not per CTC frame; parse_folder.py relies on it for the ALTO word positions '
+                          'and the logits export', strict=True)
+def test_transformer_only_engine_provides_no_ctc_logits(cpu, transformer_json):
+    parser = pp.PageParser(ocr_only_config(('', transformer_json, 'pytorch_ocr-transformer', None)), device=cpu)
+    assert not parser.provides_ctc_logits
+
+
+def test_pages_in_a_row_come_out_as_if_processed_alone(parsenet_path, ctc_json, cpu, tmp_path):
+    """One PageParser processes page after page (pero-worker, the API client, parse_folder.py): without CARRY_H_OVER,
+    a page must come out the same whatever was processed before it. (Pages of very different text sizes do not, as
+    the layout engine keeps its adapted downsample: #96, Weird behaviour, tested in test_layout_engine.py.)"""
+    tiny_models.write_lm(str(tmp_path / 'lm'))
+    config = full_config(parsenet_path, ctc_json, extra=LM_DECODER + 'CONFIDENCE_THRESHOLD = 0.66\n')
+    config['PAGE_PARSER']['RUN_DECODER'] = 'yes'
+
+    def result(layout):
+        return [(line.id, line.transcription, round(line.transcription_confidence, 6),
+                 tuple(np.round(line.baseline.ravel(), 3))) for line in layout.lines_iterator()]
+
+    pages = [text_page(doubt=0.49), text_page(doubt=0.0), text_page(doubt=0.6)]
+    alone = [result(pp.PageParser(config, device=cpu, config_path=str(tmp_path)).process_page(page, new_page()))
+             for page in pages]
+    parser = pp.PageParser(config, device=cpu, config_path=str(tmp_path))
+    in_a_row = [result(parser.process_page(page, new_page())) for page in pages]
+    assert in_a_row == alone
+    assert [texts for texts in ([line[1] for line in page] for page in alone)] == \
+        [['abcd', 'ab', 'bad cab'], ['abcd', 'ac', 'bad cab'], ['abcd', 'ab', 'bad cab']]
 
 
 # --- what PageParser does after the stages ------------------------------------------------------------------------
