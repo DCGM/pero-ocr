@@ -40,7 +40,7 @@ import torch  # noqa: E402
 
 from test import tiny_models  # noqa: E402
 from test.engines.consistency import frozen_engines  # noqa: E402
-from test.synthetic import layout_page, line_image  # noqa: E402
+from test.synthetic import layout_page, line_image, text_line  # noqa: E402
 
 
 def write_generated_with(directory):
@@ -68,8 +68,12 @@ def write_generated_with(directory):
 # --- frozen inputs ------------------------------------------------------------------------------------------------
 
 def line_inputs():
-    """Line crops with 0, 1, 4 and 13 bright blocks: an empty line, short ones and one long enough for another batch."""
-    return {f'line/{i}': line_image(n) for i, n in enumerate((0, 1, 4, 13))}
+    """Line crops for the tiny OCR models (one block per character, its colour gives the character and the doubt):
+    an empty line, white blocks, the whole alphabet, a line long enough for another batch, and a 'c' read with some
+    doubt and with so much that 'b' wins."""
+    lines = [line_image(0), line_image(3), text_line('bad cab'), text_line('abcd abcd abcd'),
+             text_line('ac', [0.0, 0.45]), text_line('ac', [0.0, 0.6])]
+    return {f'line/{i}': line for i, line in enumerate(lines)}
 
 
 def ctc_input():

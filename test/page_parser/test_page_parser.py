@@ -12,7 +12,7 @@ import pytest
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import page_parser as pp
 from test import tiny_models
-from test.synthetic import page_image
+from test.synthetic import draw_text, page_image
 
 PAGE = page_image(3)
 
@@ -243,18 +243,35 @@ def test_lines_without_confidence_are_never_filtered(cpu):
 
 # --- production-like pipelines ------------------------------------------------------------------------------------
 
-def test_production_shape_with_language_model(parsenet_path, ctc_json, cpu, tmp_path):
+def text_page(doubt):
+    """Three lines of text for the tiny models; the 'c' of the second line is drawn with the given doubt (a 'b' is
+    almost as likely)."""
+    page = np.zeros((600, 800, 3), dtype=np.uint8)
+    draw_text(page, 100, 100, 130, 'abcd')
+    draw_text(page, 100, 170, 200, 'ac', [0.0, doubt])
+    draw_text(page, 100, 240, 270, 'bad cab')
+    return page
+
+
+@pytest.mark.parametrize('run_decoder, texts_out, decoded', [
+    ('no', ['abcd', 'ac', 'bad cab'], None),  # the OCR alone reads the unsure character as 'c'
+    ('yes', ['abcd', 'ab', 'bad cab'], 1),  # only the unsure line is decoded, and the LM prefers 'b' after 'a'
+])
+def test_production_shape_with_language_model(parsenet_path, ctc_json, cpu, tmp_path, run_decoder, texts_out, decoded):
     """The shape of the production LM engines: ParseNet, the smart region sorter, line cropper, CTC OCR and
-    FAST-LOG-RAW decoding with a torchscript LM for the less confident lines."""
+    FAST-LOG-RAW decoding with a torchscript LM (LM_SCALE 0.4) for the lines below CONFIDENCE_THRESHOLD 0.66."""
     tiny_models.write_lm(str(tmp_path / 'lm'))
     sorter = '\n[LAYOUT_PARSER_2]\nMETHOD = REGION_SORTER_SMART\n'
     decoder = LM_DECODER + 'CONFIDENCE_THRESHOLD = 0.66\nCARRY_H_OVER = yes\n'
     config = full_config(parsenet_path, ctc_json, extra=sorter + decoder)
-    config['PAGE_PARSER']['RUN_DECODER'] = 'yes'
+    config['PAGE_PARSER']['RUN_DECODER'] = run_decoder
     parser = pp.PageParser(config, device=cpu, config_path=str(tmp_path))
-    layout = parser.process_page(PAGE, new_page())
-    assert texts(layout) == ['a'] * 3
-    assert parser.decoder.lines_examined == 3 and layout.confidence is not None
+    layout = parser.process_page(text_page(doubt=0.49), new_page())
+    assert texts(layout) == texts_out
+    confidences = [line.transcription_confidence for line in layout.lines_iterator()]
+    assert confidences[0] > 0.99 and confidences[1] < 0.66 and confidences[2] > 0.99
+    if decoded is not None:
+        assert (parser.decoder.lines_examined, parser.decoder.lines_decoded) == (3, decoded)
 
 
 def test_layout_cnn_followed_by_transformer_region_sorter(parsenet_path, region_sorter_path, cpu):

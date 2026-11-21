@@ -11,10 +11,15 @@ of the input image, so tests can predict it:
   models learned to ignore that padding; the stand-ins cannot learn. If dark pixels were ink, padding would read as
   text: extra characters at the end of every line shorter than its batch, a baseline along the padded page border,
   and outputs that depend on how the lines were batched. With bright ink, padding is simply "no ink".
-* CTC OCR: every horizontal run of ink becomes one character. Without an embedding id it is ``characters[1]``,
-  with embedding id ``e`` it is ``characters[1 + e % (n_chars - 1)]``.
-* Transformer OCR: a line with ``n`` runs of ink decodes to ``n`` characters ``characters[1], characters[2], ...``
-  (cycling over ``characters[1:]``), then the end-of-sequence token. With ``stop=False`` it never emits the end token.
+* OCR, CTC and transformer alike, so that a CTC + transformer pair reads the same text: every block of ink (a run of
+  columns of which at least a quarter of the pixels are ink) is one character; ``ink_colour()`` gives the colours.
+  The green channel picks it: 255 is ``characters[1]`` (white blocks read as ``a``), every ``LEVEL_STEP`` lower the
+  next one. Lowering the red channel adds doubt (both read relative to the blue channel, which ``ink_colour()``
+  keeps at 255, so that pixels dimmed at the block edges by the line cropper keep the character): the previous character of ``characters[1:]`` (cyclically) becomes
+  as likely at doubt 0.5 and more likely above, which lowers the line confidence and gives decoders a real choice.
+  The CTC model is peaky like a real one: the character on the first frame of every block, blank on all others; with embedding id ``e``
+  every character is shifted by ``e`` places. The transformer emits one character per block, then the
+  end-of-sequence token; with ``stop=False`` it never emits the end token.
 * ParseNet: the colour of a pixel says which output map it feeds (channels of the image array as the engine gets it):
   - ink (white, any pixel with mean > 0.5): a baseline at the bottom row of every block of ink, with the height of
     the block above it as the ascender and ``PARSENET_DESCENDER_RATIO`` times that as the descender, all in pixels of
@@ -50,10 +55,36 @@ LINE_END = (255, 255, 0)  # colours of the ParseNet stand-in input, see TinyPars
 SEPARATOR = (255, 0, 0)
 
 
-def _ink_columns(x: Tensor) -> Tensor:
-    """N,3,H,W image in [0, 1] -> N,T fraction of ink per 4-px column block (T = W // 4)."""
-    ink = (x.mean(dim=1) > 0.5).float().amax(dim=1)  # N,W: 1 where the column contains ink
-    return F.avg_pool1d(ink.unsqueeze(1), 4, 4).squeeze(1)
+LEVEL_STEP = 25  # green levels of the OCR stand-ins' input: 255 is CHARACTERS[1], each LEVEL_STEP lower the next one
+
+
+def ink_colour(character: str, doubt: float = 0.0) -> Tuple[int, int, int]:
+    """Colour of a block the tiny OCR models read as ``character``: the green channel picks the character, the red one
+    lowered by ``doubt`` (0 to 0.9) makes the previous character of CHARACTERS[1:] (cyclically) as likely as
+    ``character`` at 0.5 and more likely above. The blue channel stays 255, so the block is never a ParseNet line end."""
+    level = CHARACTERS.index(character) - 1
+    if level < 0 or not 0.0 <= doubt <= 0.9:
+        raise ValueError(f'cannot draw {character!r} with doubt {doubt}')
+    return int(round(255 * (1.0 - doubt))), 255 - LEVEL_STEP * level, 255
+
+
+def _frames(x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+    """N,3,H,W image in [0, 1] -> per 4-px column block (T = W // 4), each N,T: the fraction of its columns that are
+    ink (at least a quarter of their pixels are ink), and over the ink the character level (from green / blue) and
+    the doubt (from red / blue)."""
+    ink_px = (x.mean(dim=1) > 0.5).float()  # N,H,W
+    n_ink = ink_px.sum(dim=1)  # N,W
+    column = (n_ink >= 0.25 * x.shape[2]).float()
+    # relative to the blue channel, so that pixels dimmed by interpolation at the edges keep the block's character
+    blue = x[:, 2].clamp(min=1e-3)
+    green = (x[:, 1] / blue * ink_px).sum(dim=1) / n_ink.clamp(min=1.0)
+    red = (x[:, 0] / blue * ink_px).sum(dim=1) / n_ink.clamp(min=1.0)
+    ink = F.avg_pool1d(column.unsqueeze(1), 4, 4).squeeze(1)
+    weight = F.avg_pool1d(column.unsqueeze(1), 4, 4).squeeze(1).clamp(min=1e-6)
+    green = F.avg_pool1d((green * column).unsqueeze(1), 4, 4).squeeze(1) / weight
+    red = F.avg_pool1d((red * column).unsqueeze(1), 4, 4).squeeze(1) / weight
+    level = torch.round((1.0 - green) * 255.0 / 25.0)  # LEVEL_STEP (torchscript cannot read the global)
+    return ink, level, 1.0 - red
 
 
 class TinyCTC(nn.Module):
@@ -65,16 +96,20 @@ class TinyCTC(nn.Module):
 
     def forward(self, x: Tensor, embed_ids: Optional[Tensor] = None) -> Tensor:
         """N,3,H,W -> N,C,T logits, blank is the last class."""
-        ink = _ink_columns(x)
-        n = ink.shape[0]
-        if embed_ids is None:
-            char_ids = torch.ones(n, dtype=torch.long, device=x.device)
-        else:
-            char_ids = 1 + embed_ids % (self.n_characters - 1)
-        # N,T: +11 on ink, -9 on background; never exactly 0, which the sparse logit format treats as "pruned"
-        score = 20.0 * ink - 9.0
-        one_hot = F.one_hot(char_ids, self.n_out).float()  # N,C
-        logits = -10.0 + one_hot.unsqueeze(2) * (score.unsqueeze(1) + 10.0)
+        ink, level, doubt = _frames(x)
+        shift = torch.zeros_like(level) if embed_ids is None else embed_ids.to(level.dtype).unsqueeze(1)
+        n_letters = self.n_characters - 1
+        char_ids = 1 + torch.remainder(level + shift, n_letters).long()  # N,T
+        alt_ids = 1 + torch.remainder(level + shift - 1, n_letters).long()
+        # peaky like a real CTC model: the character on the first frame of a block, blank on all other frames;
+        # +11 / -11 and -10 elsewhere, never exactly 0, which the sparse logit format treats as "pruned"
+        on = (ink > 0.5).float()
+        start = on * (1.0 - F.pad(on[:, :-1], (1, 0)))  # N,T
+        score = 22.0 * start - 11.0
+        alt_score = -10.0 + 42.0 * doubt * start  # as likely as the character at doubt 0.5
+        logits = torch.full((x.shape[0], self.n_out, ink.shape[1]), -10.0, device=x.device)
+        logits.scatter_(1, alt_ids.unsqueeze(1), alt_score.unsqueeze(1))
+        logits.scatter_(1, char_ids.unsqueeze(1), (-10.0 + 21.0 * start).unsqueeze(1))
         logits[:, -1, :] = -score
         return logits
 
@@ -93,8 +128,9 @@ class TinyTransformer(nn.Module):
 
     @torch.jit.export
     def encode(self, x: Tensor) -> Tensor:
-        """N,3,H,W -> T,N,1."""
-        return _ink_columns(x).t().unsqueeze(2)
+        """N,3,H,W -> T,N,3: ink, character level and doubt per 4-px column block."""
+        ink, level, doubt = _frames(x)
+        return torch.stack([ink, level, doubt], dim=2).transpose(0, 1).to(self.dtype_holder.dtype)
 
     @torch.jit.export
     def adapt(self, encoded: Tensor) -> Tensor:
@@ -102,15 +138,27 @@ class TinyTransformer(nn.Module):
 
     @torch.jit.export
     def decode_step(self, encoded: Tensor, partial: Tensor) -> Tensor:
-        """encoded T,N,1; partial N,L (starts with the start token) -> N,C logits of the next symbol."""
+        """encoded T,N,3; partial N,L (starts with the start token) -> N,C logits of the next symbol: the character of
+        the next block of ink (block number L - 1), then the end of sequence."""
+        encoded = encoded.float()
         ink = (encoded[:, :, 0] > 0.5).float()  # T,N
-        n_runs = ink[0] + (ink[1:] * (1.0 - ink[:-1])).sum(0)  # N
+        starts = torch.cat([ink[:1], ink[1:] * (1.0 - ink[:-1])], dim=0)
+        block = torch.cumsum(starts, dim=0) * ink  # T,N: 1, 2, ... on the blocks, 0 between them
         step = partial.shape[1] - 1
-        char_id = 1 + step % (self.n_characters - 1)
-        ids = torch.full((partial.shape[0],), char_id, dtype=torch.long, device=encoded.device)
+        mask = (block == float(step + 1)).float()
+        count = mask.sum(0).clamp(min=1.0)
+        level = torch.round((mask * encoded[:, :, 1]).sum(0) / count)
+        doubt = (mask * encoded[:, :, 2]).sum(0) / count
+        n_letters = self.n_characters - 1
+        char_ids = 1 + torch.remainder(level, n_letters).long()  # N
+        alt_ids = 1 + torch.remainder(level - 1, n_letters).long()
+        logits = torch.full((partial.shape[0], self.n_out), -10.0, device=encoded.device)
+        logits.scatter_(1, alt_ids.unsqueeze(1), (-10.0 + 40.0 * doubt).unsqueeze(1))
+        logits.scatter_(1, char_ids.unsqueeze(1), torch.full_like(doubt, 10.0).unsqueeze(1))
         if self.stop:
-            ids = torch.where(n_runs > step, ids, torch.full_like(ids, self.eos))
-        logits = -10.0 + 20.0 * F.one_hot(ids, self.n_out).float()
+            done = (starts.sum(0) <= float(step)).unsqueeze(1)
+            logits = torch.where(done, -10.0 + 20.0 * F.one_hot(torch.full_like(char_ids, self.eos), self.n_out).float(),
+                                 logits)
         return logits.to(self.dtype_holder.dtype)
 
 

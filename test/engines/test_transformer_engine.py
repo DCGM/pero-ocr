@@ -1,16 +1,24 @@
+"""The transformer OCR engine (TransformerEngineLineOCR) with the tiny transformer: one character per block of ink,
+the character given by the block's colour (test/tiny_models.py)."""
+import numpy as np
 import pytest
 from scipy import sparse
 
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from test import tiny_models
-from test.synthetic import line_image
+from test.synthetic import line_image, text_line
 
 CHARS = tiny_models.CHARACTERS
 N_OUT = len(CHARS) + 2
 
 
 def expected_text(n_runs):
+    """A text of n_runs characters that uses the whole alphabet: 'abcd abcd ...'."""
     return ''.join(CHARS[1 + i % (len(CHARS) - 1)] for i in range(n_runs))
+
+
+def lines(*runs):
+    return [text_line(expected_text(n)) for n in runs]
 
 
 @pytest.fixture(scope='module')
@@ -32,19 +40,19 @@ def test_exported_as_string_true(tmp_path, cpu):
 
 @pytest.mark.parametrize('n_runs', [0, 1, 3, 6])
 def test_transcription(engine, n_runs):
-    transcriptions, _, _ = engine.process_lines([line_image(n_runs)])
+    transcriptions, _, _ = engine.process_lines(lines(n_runs))
     assert transcriptions == [expected_text(n_runs)]
 
 
 def test_lines_of_a_batch_finish_at_different_steps(engine):
     runs = [5, 1, 0, 3, 8, 2]
-    transcriptions, _, _ = engine.process_lines([line_image(n) for n in runs])
+    transcriptions, _, _ = engine.process_lines(lines(*runs))
     assert transcriptions == [expected_text(n) for n in runs]
 
 
 def test_logits_format(engine):
     runs = [3, 1]
-    _, logits, coords = engine.process_lines([line_image(n) for n in runs])
+    _, logits, coords = engine.process_lines(lines(*runs))
     for n, line_logits, line_coords in zip(runs, logits, coords):
         assert isinstance(line_logits, sparse.csc_matrix)
         assert line_logits.shape == (n, N_OUT)
@@ -56,7 +64,7 @@ def test_logits_format(engine):
 def test_beam_search_matches_greedy_on_unambiguous_input(transformer_json, cpu, beam_size, beam_merging):
     engine = TransformerEngineLineOCR(transformer_json, cpu, beam_size=beam_size, beam_merging=beam_merging)
     runs = [4, 0, 2]
-    transcriptions, logits, _ = engine.process_lines([line_image(n) for n in runs])
+    transcriptions, logits, _ = engine.process_lines(lines(*runs))
     assert transcriptions == [expected_text(n) for n in runs]
     assert [m.shape[0] for m in logits] == runs
 
@@ -87,7 +95,7 @@ def test_long_lines_are_split_and_merged(tmp_path, cpu):
 
 def test_order_is_kept_with_batching_by_width(engine):
     runs = [3, 0, 9, 1, 5, 2] * 8
-    transcriptions, _, _ = engine.process_lines([line_image(n) for n in runs])
+    transcriptions, _, _ = engine.process_lines(lines(*runs))
     assert transcriptions == [expected_text(n) for n in runs]
 
 
@@ -102,3 +110,25 @@ def test_output_substitution_table_from_the_json(tmp_path, cpu, atomic):
 
 def test_no_output_substitution_without_a_table(engine):
     assert engine.output_substitution is None
+
+
+def test_white_blocks_read_as_the_first_character(engine):
+    transcriptions, _, _ = engine.process_lines([line_image(3)])
+    assert transcriptions == ['aaa']
+
+
+def test_doubt_makes_the_previous_character_likely(engine):
+    """A 'c' drawn with doubt 0.45 is still read as 'c', with 'b' close behind; with doubt 0.6 'b' wins."""
+    transcriptions, logits, _ = engine.process_lines([text_line('ac', [0.0, 0.45]), text_line('ac', [0.0, 0.6])])
+    assert transcriptions == ['ac', 'ab']
+    second = logits[0].toarray()[1]
+    probs = np.exp(second - np.logaddexp.reduce(second))
+    assert probs[CHARS.index('c')] > probs[CHARS.index('b')] > 0.1
+
+
+def test_reads_the_same_text_as_the_ctc_model(engine, ctc_json, cpu):
+    """Like a production CTC + transformer pair: both read the same text from the same crops."""
+    from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
+    crops = [text_line('bad cab'), text_line('d'), line_image(0)]
+    assert engine.process_lines(crops)[0] == PytorchEngineLineOCR(ctc_json, cpu).process_lines(crops)[0] \
+        == ['bad cab', 'd', '']

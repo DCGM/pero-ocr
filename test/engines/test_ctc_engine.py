@@ -121,3 +121,21 @@ def test_output_substitution_table_from_the_json(tmp_path, cpu, atomic):
 
 def test_no_output_substitution_without_a_table(engine):
     assert engine.output_substitution is None
+
+
+def test_colours_pick_the_characters(engine):
+    from test.synthetic import text_line
+    transcriptions, _, _ = engine.process_lines([text_line('bad cab'), text_line('dd')])
+    assert transcriptions == ['bad cab', 'dd']
+
+
+@pytest.mark.parametrize('doubt, text', [(0.0, 'ac'), (0.45, 'ac'), (0.6, 'ab')])
+def test_doubt_makes_the_previous_character_likely(engine, doubt, text):
+    """A 'c' drawn with doubt competes with 'b': it lowers the line's confidence, and above 0.5 'b' wins."""
+    from pero_ocr.core.layout import TextLine
+    from test.synthetic import text_line
+    transcriptions, logits, _ = engine.process_lines([text_line('ac', [0.0, doubt])])
+    assert transcriptions == [text]
+    line = TextLine(transcription=text, logits=logits[0], characters=engine.characters)
+    line.calculate_confidences()
+    assert (line.transcription_confidence > 0.99) == (doubt == 0.0)

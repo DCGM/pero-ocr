@@ -3,7 +3,7 @@ pages (with line-end marks and region separators for the ParseNet stand-in), and
 characters for decoders and language models."""
 import numpy as np
 
-from test.tiny_models import CHARACTERS, LINE_END, LINE_PX_HEIGHT, SEPARATOR
+from test.tiny_models import CHARACTERS, LINE_END, LINE_PX_HEIGHT, SEPARATOR, ink_colour
 
 
 def line_image(n_runs: int, run_width: int = 16, gap: int = 16, height: int = LINE_PX_HEIGHT,
@@ -18,6 +18,33 @@ def line_image(n_runs: int, run_width: int = 16, gap: int = 16, height: int = LI
         img[height // 4: 3 * height // 4, x:x + run_width] = 255
         x += run_width + gap
     return img
+
+
+def text_line(text: str, doubts=None, run_width: int = 16, gap: int = 16, height: int = LINE_PX_HEIGHT,
+              margin: int = 8) -> np.ndarray:
+    """Line crop that the tiny OCR models read as ``text``: one block per character in its ink_colour(), with the
+    given doubt per character (default 0: read with full confidence)."""
+    doubts = doubts or [0.0] * len(text)
+    img = line_image(len(text), run_width=run_width, gap=gap, height=height, margin=margin)
+    for i, (character, doubt) in enumerate(zip(text, doubts)):
+        x = margin + i * (run_width + gap)
+        img[height // 4: 3 * height // 4, x:x + run_width] = ink_colour(character, doubt)
+    return img
+
+
+def draw_text(img: np.ndarray, left: int, top: int, bottom: int, text: str, doubts=None, char_width: int = 24,
+              gap: int = 12, strip: int = 2) -> int:
+    """Write ``text`` into a page for the tiny models: one block per character from ``top`` to ``bottom``, and a white
+    strip ``strip`` px high under the gaps, so that ParseNet sees one continuous line while the OCR models still see
+    separate characters (a column is ink for them only when at least a quarter of it is). Returns the right end."""
+    doubts = doubts or [0.0] * len(text)
+    x = left
+    for i, (character, doubt) in enumerate(zip(text, doubts)):
+        img[top:bottom, x:x + char_width] = ink_colour(character, doubt)
+        if i < len(text) - 1:
+            img[bottom - strip:bottom, x + char_width:x + char_width + gap] = 255
+        x += char_width + gap
+    return x - gap
 
 
 def page_image(n_lines: int = 3, width: int = 800, height: int = 600, line_height: int = 40,

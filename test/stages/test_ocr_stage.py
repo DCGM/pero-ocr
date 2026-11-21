@@ -4,8 +4,8 @@ every OCR engine: which lines are read (CATEGORIES), the results and confidences
 keeping more confident transcriptions, the device and the path of the engine json. The OCR engines themselves are
 tested in test/engines/test_ctc_engine.py and test_transformer_engine.py.
 
-The tiny OCR models (test/tiny_models.py) read every bright block of a crop as one character: the CTC model always
-'a', the transformer 'a', 'b', 'c', ... in turn."""
+The tiny OCR models (test/tiny_models.py) read every bright block of a crop as one character, picked by its colour;
+white blocks (test.synthetic.line_image) read as 'a'."""
 import os
 
 import numpy as np
@@ -18,7 +18,7 @@ from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR
 from pero_ocr.ocr_engine.transformer_ocr_engine import TransformerEngineLineOCR
 from test import tiny_models
 from test.configs import section
-from test.synthetic import line_image
+from test.synthetic import line_image, text_line
 
 
 def make(ocr_json, device=torch.device('cpu'), config_path='', **options):
@@ -52,9 +52,7 @@ def test_method_selects_the_engine(ctc_json, transformer_json, method, engine_cl
     options = {} if method is None else {'METHOD': method}
     ocr = make(transformer_json if engine_class is TransformerEngineLineOCR else ctc_json, **options)
     assert isinstance(ocr.ocr_engine, engine_class) and ocr.provides_ctc_logits
-    # the tiny CTC model reads every block as 'a', the tiny transformer reads 'a', 'b', 'c', ...
-    expected = ['a', 'abc'] if engine_class is TransformerEngineLineOCR else ['a', 'aaa']
-    assert texts(ocr.process_page(None, page(line(1), line(3)))) == expected
+    assert texts(ocr.process_page(None, page(line(1), line(3)))) == ['a', 'aaa']  # white blocks read as 'a'
 
 
 def test_factory_builds_a_page_ocr(ctc_json):
@@ -75,6 +73,20 @@ def test_lines_get_logits_characters_and_confidences(ctc_json):
     assert result.logits.shape[1] == len(result.characters) == len(tiny_models.CHARACTERS) + 1
     assert result.logit_coords is not None
     assert 0 < result.transcription_confidence <= 1 and len(result.character_confidences) == 2
+
+
+@pytest.mark.parametrize('ocr_json', ['ctc_json', 'transformer_json'])
+def test_line_confidence_follows_the_reading(ocr_json, request):
+    """The confidences the stage writes to the lines come from the engine's logits: a line with a doubtful character
+    gets a lower transcription confidence and a lower confidence of that character."""
+    json_path = request.getfixturevalue(ocr_json)
+    method = 'pytorch_ocr-transformer' if ocr_json == 'transformer_json' else 'pytorch_ocr'
+    layout = make(json_path, METHOD=method).process_page(None, page(
+        TextLine(id='clear', crop=text_line('ac')), TextLine(id='doubtful', crop=text_line('ac', [0.0, 0.45]))))
+    clear, doubtful = layout.lines_iterator()
+    assert clear.transcription == doubtful.transcription == 'ac'
+    assert clear.transcription_confidence > 0.99 > doubtful.transcription_confidence
+    assert doubtful.character_confidences[0] > 0.99 > doubtful.character_confidences[1]
 
 
 def test_page_without_lines(ctc_json):
@@ -139,7 +151,7 @@ def test_update_transcription_by_confidence(ctc_json):
 def test_beam_search_settings_reach_the_transformer(transformer_json):
     ocr = make(transformer_json, METHOD='pytorch_ocr-transformer', BEAM_SIZE=3, BEAM_MERGING='cn')
     assert (ocr.ocr_engine.beam_size, ocr.ocr_engine.beam_merging) == (3, 'cn')
-    assert texts(ocr.process_page(None, page(line(2)))) == ['ab']
+    assert texts(ocr.process_page(None, page(line(2)))) == ['aa']
 
 
 def test_ocr_json_relative_to_the_config(ctc_json):
