@@ -101,9 +101,14 @@ In the basis environment (`requirements/lock.txt`); GPU:
 Adding an engine (or pages of a run) is adding it to a registry and running the same command; only what is missing
 runs. `score.py` scores a unit on a test list when the unit holds all the list's pages, otherwise it reports NA.
 `--datasets` and `--units` restrict a run, which is rarely needed.
-`--jobs` units run at a time, of them at most `--big-jobs` (1) big OCR units (models over 150 M parameters, the mega
-transformer): several big models at once load the GPU to its limit (the machine of the first runs crashed under three
-transformers). The other transformers (~110 M) and the CTC models (~17 M) run next to it.
+`--jobs` layout and OCR units run at a time on a GPU, of them at most `--big-jobs` (1) big OCR units (models over 150 M
+parameters, the mega transformer): several big models at once load the GPU to its limit (the machine of the first runs
+crashed under three transformers). The other transformers (~110 M) and the CTC models (~17 M) run next to it.
+`--decoder-jobs` (10) decoder units run at a time besides them, in all; each needs about one CPU core (the beam search)
+and keeps a GPU busy too: its LM runs a small batch at every beam step, so one GPU serves only about two decoders at
+full speed (an RTX A5000: one decoder keeps it 37 % busy, four 95 %). On a machine with several GPUs, `--gpus 0,1,2,3`
+spreads the units over them (`--jobs` layout and OCR units on each, the decoders on the least loaded);
+`--decoder-gpus` gives the decoders other GPUs. A unit process sees only its GPU (`CUDA_VISIBLE_DEVICES`).
 
 Official and free runs:
 

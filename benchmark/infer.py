@@ -1120,11 +1120,15 @@ def run_inline(todo, registry, dataset, out, crop_workers):
 
 
 def run_parallel(todo, registry, dataset, out, args, inference, folder_name, units):
-    """Crops in this process (a CPU pool), every other unit in a process of its own, args.jobs at a time, at low CPU
-    priority; a unit starts when the units it needs are done and enough memory is free."""
+    """Crops in this process (a CPU pool), every other unit in a process of its own at low CPU priority: args.jobs
+    layout and OCR units on each GPU of args.gpus, args.decoder_jobs decoder units on args.decoder_gpus; a unit starts
+    when the units it needs are done and enough memory is free, on the GPU of its kind running the fewest units."""
     crops = [u for u in todo if u.stage == 'LINE_CROPPER']
     lock, failed, finished = threading.Lock(), [], set()
-    running = {'gpu': 0, 'big': 0}
+    gpus, decoder_gpus = args.gpus or [None], args.decoder_gpus or args.gpus or [None]
+    running = {g: 0 for g in gpus}  # layout and OCR units on each GPU
+    running_big = {g: 0 for g in gpus}
+    running_decoders = {g: 0 for g in decoder_gpus}
 
     def big(unit):
         """An OCR unit whose model has more than BIG_MODEL_PARAMETERS parameters: the heaviest GPU load. A derived
@@ -1161,16 +1165,25 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name, uni
         """The unit holds the pages the registry gives it."""
         return units[uid].done()
 
+    def gpu_for(unit):
+        """The GPU the unit can start on now (None: the GPU the process sees by default), or False when there is
+        none."""
+        if unit.stage == 'DECODER':
+            if sum(running_decoders.values()) >= args.decoder_jobs:
+                return False
+            return min(decoder_gpus, key=lambda g: running_decoders[g])
+        free = [g for g in gpus if running[g] < args.jobs and not (big(unit) and running_big[g] >= args.big_jobs)]
+        return min(free, key=lambda g: running[g]) if free else False
+
     def next_unit():
-        """The first pending unit that can start, 'wait', or None when nothing is left."""
+        """The first pending unit that can start and its GPU, 'wait', or None when nothing is left."""
         for i, unit in enumerate(pending):
-            if unit.stage != 'DECODER' and running['gpu'] >= args.jobs:
-                continue
-            if big(unit) and running['big'] >= args.big_jobs:
+            gpu = gpu_for(unit)
+            if gpu is False:
                 continue
             deps = needs(unit, registry)
             if all(done(d) for d in deps):
-                return pending.pop(i)
+                return pending.pop(i), gpu
             lost = [d for d in deps if not done(d) and (d in failed or d not in todo_ids or d in finished)]
             if lost:
                 pending.pop(i)
@@ -1187,16 +1200,20 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name, uni
                 if unit is None:
                     return
                 if unit != 'wait':
+                    unit, gpu = unit
                     while mem_available_gb() < args.min_free_gb:
                         time.sleep(30)
                     name = unit.id.replace('/', '__')
-                    logger.info(f'start {dataset.name}: {unit.id}')
+                    logger.info(f'start {dataset.name}: {unit.id}' + ('' if gpu is None else f' on GPU {gpu}'))
                     log = open(os.path.join(out, 'logs', name + '.log'), 'w')
+                    env = None if gpu is None else dict(os.environ, CUDA_VISIBLE_DEVICES=gpu)
                     proc = subprocess.Popen(base + ['--units', unit.id], stdout=log, stderr=subprocess.STDOUT,
-                                            preexec_fn=lambda: os.nice(10))
-                    if unit.stage != 'DECODER':
-                        running['gpu'] += 1
-                    running['big'] += big(unit)
+                                            env=env, preexec_fn=lambda: os.nice(10))
+                    if unit.stage == 'DECODER':
+                        running_decoders[gpu] += 1
+                    else:
+                        running[gpu] += 1
+                        running_big[gpu] += big(unit)
                     time.sleep(args.stagger)  # let it load its models before the memory check of the next one
             if unit == 'wait':
                 time.sleep(10)
@@ -1204,16 +1221,18 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name, uni
             code = proc.wait()
             log.close()
             with lock:
-                if unit.stage != 'DECODER':
-                    running['gpu'] -= 1
-                running['big'] -= big(unit)
+                if unit.stage == 'DECODER':
+                    running_decoders[gpu] -= 1
+                else:
+                    running[gpu] -= 1
+                    running_big[gpu] -= big(unit)
                 finished.add(unit.id)
                 if code != 0:
                     failed.append(unit.id)
                     logger.error(f'{dataset.name}: {unit.id} failed, see {dataset.name}/logs/{name}.log')
             write_report(inference, folder_name)
 
-    threads = [threading.Thread(target=worker) for _ in range(max(args.jobs, args.decoder_jobs))]
+    threads = [threading.Thread(target=worker) for _ in range(args.jobs * len(gpus) + args.decoder_jobs)]
     for t in threads:
         t.start()
     for t in threads:
@@ -1248,15 +1267,22 @@ def main():
     p.add_argument('--units', nargs='*', default=[''], help='unit id prefixes to run, e.g. OCR/ DECODER/czech')
     p.add_argument('--exact', action='store_true', help='--units are exact unit ids; run them in this process (how the unit processes are started)')
     p.add_argument('--pages', type=int, help='only the first N pages of each dataset (a trial; only with --out)')
-    p.add_argument('--jobs', type=int, default=1, help='units running at the same time, each in its own process')
+    p.add_argument('--jobs', type=int, default=1,
+                   help='layout and OCR units running at the same time on each GPU, each in its own process')
     p.add_argument('--decoder-jobs', type=int, default=10,
-                   help='decoder units running at the same time (CPU-bound, one core each); --jobs limits the others')
+                   help='decoder units running at the same time, in all (about one CPU core each, and their LM keeps '
+                        'a GPU busy: one GPU serves about two at full speed)')
+    p.add_argument('--gpus', type=lambda s: s.split(','),
+                   help='GPUs to spread the layout and OCR units over, e.g. 0,1,2 (CUDA_VISIBLE_DEVICES of each unit '
+                        'process); by default every unit uses the GPU this process sees')
+    p.add_argument('--decoder-gpus', type=lambda s: s.split(','),
+                   help='GPUs to spread the decoder units over (default: --gpus)')
     p.add_argument('--crop-workers', type=int, default=3)
     p.add_argument('--chunk-pages', type=int, default=CHUNK_PAGES,
                    help='a unit adds its computed pages to its folder every this many pages')
     p.add_argument('--big-jobs', type=int, default=1,
                    help=f'at most this many big OCR units (models over {BIG_MODEL_PARAMETERS / 1e6:.0f} M parameters) at '
-                        f'a time, of --jobs: several at once overload the GPU')
+                        f'a time on each GPU, of --jobs: several at once overload the GPU')
     p.add_argument('--keep-torchscript-fuser', action='store_true',
                    help="leave TorchScript's fuser on (pero-ocr's default): only to add to records made with it on")
     p.add_argument('--min-free-gb', type=float, default=5.0, help='start a unit process only with this much free RAM')
@@ -1336,7 +1362,7 @@ def main():
                                                                  files=dataset.fingerprint()),
                          ('pages', 'files'), 'from other pages', args.force_environment)
         logger.info(f'{out}: {len(todo)} units to run')
-        if args.exact or args.jobs <= 1:
+        if args.exact or (args.jobs <= 1 and len(args.gpus or []) <= 1 and len(args.decoder_gpus or []) <= 1):
             run_inline(todo, registry, dataset, out, args.crop_workers)
         else:
             failed += run_parallel(todo, registry, dataset, out, args, inference, folder_name, all_units)
