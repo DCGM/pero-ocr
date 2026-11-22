@@ -55,8 +55,16 @@ Units (one folder each in <commit>/inference/<dataset>/, complete when it holds 
                                     the OCR engine runs again and must give the recorded lines): lines.tsv
 
 Every unit.json has "pages", the pages the unit holds (records made before page lists: their number, the first N
-pages). Every line of a page is inferred. Every page is processed by a fresh numpy random state seeded from its name, so
-a rerun gives the same result (the layout engine breaks ties with np.random, issue #100).
+pages). Every line of a page is inferred. Every page is processed with numpy's and Python's random generators seeded
+from its name, so a rerun gives the same result (the layout engine breaks ties with np.random and orders the lines of a
+region with random.uniform, issue #100).
+
+Adopting units (--adopt-from <commit or folder> --adopt <unit id prefixes>): a run whose code changes only some stages
+copies the complete units of the other stages from the records of another commit instead of computing them again, e.g.
+a change of the layout engine adopts LINE_CROPPER/ OCR/ DECODER/ and computes only LAYOUT_PARSER/. The source must have
+been inferred in the same environment and on the same dataset (both are checked); that the code change does not touch
+the adopted stages is the caller's claim. <inference>/adopted.json records the source, the files the code changed
+between the two commits and the adopted units; each adopted unit.json gets "adopted_from"; report.md says so.
 """
 import argparse
 import configparser
@@ -70,6 +78,7 @@ import multiprocessing
 import os
 import platform
 import queue
+import random
 import re
 import shutil
 import subprocess
@@ -114,6 +123,12 @@ def md5_file(path):
 
 def page_seed(name):
     return int(hashlib.md5(name.encode()).hexdigest()[:8], 16)
+
+
+def seed_page(name):
+    """Seed every random generator pero-ocr uses from the page name (issue #100)."""
+    np.random.seed(page_seed(name))
+    random.seed(page_seed(name))
 
 
 def in_logits_subset(key):
@@ -743,7 +758,7 @@ def run_layout(unit, registry, dataset):
         os.makedirs(os.path.join(unit.partial, 'page_xml'))
         n_lines = 0
         for page, image, _ in read_pages(pages, with_layout=False):
-            np.random.seed(page_seed(page['name']))
+            seed_page(page['name'])
             layout = PageLayout(id=page['name'], page_size=(image.shape[0], image.shape[1]))
             layout = parser.process_page(image, layout)
             layout.to_pagexml(os.path.join(unit.partial, 'page_xml', page['name'] + '.xml'))
@@ -770,7 +785,7 @@ def _crop_page(args):
             config = configparser.ConfigParser()
             config.read_string(text)
             _croppers[name] = PageParser(config, config_path=folder)
-        np.random.seed(page_seed(page['name']))
+        seed_page(page['name'])
         layout = _croppers[name].process_page(image, PageLayout(file=page['page_xml']))
         result[name] = [(f"{page['name']}/{line.id}", cv2.imencode('.png', line.crop)[1].tobytes())
                         for line in layout.lines_iterator() if line.crop is not None]
@@ -873,7 +888,7 @@ def run_ocr(unit, registry, dataset, out):
         logits = {}
         for page, image, layout in read_pages(chunk, crops=env):
             name = page['name']
-            np.random.seed(page_seed(name))
+            seed_page(name)
             line_ids = [line.id for line in layout.lines_iterator()]
             for line in layout.lines_iterator():
                 line.transcription = None
@@ -949,7 +964,7 @@ def ocr_output(run, pages, registry, dataset, out):
         os.makedirs(os.path.join(folder, sub), exist_ok=True)
     for page, image, layout in read_pages(missing, crops=env):
         name = page['name']
-        np.random.seed(page_seed(name))
+        seed_page(name)
         line_ids = [line.id for line in layout.lines_iterator()]
         for line in layout.lines_iterator():
             line.transcription = None
@@ -1000,7 +1015,7 @@ def run_decoder(unit, registry, dataset, out):
         writer = LineWriter(os.path.join(unit.partial, 'lines.tsv'))
         for page in chunk:
             name = page['name']
-            np.random.seed(page_seed(name))
+            seed_page(name)
             line_ids = [line.id for line in PageLayout(file=page['page_xml']).lines_iterator()]
             layout = PageLayout(file=os.path.join(ocr_folder, 'page_xml', name + '.xml'))
             if removed:
@@ -1045,6 +1060,8 @@ def write_report(inference, commit):
                     pages = info.get('pages', '')
                     seconds = info['seconds'] + sum(t['seconds'] for t in info.get('topups', []))
                     finished = info['topups'][-1]['finished_utc'] if info.get('topups') else info['finished_utc']
+                    if info.get('adopted_from'):
+                        name += f" (adopted from {info['adopted_from'][:7]})"
                     rows.append((dataset, stage, name, len(pages) if isinstance(pages, list) else pages,
                                  info.get('lines', ''), seconds, finished))
     with open(os.path.join(inference, 'environment.json')) as f:
@@ -1054,8 +1071,91 @@ def write_report(inference, commit):
              f"numpy {env['packages'].get('numpy')}, opencv {env['packages'].get('opencv-python')}, GPU {env['gpu']}.",
              '', '| dataset | stage | unit | pages | lines | seconds | finished (UTC) |', '|---|---|---|---|---|---|---|']
     lines += [f'| {d} | {k} | {n} | {p} | {l} | {s:.0f} | {t} |' for d, k, n, p, l, s, t in rows]
+    if any('(adopted from' in r[2] for r in rows):
+        lines += ['', 'Adopted units were computed by the commit they name and copied here, not run by this commit '
+                      '(adopted.json: the source and the files the code changed in between).']
     with open(os.path.join(inference, 'report.md'), 'w') as f:
         f.write('\n'.join(lines) + '\n')
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Adopting units of another commit
+
+
+def adopt_source(value, results):
+    """The records to adopt from: a folder holding inference/, or a commit with records in --results.
+    Returns (inference folder, commit or None)."""
+    if os.path.isdir(os.path.join(value, 'inference')):
+        source = os.path.join(value, 'inference')
+        commit = None
+        runs = os.path.join(source, 'run.json')
+        if os.path.exists(runs):
+            with open(runs) as f:
+                commit = json.load(f)[-1].get('commit')
+        return source, commit
+    try:
+        commit = git('rev-parse', '--verify', value + '^{commit}')
+    except subprocess.CalledProcessError:
+        sys.exit(f'--adopt-from {value}: neither a folder with inference/ nor a commit')
+    source = os.path.join(results or '', commit, 'inference')
+    if not os.path.isdir(source):
+        sys.exit(f'--adopt-from {value}: no records of {commit} in {results}')
+    return source, commit
+
+
+def adopt_units(source, source_commit, inference, work, prefixes):
+    """Copy the complete units matching <prefixes> from <source> into the records being made, where they are not
+    there yet. The source must have been inferred in this environment and on the same datasets. Copies, not links: a
+    later top-up of an adopted unit must not change the source."""
+    with open(os.path.join(source, 'environment.json')) as f:
+        source_env = json.load(f)
+    with open(os.path.join(inference, 'environment.json')) as f:
+        env = json.load(f)
+    differ = [k for k in ENV_KEYS if source_env.get(k) != env.get(k)]
+    if differ:
+        sys.exit(f'--adopt-from {source}: inferred in another environment ({", ".join(differ)} differ); its units '
+                 f'would not be what this environment produces')
+    adopted = []
+    for dataset, registry, out, _, all_units in work:
+        src = os.path.join(source, dataset.name)
+        record = dict(pages=len(dataset.all_pages), files=dataset.fingerprint())
+        with open(os.path.join(src, 'dataset.json')) as f:
+            source_record = json.load(f)
+        if any(source_record.get(k) != v for k, v in record.items()):
+            sys.exit(f'--adopt-from {source}: {dataset.name} was inferred from other pages')
+        for unit in all_units.values():
+            if not any(unit.id.startswith(prefix) for prefix in prefixes) or unit.info() is not None:
+                continue
+            folder = os.path.join(src, unit.stage, unit.name)
+            if not os.path.exists(os.path.join(folder, 'unit.json')):
+                logger.info(f'{dataset.name}: {unit.id} is not in {source}; it will be computed')
+                continue
+            tmp = unit.final + '.adopting'
+            shutil.rmtree(tmp, ignore_errors=True)
+            shutil.copytree(folder, tmp)
+            with open(os.path.join(tmp, 'unit.json')) as f:
+                info = json.load(f)
+            info['adopted_from'] = source_commit or source
+            with open(os.path.join(tmp, 'unit.json'), 'w') as f:
+                json.dump(info, f, indent=1, ensure_ascii=False)
+            os.rename(tmp, unit.final)
+            adopted.append(f'{dataset.name}/{unit.id}')
+            logger.info(f'{dataset.name}: adopted {unit.id}')
+    if not adopted:
+        return
+    entry = dict(adopted_utc=utc_now(), source=source, source_commit=source_commit, units=adopted)
+    if source_commit:
+        try:
+            entry['changed_files'] = git('diff', '--name-only', source_commit, 'HEAD').splitlines()
+        except subprocess.CalledProcessError:
+            pass
+    path = os.path.join(inference, 'adopted.json')
+    entries = []
+    if os.path.exists(path):
+        with open(path) as f:
+            entries = json.load(f)
+    with open(path, 'w') as f:
+        json.dump(entries + [entry], f, indent=1, ensure_ascii=False)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1291,7 +1391,16 @@ def main():
     p.add_argument('--prune-logits', action='store_true',
                    help='delete the stored logits of the OCR runs whose decoders are all done, run nothing')
     p.add_argument('--force-environment', action='store_true')
+    p.add_argument('--adopt-from', metavar='COMMIT_OR_FOLDER',
+                   help='take the --adopt units over from the records of this commit (in --results) or folder instead '
+                        'of computing them; only when the code change does not touch their stages')
+    p.add_argument('--adopt', nargs='*', default=[], metavar='PREFIX',
+                   help='unit id prefixes to adopt (with --adopt-from), e.g. LINE_CROPPER/ OCR/ DECODER/')
     args = p.parse_args()
+    if bool(args.adopt_from) != bool(args.adopt):
+        sys.exit('--adopt-from and --adopt go together')
+    if args.adopt and args.exact:
+        sys.exit('--adopt: not with --exact')
     if args.chunk_pages < 1:
         sys.exit('--chunk-pages must be at least 1')
     CHUNK_PAGES = args.chunk_pages
@@ -1343,6 +1452,18 @@ def main():
                 count = f'{have}/{len(u.wanted)} pages'
                 print(f'  {state} {u.id}  ({count}{"".join("; " + n for n in notes)})')
         return
+    if args.adopt:
+        source, source_commit = adopt_source(args.adopt_from, args.results)
+        os.makedirs(inference, exist_ok=True)
+        check_record(os.path.join(inference, 'environment.json'), environment(), ENV_KEYS,
+                     'in another environment', args.force_environment)
+        for dataset, registry, out, _, _ in work:
+            os.makedirs(out, exist_ok=True)
+            check_record(os.path.join(out, 'dataset.json'), dict(pages=len(dataset.all_pages),
+                                                                 files=dataset.fingerprint()),
+                         ('pages', 'files'), 'from other pages', args.force_environment)
+        adopt_units(source, source_commit, inference, work, args.adopt)
+        write_report(inference, folder_name)
     if not any(not u.done() for _, _, _, units, _ in work for u in units):
         print('nothing to do')
         return

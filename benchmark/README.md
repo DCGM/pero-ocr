@@ -121,12 +121,22 @@ Official and free runs:
 
 Within one folder, official or free, results are added only from the same environment and the same pages.
 
+- **Adopting units** (`--adopt-from <commit> --adopt LINE_CROPPER/ OCR/ DECODER/`): when a commit changes only some
+  stages, its run copies the complete units of the other stages from the records of the earlier commit instead of
+  computing them again, and computes only the rest. The source must have been inferred in the same environment and
+  on the same pages (both checked); that the change does not touch the adopted stages is the caller's claim.
+  `inference/adopted.json` records the source commit, the files changed in between and the units; the report marks
+  them.
+
+Every page is processed with numpy's and Python's random generators seeded from its name, so the layout engine's
+random tie-breaks (issue #100) are the same in every run.
+
 The records of a commit (a free run's folder has the same structure, plus `inference/run.json`):
 
 ```
 <commit>/
   inference/
-    environment.json, report.md
+    environment.json, report.md, adopted.json (when units were adopted)
     <dataset>/
       dataset.json                      fingerprint of the pages (file names and hashes)
       LAYOUT_PARSER/<layout>/           page_xml/
