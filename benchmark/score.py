@@ -13,6 +13,11 @@ the dataset.
 Text (OCR/ and DECODER/ units): on every line of every test list, CER = edit distance / reference length, summed over
 the list's lines. Both texts are NFC with single spaces and no space at the start or end (the references are stored
 that way). A line the engine removed (the PAGE_PARSER confidence filter) counts as an empty transcription.
+Two versions: CER against the references as transcribed, and modernized CER, where both the reference and the output
+are rewritten by the modern German rules of the training data (a vowel with a combining small e above, U+0364, to the
+vowel with umlaut or diaeresis, and long s to s; the "modern_german" test sets of the PERO training scripts). Models
+that write long s and models that write s are then scored alike; the modernized CER is what the older benchmarks
+reported.
 
 Layout (LAYOUT_PARSER/ units): the annotated lines of the test lists are the reference (the dataset's PAGE XML; only
 their baselines are known to be right, regions are not annotated). A reference baseline is sampled at 20 points; a
@@ -48,6 +53,16 @@ def clean(text):
     return ' '.join(unicodedata.normalize('NFC', text or '').split())
 
 
+MODERN = [(v + '\u0364', u) for v, u in zip('AEIOUaeiou', 'ÄËÏÖÜäëïöü')] + [('ſ', 's')]
+
+
+def modernize(text):
+    """The modern German rules of the training data's modern_german test sets."""
+    for old, new in MODERN:
+        text = text.replace(old, new)
+    return text
+
+
 def load_lists(dataset):
     """{list name: [(page, line_id, reference text)]} of <dataset>/test_lists."""
     pages = sorted({os.path.splitext(f)[0] for f in os.listdir(os.path.join(dataset, 'page_xml'))}, key=len,
@@ -81,18 +96,23 @@ def score_text(records, lists):
                 continue
             hyp = {(r['page'], r['line_id']): r for r in read_tsv(os.path.join(folder, unit, 'lines.tsv'))}
             for name, refs in lists.items():
-                n = chars = errors = removed = 0
+                n = chars = errors = chars_m = errors_m = removed = 0
                 for page, line_id, ref in refs:
                     r = hyp.get((page, line_id))
                     if r is None:  # a page the unit did not process (a trial)
                         continue
                     n += 1
                     removed += r['kept'] == '0'
+                    text = clean(r['text'])
                     chars += len(ref)
-                    errors += Levenshtein.distance(clean(r['text']), ref)
+                    errors += Levenshtein.distance(text, ref)
+                    chars_m += len(modernize(ref))
+                    errors_m += Levenshtein.distance(modernize(text), modernize(ref))
                 if n:
                     rows.append(dict(kind=kind, unit=unit, list=name, lines=n, chars=chars, errors=errors,
-                                     cer=round(100 * errors / max(1, chars), 3), removed_lines=removed))
+                                     cer=round(100 * errors / max(1, chars), 3), chars_modern=chars_m,
+                                     errors_modern=errors_m, cer_modern=round(100 * errors_m / max(1, chars_m), 3),
+                                     removed_lines=removed))
     return rows
 
 
@@ -187,12 +207,15 @@ def write_report(path, commit, dataset_name, env, text_rows, layout_rows, lists)
     lines = [f'# Benchmark of pero-ocr {commit}: {dataset_name}', '',
              f"Python {env['python']}, torch {env['packages'].get('torch')}, GPU {env['gpu']}. "
              f"{len(lists)} test lists, {sum(len(v) for v in lists.values())} lines.", '',
-             '## CER [%] of the OCR engines', '']
-    lines += table([dict(r, ocr=r['unit']) for r in text_rows if r['kind'] == 'OCR'], 'ocr', 'cer', lists)
-    if any(r['kind'] == 'DECODER' for r in text_rows):
-        lines += ['', '## CER [%] with a decoder', '']
-        lines += table([dict(r, decoder=r['unit']) for r in text_rows if r['kind'] == 'DECODER'], 'decoder', 'cer',
-                       lists)
+             ]
+    for value, title in (('cer', 'CER [%]'), ('cer_modern', 'Modernized CER [%] (long s as s, combining e as umlaut)')):
+        lines += [f'## {title} of the OCR engines', '']
+        lines += table([dict(r, ocr=r['unit']) for r in text_rows if r['kind'] == 'OCR'], 'ocr', value, lists)
+        if any(r['kind'] == 'DECODER' for r in text_rows):
+            lines += ['', f'## {title} with a decoder', '']
+            lines += table([dict(r, decoder=r['unit']) for r in text_rows if r['kind'] == 'DECODER'], 'decoder',
+                           value, lists)
+        lines.append('')
     removed = [r for r in text_rows if r['removed_lines']]
     if removed:
         lines += ['', '## Lines removed by the confidence filter (counted as empty)', '']

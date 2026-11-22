@@ -783,8 +783,8 @@ def run_unit(unit, registry, dataset, out):
 
 
 def order(todo, registry, dataset):
-    """The units that run in processes of their own, most expensive first; a unit counts with the units that wait
-    for it."""
+    """The units that run in processes of their own: layout and OCR first, decoders last (their results come after
+    every OCR result); within that, most expensive first, a unit counting with the units that wait for it."""
     n = len(dataset.pages)
     own = {}
     for u in todo:
@@ -802,7 +802,7 @@ def order(todo, registry, dataset):
 
     def cost(uid):
         return own.get(uid, 0) + max((cost(w) for w in waiting.get(uid, [])), default=0)
-    return sorted((u for u in todo if u.stage != 'LINE_CROPPER'), key=lambda u: -cost(u.id))
+    return sorted((u for u in todo if u.stage != 'LINE_CROPPER'), key=lambda u: (u.stage == 'DECODER', -cost(u.id)))
 
 
 def run_inline(todo, registry, dataset, out, crop_workers):
@@ -827,6 +827,7 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name):
     priority; a unit starts when the units it needs are done and enough memory is free."""
     crops = [u for u in todo if u.stage == 'LINE_CROPPER']
     lock, failed, finished = threading.Lock(), [], set()
+    running = {'gpu': 0}
 
     def crop_job():
         try:
@@ -846,7 +847,7 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name):
     todo_ids = {u.id for u in todo}
     os.makedirs(os.path.join(out, 'logs'), exist_ok=True)
     base = [sys.executable, os.path.abspath(__file__), '--exact', '--data', args.data, '--models', args.models,
-            '--results', args.results, '--datasets', dataset.name, '--crop-workers', '0'] + \
+            '--results', args.results, '--datasets', dataset.name, '--crop-workers', '0', '--decoder-jobs', '1'] + \
            (['--pages', str(args.pages)] if args.pages else []) + \
            (['--allow-dirty'] if args.allow_dirty else []) + (['--force-environment'] if args.force_environment else [])
 
@@ -856,6 +857,8 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name):
     def next_unit():
         """The first pending unit that can start, 'wait', or None when nothing is left."""
         for i, unit in enumerate(pending):
+            if unit.stage != 'DECODER' and running['gpu'] >= args.jobs:
+                continue
             deps = needs(unit, registry)
             if all(done(d) for d in deps):
                 return pending.pop(i)
@@ -882,6 +885,8 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name):
                     log = open(os.path.join(out, 'logs', name + '.log'), 'w')
                     proc = subprocess.Popen(base + ['--units', unit.id], stdout=log, stderr=subprocess.STDOUT,
                                             preexec_fn=lambda: os.nice(10))
+                    if unit.stage != 'DECODER':
+                        running['gpu'] += 1
                     time.sleep(args.stagger)  # let it load its models before the memory check of the next one
             if unit == 'wait':
                 time.sleep(10)
@@ -889,13 +894,15 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name):
             code = proc.wait()
             log.close()
             with lock:
+                if unit.stage != 'DECODER':
+                    running['gpu'] -= 1
                 finished.add(unit.id)
                 if code != 0:
                     failed.append(unit.id)
                     logger.error(f'{dataset.name}: {unit.id} failed, see {dataset.name}/logs/{name}.log')
             write_report(inference, folder_name)
 
-    threads = [threading.Thread(target=worker) for _ in range(args.jobs)]
+    threads = [threading.Thread(target=worker) for _ in range(max(args.jobs, args.decoder_jobs))]
     for t in threads:
         t.start()
     for t in threads:
@@ -930,6 +937,8 @@ def main():
     p.add_argument('--pages', type=int, help='only the first N pages of each dataset (a trial; needs --results of '
                                              'its own)')
     p.add_argument('--jobs', type=int, default=1, help='units running at the same time, each in its own process')
+    p.add_argument('--decoder-jobs', type=int, default=10,
+                   help='decoder units running at the same time (CPU-bound, one core each); --jobs limits the others')
     p.add_argument('--crop-workers', type=int, default=3)
     p.add_argument('--min-free-gb', type=float, default=5.0, help='start a unit process only with this much free RAM')
     p.add_argument('--stagger', type=float, default=45.0, help='seconds between starting two unit processes')
