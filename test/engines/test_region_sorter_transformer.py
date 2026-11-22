@@ -125,7 +125,6 @@ def test_image_has_the_configured_size(region_sorter_path):
     assert tuple(sorter.model.calls[0][2].shape) == (1, 3, 48, 96)
 
 
-@pytest.mark.xfail(reason='regions beyond MAX_BBOX_COUNT are appended from a set, i.e. in a random order', strict=True)
 def test_regions_beyond_max_bbox_count_keep_their_order(region_sorter_path):
     """The model sees only the first MAX_BBOX_COUNT regions; the rest should follow in their original order.
     With 7 leftover regions, a random order passes by chance once in 5040 runs."""

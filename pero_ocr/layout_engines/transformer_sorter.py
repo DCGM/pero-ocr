@@ -181,8 +181,8 @@ class TransformerRegionSorter:
         order = find_shortest_path(1-prob.cpu().numpy().T)
         new_regions = [page_layout.regions[i] for i in order]
 
-        remainder = set(page_layout.regions) - set(new_regions)
-        new_regions += list(remainder)
+        # The model sees only the first max_bbox_count regions; the rest follow in their original order.
+        new_regions += [region for region in page_layout.regions if region not in new_regions]
 
         page_layout.regions = new_regions
 
