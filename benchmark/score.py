@@ -12,6 +12,9 @@ layout.tsv and report.md. Run it again after more units were inferred; it scores
 A test list has one line per row, "<page>-<line_id>.jpg <reference text>", where <page> is the page's file name in
 the dataset.
 
+A unit is scored on a test list when it holds every page of the list (the pages in its unit.json); otherwise its
+score on that list is NA. Which pages were inferred is up to infer.py and its registry; this script does not read it.
+
 Text (OCR/ and DECODER/ units): on every line of every test list, CER = edit distance / reference length, summed over
 the list's lines. Both texts are NFC with single spaces and no space at the start or end (the references are stored
 that way). A line the engine removed (the PAGE_PARSER confidence filter) counts as an empty transcription.
@@ -87,8 +90,22 @@ def load_lists(dataset):
     return lists
 
 
+def unit_pages(folder, from_records):
+    """The pages a unit holds: unit.json "pages" (records made before page lists have their number there: then the
+    pages found in the unit's files, from_records())."""
+    with open(os.path.join(folder, 'unit.json')) as f:
+        pages = json.load(f)['pages']
+    return set(pages) if isinstance(pages, list) else from_records()
+
+
+def list_pages(lists):
+    return {name: {page for page, _, _ in refs} for name, refs in lists.items()}
+
+
 def score_text(records, lists):
+    """A row for every text unit and test list; NA (cer None) when the unit does not hold every page of the list."""
     rows = []
+    pages_of = list_pages(lists)
     for kind in ('OCR', 'DECODER'):
         folder = os.path.join(records, kind)
         if not os.path.isdir(folder):
@@ -97,12 +114,18 @@ def score_text(records, lists):
             if not os.path.exists(os.path.join(folder, unit, 'unit.json')):
                 continue
             hyp = {(r['page'], r['line_id']): r for r in read_tsv(os.path.join(folder, unit, 'lines.tsv'))}
+            held = unit_pages(os.path.join(folder, unit), lambda: {page for page, _ in hyp})
             for name, refs in lists.items():
+                if not pages_of[name] <= held:
+                    rows.append(dict(kind=kind, unit=unit, list=name, lines=0, chars='', errors='', cer=None,
+                                     chars_modern='', errors_modern='', cer_modern=None, removed_lines=''))
+                    continue
                 n = chars = errors = chars_m = errors_m = removed = 0
                 for page, line_id, ref in refs:
                     r = hyp.get((page, line_id))
-                    if r is None:  # a page the unit did not process (a trial)
-                        continue
+                    if r is None:
+                        sys.exit(f'{os.path.join(folder, unit)}: holds page {page} but not its line {line_id}: the '
+                                 f'test list does not belong to the PAGE XML the unit was inferred on')
                     n += 1
                     removed += r['kept'] == '0'
                     text = clean(r['text'])
@@ -110,11 +133,10 @@ def score_text(records, lists):
                     errors += Levenshtein.distance(text, ref)
                     chars_m += len(modernize(ref))
                     errors_m += Levenshtein.distance(modernize(text), modernize(ref))
-                if n:
-                    rows.append(dict(kind=kind, unit=unit, list=name, lines=n, chars=chars, errors=errors,
-                                     cer=round(100 * errors / max(1, chars), 3), chars_modern=chars_m,
-                                     errors_modern=errors_m, cer_modern=round(100 * errors_m / max(1, chars_m), 3),
-                                     removed_lines=removed))
+                rows.append(dict(kind=kind, unit=unit, list=name, lines=n, chars=chars, errors=errors,
+                                 cer=round(100 * errors / max(1, chars), 3), chars_modern=chars_m,
+                                 errors_modern=errors_m, cer_modern=round(100 * errors_m / max(1, chars_m), 3),
+                                 removed_lines=removed))
     return rows
 
 
@@ -161,20 +183,25 @@ def score_layout(records, lists, dataset):
             by_page.setdefault(page, set()).add(line_id)
     reference = {p: baselines(os.path.join(dataset, 'page_xml', p + '.xml')) for p in by_page}
     rows = []
+    pages_of = list_pages(lists)
     for unit in sorted(os.listdir(folder)):
         if not os.path.exists(os.path.join(folder, unit, 'unit.json')):
             continue
+        xml = os.path.join(folder, unit, 'page_xml')
+        held = unit_pages(os.path.join(folder, unit), lambda: {os.path.splitext(f)[0] for f in os.listdir(xml)})
         result = {}
         for page, line_ids in by_page.items():
-            path = os.path.join(folder, unit, 'page_xml', page + '.xml')
-            if not os.path.exists(path):  # a page the unit did not process (a trial)
+            if page not in held:
                 continue
-            detected = [b for b, _ in baselines(path).values()]
+            detected = [b for b, _ in baselines(os.path.join(xml, page + '.xml')).values()]
             for line_id in line_ids:
                 if line_id in reference[page]:
                     base, height = reference[page][line_id]
                     result[(page, line_id)] = coverage(sample_polyline(base), height, detected)
         for name, refs in lists.items():
+            if not pages_of[name] <= held:
+                rows.append(dict(unit=unit, list=name, lines=0, found=None, coverage=None, offset=''))
+                continue
             scored = [result[(p, l)] for p, l, _ in refs if (p, l) in result]
             if not scored:
                 continue
@@ -192,16 +219,19 @@ def write_tsv(path, rows):
     with open(path, 'w', encoding='utf-8', newline='') as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]), delimiter='\t', lineterminator='\n')
         w.writeheader()
-        w.writerows(rows)
+        w.writerows([{k: 'NA' if v is None else v for k, v in r.items()} for r in rows])
 
 
 def table(rows, row_key, value, lists):
+    """A unit per row, a test list per column; NA where the unit does not hold the list's pages. Lists no unit
+    scores are left out."""
     names = sorted({r[row_key] for r in rows})
-    cols = [n for n in lists if any(r['list'] == n for r in rows)]
+    cols = [n for n in lists if any(r['list'] == n and r[value] is not None for r in rows)]
     cell = {(r[row_key], r['list']): r[value] for r in rows}
     out = ['| ' + ' | '.join([row_key] + cols) + ' |', '|' + '---|' * (len(cols) + 1)]
     for n in names:
-        out.append('| ' + ' | '.join([n] + [f'{cell[(n, c)]}' if (n, c) in cell else '' for c in cols]) + ' |')
+        out.append('| ' + ' | '.join([n] + ['NA' if cell.get((n, c), '') is None else f"{cell.get((n, c), '')}"
+                                            for c in cols]) + ' |')
     return out
 
 

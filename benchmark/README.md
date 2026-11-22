@@ -31,7 +31,9 @@ A dataset
   registry.yaml          which engines run on it
   images/<page>.<ext>    the page images
   page_xml/<page>.xml    the input layout: the croppers crop its lines
-  test_lists/            the references for score.py (not read by infer.py)
+  test_lists/            the references for score.py (not read by infer.py): <name>.test_list, one row per text line
+  page_lists/            optional: the pages of runs restricted to some pages, <name>.page_list, one row per page;
+                         a run evaluated on a test list gets the page list of the same name
   metadata.tsv           optional: where each page comes from (read by neither script)
 ```
 
@@ -56,12 +58,34 @@ DECODER:
 ```
 
 - An engine's folder is `<STAGE>/<name>/` in the engines folder. The configs are used as they are; `infer.py` only
-  sets the `RUN_*` switches of `[PAGE_PARSER]` to the engine's stage. Other `[PAGE_PARSER]` settings
-  (`FILTER_CONFIDENT_LINES_THRESHOLD`) stay in the config.
-- A value is one name or a list. Any subset of the stages is valid. Every engine runs on every page of the dataset.
+  sets the `RUN_*` switches of `[PAGE_PARSER]` to the engine's stage, and `TORCHSCRIPT_FUSER = no`: with
+  TorchScript's fuser on (pero-ocr's default), a model's output on the GPU depends slightly (about 1e-5) on the pages
+  processed before it in the same process, so a page would get different numbers in a full run, a resumed run and a
+  top-up. A free run can leave it out (`--keep-torchscript-fuser`) to add to records made with the fuser on; a unit
+  is only ever added to with the config it was recorded with. Other `[PAGE_PARSER]` settings (`FILTER_CONFIDENT_LINES_THRESHOLD`) stay in the config.
+- A value is one name or a list. Any subset of the stages is valid.
 - An OCR engine listed with several croppers runs with each of them; a decoder then names the run it decodes as
   `<ocr>@<cropper>`.
-- The registry is checked before anything runs: every engine folder exists, a cropper gives lines of the height the
+- A run is on every page, or on the pages of a page list given with its name (a path relative to the dataset
+  folder): a layout engine or cropper as `<name>: <page list>`, an OCR or decoder run as `<input>: <page list>` under
+  its `LINE_CROPPER` or `OCR`:
+
+  ```yaml
+  DECODER:
+    czech.lstm.kroniky.2022-03-21:
+      OCR:
+        czech_printed.ctc.2022-01-13: page_lists/lm.czech.print.antiqua.page_list   # only these pages
+        czech_handwritten.ctc.2024-12-01:                                            # every page
+  ```
+
+  A run's pages must be among the pages of the run it reads (an OCR run's cropper, a decoder's OCR run, the run a
+  threshold variant is derived from); otherwise the registry is refused. A unit records the pages it holds; giving it
+  more pages later (a longer list, or no list) computes only the pages it does not hold and adds them.
+- A unit saves its pages in chunks of `--chunk-pages` pages (25 by default: under ten minutes for the slowest units,
+  the decoders): an interrupted run (a crash, a killed process) loses
+  at most one chunk per unit, and running the same command again computes only the pages that are missing.
+- The registry is checked before anything runs: every engine folder exists, every page list names pages of the
+  dataset, a run gets only pages its input run gets, a cropper gives lines of the height the
   OCR network takes, a decoder's `[OCR] OCR_JSON` alphabet is the alphabet of every OCR engine it decodes, and those
   are CTC engines (not transformers).
 
@@ -74,8 +98,12 @@ In the basis environment (`requirements/lock.txt`); GPU:
     python benchmark/infer.py --list              # the units and which are done
     python benchmark/score.py                     # the benchmark of the records
 
-Adding an engine is adding it to a registry and running the same command; only the missing units run.
+Adding an engine (or pages of a run) is adding it to a registry and running the same command; only what is missing
+runs. `score.py` scores a unit on a test list when the unit holds all the list's pages, otherwise it reports NA.
 `--datasets` and `--units` restrict a run, which is rarely needed.
+`--jobs` units run at a time, of them at most `--big-jobs` (1) big transformer OCR units (over 300 MB of model): several
+big transformers at once load the GPU to its limit (the machine of the first runs crashed under three). Smaller
+transformers and CTC models run next to it.
 
 Official and free runs:
 
