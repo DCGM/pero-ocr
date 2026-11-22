@@ -9,6 +9,7 @@ import json
 
 import numpy as np
 import pytest
+import torch
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.document_ocr import page_parser as pp
@@ -334,6 +335,30 @@ def test_lines_without_confidence_are_never_filtered(cpu):
     region.lines = [TextLine(id='r1-l1', transcription='from PAGE XML')]
     layout.regions = [region]
     assert texts(parser.process_page(PAGE, layout)) == ['from PAGE XML']
+
+
+@pytest.fixture
+def restore_fuser():
+    enabled = torch._C._jit_texpr_fuser_enabled()
+    yield
+    torch._C._jit_set_texpr_fuser_enabled(enabled)
+
+
+@pytest.mark.parametrize('setting, enabled', [('no', False), ('yes', True)])
+def test_torchscript_fuser_switch(cpu, restore_fuser, setting, enabled):
+    """TORCHSCRIPT_FUSER switches TorchScript's tensor-expression fuser for the whole process (on the GPU it makes a
+    model's output depend on the inputs processed before it, issue #96)."""
+    torch._C._jit_set_texpr_fuser_enabled(not enabled)
+    pp.PageParser(make_config(f'[PAGE_PARSER]\nTORCHSCRIPT_FUSER = {setting}\n'), device=cpu)
+    assert torch._C._jit_texpr_fuser_enabled() is enabled
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+def test_torchscript_fuser_left_alone_by_default(cpu, restore_fuser, enabled):
+    """Without TORCHSCRIPT_FUSER, PageParser leaves the fuser as it is."""
+    torch._C._jit_set_texpr_fuser_enabled(enabled)
+    pp.PageParser(make_config('[PAGE_PARSER]\nRUN_OCR = no\n'), device=cpu)
+    assert torch._C._jit_texpr_fuser_enabled() is enabled
 
 
 # --- production-like pipelines ------------------------------------------------------------------------------------
