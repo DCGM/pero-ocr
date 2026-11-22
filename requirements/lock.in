@@ -1,6 +1,7 @@
-# The stable basis: the exact versions the tests, the frozen data and the Docker image use.
-# It installs on Python 3.8 to 3.10 and gives the same results on every live worker stack (issue #94, "Stable dependency
-# basis"). pyproject.toml keeps open ranges for downstream users; this file pins one point inside them.
+# The basis: the recommended environment for running pero-ocr on its own (Python 3.8, 3.9 or 3.10), and the exact versions
+# the tests, the frozen data and the Docker image use. Tested in production on Python 3.10, with variants on 3.8 and 3.9
+# (issue #94, "Stable dependency basis"). pyproject.toml loosens it for other projects that depend on pero-ocr; this file
+# pins one point inside its ranges.
 #
 # Regenerate requirements/lock.txt after changing this file:
 #   uv pip compile requirements/lock.in -o requirements/lock.txt --python-version 3.8 \

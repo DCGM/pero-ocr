@@ -21,7 +21,7 @@ Inputs, given as environment variables or options:
 | `PERO_INFERENCE` | the records, one folder per commit |
 
 The data and the engines are not public; the benchmark's definition (lists, page metadata, how they were made) is
-kept in the ScribbleSense repository, `backend/tools/ocr_production_data/tst/<date>/`.
+kept privately with the data.
 
 A dataset
 ---------
@@ -43,18 +43,18 @@ The registry names the engines of each pero-ocr stage and what each one runs on:
 
 ```yaml
 LAYOUT_PARSER:
-  - universal.parsenet.2022-04-13
+  - example.parsenet.2020-01-01
 
 LINE_CROPPER:
   - interp2_scale1.15_height48
 
 OCR:
-  universal.ctc.2025-03-19:
+  example.ctc.2020-01-01:
     LINE_CROPPER: interp2_scale1.15_height48          # the croppers whose line crops it reads
 
 DECODER:
-  english.lstm.wikitext103.2021-06-28:
-    OCR: universal.ctc.2025-03-19                     # the OCR engines whose output it decodes
+  example.lstm.2020-01-01:
+    OCR: example.ctc.2020-01-01                       # the OCR engines whose output it decodes
 ```
 
 - An engine's folder is `<STAGE>/<name>/` in the engines folder. The configs are used as they are; `infer.py` only
@@ -72,10 +72,10 @@ DECODER:
 
   ```yaml
   DECODER:
-    czech.lstm.kroniky.2022-03-21:
+    example.lstm.2020-01-01:
       OCR:
-        czech_printed.ctc.2022-01-13: page_lists/lm.czech.print.antiqua.page_list   # only these pages
-        czech_handwritten.ctc.2024-12-01:                                            # every page
+        printed.ctc.2020-01-01: page_lists/lm.printed.page_list   # only these pages
+        handwritten.ctc.2020-01-01:                               # every page
   ```
 
   A run's pages must be among the pages of the run it reads (an OCR run's cropper, a decoder's OCR run, the run a

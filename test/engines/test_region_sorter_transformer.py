@@ -144,8 +144,8 @@ def test_on_cpu_the_cpu_model_file_is_loaded(region_sorter_path, tmp_path):
     assert ids(sorter.process_page(IMAGE, page(TWO_COLUMNS))) == ['r3', 'r1', 'r2', 'r0']
 
 
-@pytest.mark.xfail(reason='on CPU the sorter only looks for model-cpu.pt, but the production package '
-                          '(layout.order.2022-04-13) ships only model-cuda.pt, which torch can load on CPU too',
+@pytest.mark.xfail(reason='on CPU the sorter only looks for model-cpu.pt, but a production package ships '
+                          'only model-cuda.pt, which torch can load on CPU too',
                    strict=True)
 def test_cuda_only_package_runs_on_cpu(region_sorter_path, tmp_path):
     shutil.copyfile(region_sorter_path, tmp_path / 'model-cuda.pt')

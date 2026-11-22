@@ -101,8 +101,8 @@ def tilted_text(page, left, baseline_y, length, height, angle_deg):
 
 def layout_cnn_input():
     """Pages for the ParseNet stand-in (white text blocks, yellow line-end marks, red separators; see
-    test/tiny_models.py), each run under the two LAYOUT_CNN configs of the production engines: the 2022-04-13 layout
-    used by all current engines, and the experimental 2024-12-08 one (DETECTION_THRESHOLD 0.4, LINE_END_WEIGHT 0.6).
+    test/tiny_models.py), each run under two LAYOUT_CNN configs: the one the production engines use, and an
+    experimental one (DETECTION_THRESHOLD 0.4, LINE_END_WEIGHT 0.6).
     The pages reach every step the production configs run: line detection with line ends, paragraph clustering with
     separators, region outlines, the adaptive second pass for large text, lines cut to their regions, and non-text
     regions kept."""

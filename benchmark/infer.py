@@ -43,7 +43,7 @@ Units (one folder each in <commit>/inference/<dataset>/, complete when it holds 
     OCR/<ocr>@<cropper>             the OCR engine on the stored crops of the cropper: lines.tsv (text, confidence,
                                     kept), logprobs.npz (full log-probabilities of a fixed subset of lines, the same
                                     subset for every engine). An OCR run a decoder decodes also keeps its full output
-                                    of every page, as the ScribbleSense worker stores it for the LM stage:
+                                    of every page, as a production worker stores it for the LM stage:
                                     page_xml/<page>.xml and logits/<page>.logits (PageLayout.save_logits_bytes), of
                                     the pages its decoders decode; --prune-logits deletes logits/ once all its
                                     decoders are done.
@@ -976,7 +976,7 @@ def ocr_output(run, pages, registry, dataset, out):
 
 
 def run_decoder(unit, registry, dataset, out):
-    """The decoder on the stored output of the OCR run (PAGE XML and logits, as the ScribbleSense worker stores them
+    """The decoder on the stored output of the OCR run (PAGE XML and logits, as a production worker stores them
     for the LM stage); for a run derived by a higher threshold, without the lines that threshold removes."""
     from pero_ocr.core.layout import PageLayout
     from pero_ocr.document_ocr.page_parser import PageParser

@@ -10,9 +10,17 @@ Rules for agents (and people) changing pero-ocr. The details are in `test/README
     pytest test/<tier>            # one tier
     pytest -m gpu                 # GPU tests; skipped without CUDA
 
-**The basis environment.** `requirements/lock.txt` pins one set of versions that installs on Python 3.8 to 3.10 and gives the same results as every live worker stack (how it was found: issue #94, "Stable dependency basis"). The tests are meant to pass in it; frozen data and golden files are generated only in it (the regeneration scripts refuse otherwise). `pyproject.toml` keeps open ranges for downstream users: add an upper bound only for a release known to change results, and move the lock only through #99-style evaluation (`requirements/lock.in` says how to recompile it).
-
 Every change keeps `pytest` green. A test that fails because of a deliberate change is updated in the same change, never deleted or loosened to make it pass.
+
+## Dependencies: the lock and pyproject.toml
+
+- **pero-ocr on its own: the lock.** `requirements/lock.txt` pins one set of versions for Python 3.8, 3.9 and 3.10 and is the recommended way to run pero-ocr. It is the basis environment: the tests are meant to pass in it, frozen data and golden files are generated only in it (the regeneration scripts refuse otherwise), and the Docker image installs it. The version tested in production is the lock on Python 3.10; variants on Python 3.8 and 3.9 were tested in production too (issue #94, "Stable dependency basis").
+- **pero-ocr as a dependency of another project: `pyproject.toml`.** Its ranges are the lock loosened, and installs from it are expected to work as well. Lower bounds are the oldest releases known to give the lock's results. Upper bounds exist only for known problems: a release that changes results (a failing consistency check or benchmark) or does not install; each carries a comment saying what goes wrong. Everything else stays open, so downstream projects get current releases; the CPU suite with its consistency checks tells whether they change any output.
+- Every lock pin stays inside the `pyproject.toml` ranges. Add a bound only for a measured problem, drop it when evaluation shows it is not needed, and move the lock only through #99-style evaluation (`requirements/lock.in` says how to recompile it).
+
+## Public repository: no production details
+
+pero-ocr and its GitHub issues are public. Never put concrete production details into them (code, comments, docs, test data, commit messages, issues, PRs): no names of production models, machines, services or deployments, no concrete production results or measurements, no internal paths, page lists or data. General statements are fine: "tested in production", "known to change results in production", "a known problem in production". Anything concrete stays in private notes.
 
 ## Where a test goes
 
