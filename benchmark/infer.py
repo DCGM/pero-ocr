@@ -70,11 +70,13 @@ import multiprocessing
 import os
 import platform
 import queue
+import re
 import shutil
 import subprocess
 import sys
 import threading
 import time
+import zipfile
 
 import cv2
 import numpy as np
@@ -94,7 +96,8 @@ LMDB_MAP_SIZE = 1 << 40
 # for the slowest units of the eb446a3 run (decoders, ~22 s a page) and half a minute for a median unit (~0.7 s a page).
 CHUNK_PAGES = 25
 KEEP_TORCHSCRIPT_FUSER = False  # --keep-torchscript-fuser
-BIG_MODEL_MB = 300  # a transformer OCR engine with more model than this is big (--big-jobs)
+BIG_MODEL_PARAMETERS = 150e6  # an OCR model with more parameters is big (--big-jobs): the mega transformer (261 M);
+#                               the other transformers have ~110 M, the CTC models ~17 M
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -633,6 +636,28 @@ def utc_now():
     return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+STORAGE_BYTES = {'FloatStorage': 4, 'BFloat16Storage': 2, 'HalfStorage': 2, 'DoubleStorage': 8}
+
+
+def model_parameters(folder):
+    """The number of parameters of the torch models (zip archives) in an engine folder, from the sizes of their
+    tensors and their storage type, without loading them."""
+    n = 0
+    for f in sorted(os.listdir(folder)):
+        path = os.path.join(folder, f)
+        if not os.path.isfile(path) or not zipfile.is_zipfile(path):
+            continue
+        with zipfile.ZipFile(path) as z:
+            pickles = [i for i in z.namelist() if i.endswith('/data.pkl') and i.count('/') == 1]
+            if not pickles:
+                continue
+            types = set(re.findall(rb'(\w+Storage)', z.read(pickles[0]))) - {b'LongStorage'}
+            nbytes = sum(i.file_size for i in z.infolist() if '/data/' in i.filename)
+        width = max((STORAGE_BYTES.get(t.decode(), 4) for t in types), default=4)
+        n += nbytes // width
+    return n
+
+
 def chunks(items):
     """<items> in chunks of CHUNK_PAGES (the caller adds each chunk to its unit before taking the next, so an
     interruption loses at most one chunk)."""
@@ -1102,16 +1127,11 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name, uni
     running = {'gpu': 0, 'big': 0}
 
     def big(unit):
-        """An OCR unit that runs a big transformer (more than BIG_MODEL_MB of model files): the heaviest GPU load. A
-        derived run computes nothing."""
+        """An OCR unit whose model has more than BIG_MODEL_PARAMETERS parameters: the heaviest GPU load. A derived
+        run computes nothing."""
         if unit.stage != 'OCR' or registry.base(unit.name) != unit.name:
             return False
-        engine = registry.ocr_engine(unit.name)
-        if engine.config()['OCR'].get('METHOD') != 'pytorch_ocr-transformer':
-            return False
-        size = sum(os.path.getsize(os.path.join(engine.folder, f)) for f in os.listdir(engine.folder)
-                   if os.path.isfile(os.path.join(engine.folder, f)))
-        return size > BIG_MODEL_MB * 2 ** 20
+        return model_parameters(registry.ocr_engine(unit.name).folder) > BIG_MODEL_PARAMETERS
 
     def crop_job():
         try:
@@ -1235,8 +1255,8 @@ def main():
     p.add_argument('--chunk-pages', type=int, default=CHUNK_PAGES,
                    help='a unit adds its computed pages to its folder every this many pages')
     p.add_argument('--big-jobs', type=int, default=1,
-                   help=f'at most this many big transformer OCR units (over {BIG_MODEL_MB} MB of model) at a time, of '
-                        f'--jobs: several at once overload the GPU')
+                   help=f'at most this many big OCR units (models over {BIG_MODEL_PARAMETERS / 1e6:.0f} M parameters) at '
+                        f'a time, of --jobs: several at once overload the GPU')
     p.add_argument('--keep-torchscript-fuser', action='store_true',
                    help="leave TorchScript's fuser on (pero-ocr's default): only to add to records made with it on")
     p.add_argument('--min-free-gb', type=float, default=5.0, help='start a unit process only with this much free RAM')

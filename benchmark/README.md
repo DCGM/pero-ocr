@@ -101,9 +101,9 @@ In the basis environment (`requirements/lock.txt`); GPU:
 Adding an engine (or pages of a run) is adding it to a registry and running the same command; only what is missing
 runs. `score.py` scores a unit on a test list when the unit holds all the list's pages, otherwise it reports NA.
 `--datasets` and `--units` restrict a run, which is rarely needed.
-`--jobs` units run at a time, of them at most `--big-jobs` (1) big transformer OCR units (over 300 MB of model): several
-big transformers at once load the GPU to its limit (the machine of the first runs crashed under three). Smaller
-transformers and CTC models run next to it.
+`--jobs` units run at a time, of them at most `--big-jobs` (1) big OCR units (models over 150 M parameters, the mega
+transformer): several big models at once load the GPU to its limit (the machine of the first runs crashed under three
+transformers). The other transformers (~110 M) and the CTC models (~17 M) run next to it.
 
 Official and free runs:
 
