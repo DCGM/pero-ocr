@@ -77,7 +77,18 @@ In the basis environment (`requirements/lock.txt`); GPU:
 Adding an engine is adding it to a registry and running the same command; only the missing units run.
 `--datasets` and `--units` restrict a run, which is rarely needed.
 
-The records of a commit:
+Official and free runs:
+
+- **Official** (the default): what a commit produces, for the published benchmark and the consistency tests. The
+  working tree must be clean; the records go to `$PERO_INFERENCE/<commit>/`.
+- **Free** (`--out <folder>`): the same run into any folder, not bound to the commit: another Python environment,
+  uncommitted code, one's own engines or data, a trial on a few pages (`--pages N`). `<folder>/inference/run.json`
+  records the commit, the uncommitted changes and the command of every run into it. Score it with
+  `python benchmark/score.py --out <folder>`.
+
+Within one folder, official or free, results are added only from the same environment and the same pages.
+
+The records of a commit (a free run's folder has the same structure, plus `inference/run.json`):
 
 ```
 <commit>/

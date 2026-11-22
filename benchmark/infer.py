@@ -7,6 +7,12 @@ commit.
     python benchmark/infer.py --datasets arabic      # only some datasets (rarely needed)
     python benchmark/infer.py --units OCR/           # only some units (rarely needed)
     python benchmark/infer.py --prune-logits         # delete the stored OCR logits no decoder still needs
+    python benchmark/infer.py --out ~/bench/try1     # a free run: any code, environment, engines or data
+
+Official runs (the default) record what a commit produces: the working tree must be clean and the records go to
+<PERO_INFERENCE>/<commit>/. A free run (--out) writes the same structure into any folder without looking at the
+commit, for experiments (another Python environment, uncommitted code, one's own engines or data); it records the
+commit, the uncommitted changes and the command in <folder>/inference/run.json.
 
 Inference is not a test: it only records what the code at this commit produces. benchmark/score.py turns the records
 into the benchmark, and test/inference/ compares the records of two commits.
@@ -17,7 +23,8 @@ Inputs (environment variables or options):
                        crop its lines); a page is named by its file name. Other files (test lists) are not read.
     PERO_TEST_MODELS   the engines: <STAGE>/<name>/ with a config.ini holding the stage's section and the files it
                        refers to (STAGE: LAYOUT_PARSER, LINE_CROPPER, OCR, DECODER)
-    PERO_INFERENCE     the records: <PERO_INFERENCE>/<commit>/inference/<dataset>/
+    PERO_INFERENCE     the records of official runs: <PERO_INFERENCE>/<commit>/inference/<dataset>/ (a free run:
+                       <--out>/inference/<dataset>/)
 
 The configs are used as they are; the code only sets the RUN_* switches of [PAGE_PARSER] to the engine's stage. Adding
 an engine to a registry and running infer.py again computes only what is missing.
@@ -307,13 +314,32 @@ def git(*args):
     return subprocess.run(['git', '-C', REPO] + list(args), check=True, capture_output=True, text=True).stdout.strip()
 
 
-def commit_folder_name(allow_dirty):
+def official_commit():
+    """The commit of an official run; the working tree must be clean."""
     commit = git('rev-parse', 'HEAD')
     dirty = git('status', '--porcelain', '--untracked-files=no')
-    if dirty and not allow_dirty:
-        sys.exit('The working tree has uncommitted changes; the records would not belong to the commit. Commit them '
-                 'or pass --allow-dirty (the records then go to <commit>-dirty).\n' + dirty)
-    return commit + ('-dirty' if dirty else ''), commit
+    if dirty:
+        sys.exit('The working tree has uncommitted changes; the records would not belong to the commit. Commit them, '
+                 'or make a free run into a folder of your own (--out).\n' + dirty)
+    return commit
+
+
+def record_free_run(inference):
+    """Append to <inference>/run.json what a free run ran with: the commit, uncommitted changes, the command."""
+    run = dict(started_utc=utc_now(), argv=sys.argv, python=sys.executable, cwd=os.getcwd())
+    try:
+        run['commit'] = git('rev-parse', 'HEAD')
+        run['dirty'] = git('status', '--porcelain', '--untracked-files=no').splitlines()
+        run['diff'] = git('diff', 'HEAD')
+    except (subprocess.CalledProcessError, OSError):
+        run['commit'] = None  # pero-ocr not in a git checkout
+    path = os.path.join(inference, 'run.json')
+    runs = []
+    if os.path.exists(path):
+        with open(path) as f:
+            runs = json.load(f)
+    with open(path, 'w') as f:
+        json.dump(runs + [run], f, indent=1, ensure_ascii=False)
 
 
 def environment():
@@ -752,7 +778,7 @@ def write_report(inference, commit):
                                  info['finished_utc']))
     with open(os.path.join(inference, 'environment.json')) as f:
         env = json.load(f)
-    lines = [f'# Inference of pero-ocr {commit}', '',
+    lines = [f'# Inference {commit}', '',
              f"Python {env['python']}, torch {env['packages'].get('torch')} (CUDA {env['torch_cuda']}), "
              f"numpy {env['packages'].get('numpy')}, opencv {env['packages'].get('opencv-python')}, GPU {env['gpu']}.",
              '', '| dataset | stage | unit | pages | lines | seconds | finished (UTC) |', '|---|---|---|---|---|---|---|']
@@ -847,9 +873,10 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name):
     todo_ids = {u.id for u in todo}
     os.makedirs(os.path.join(out, 'logs'), exist_ok=True)
     base = [sys.executable, os.path.abspath(__file__), '--exact', '--data', args.data, '--models', args.models,
-            '--results', args.results, '--datasets', dataset.name, '--crop-workers', '0', '--decoder-jobs', '1'] + \
+            '--datasets', dataset.name, '--crop-workers', '0', '--decoder-jobs', '1'] + \
+           (['--out', args.out] if args.out else ['--results', args.results]) + \
            (['--pages', str(args.pages)] if args.pages else []) + \
-           (['--allow-dirty'] if args.allow_dirty else []) + (['--force-environment'] if args.force_environment else [])
+           (['--force-environment'] if args.force_environment else [])
 
     def done(uid):
         return os.path.exists(os.path.join(out, uid, 'unit.json'))
@@ -930,12 +957,12 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--data', default=os.environ.get('PERO_TEST_DATA'))
     p.add_argument('--models', default=os.environ.get('PERO_TEST_MODELS'))
-    p.add_argument('--results', default=os.environ.get('PERO_INFERENCE'))
+    p.add_argument('--results', default=os.environ.get('PERO_INFERENCE'), help='the records of official runs')
+    p.add_argument('--out', help='a free run into this folder: not bound to the commit (experiments)')
     p.add_argument('--datasets', nargs='*', help='only these datasets of the data folder')
     p.add_argument('--units', nargs='*', default=[''], help='unit id prefixes to run, e.g. OCR/ DECODER/czech')
     p.add_argument('--exact', action='store_true', help='--units are exact unit ids; run them in this process (how the unit processes are started)')
-    p.add_argument('--pages', type=int, help='only the first N pages of each dataset (a trial; needs --results of '
-                                             'its own)')
+    p.add_argument('--pages', type=int, help='only the first N pages of each dataset (a trial; only with --out)')
     p.add_argument('--jobs', type=int, default=1, help='units running at the same time, each in its own process')
     p.add_argument('--decoder-jobs', type=int, default=10,
                    help='decoder units running at the same time (CPU-bound, one core each); --jobs limits the others')
@@ -945,18 +972,21 @@ def main():
     p.add_argument('--list', action='store_true', help='show the units and whether they are done, run nothing')
     p.add_argument('--prune-logits', action='store_true',
                    help='delete the stored logits of the OCR runs whose decoders are all done, run nothing')
-    p.add_argument('--allow-dirty', action='store_true')
     p.add_argument('--force-environment', action='store_true')
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
-    for name in ('data', 'models', 'results'):
+    for name in ('data', 'models') + (() if args.out else ('results',)):
         if not getattr(args, name):
             sys.exit(f'--{name} (or its environment variable) is required')
-    if args.pages and os.path.abspath(args.results) == os.path.abspath(os.environ.get('PERO_INFERENCE', '')):
-        sys.exit('--pages makes incomplete records: give them a --results folder of their own')
+    if args.pages and not args.out:
+        sys.exit('--pages makes incomplete records: only in a free run (--out)')
 
-    folder_name, commit = commit_folder_name(args.allow_dirty)
-    inference = os.path.join(args.results, folder_name, 'inference')
+    if args.out:
+        folder_name = os.path.basename(os.path.normpath(args.out))
+        inference = os.path.join(args.out, 'inference')
+    else:
+        folder_name = official_commit()
+        inference = os.path.join(args.results, folder_name, 'inference')
     work = []
     for name in dataset_folders(args.data, args.datasets):
         dataset = Dataset(os.path.join(args.data, name))
@@ -988,6 +1018,8 @@ def main():
         print('nothing to do')
         return
     os.makedirs(inference, exist_ok=True)
+    if args.out and not args.exact:
+        record_free_run(inference)
     check_record(os.path.join(inference, 'environment.json'), environment(), ENV_KEYS,
                  'in another environment', args.force_environment)
     failed = []

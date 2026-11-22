@@ -3,8 +3,10 @@
 
     python benchmark/score.py                     # the records of the current commit
     python benchmark/score.py --commit <hash>     # any commit with records in $PERO_INFERENCE
+    python benchmark/score.py --out ~/bench/try1  # the records of a free run (infer.py --out)
 
-Reads <commit>/inference/<dataset>/ and <data>/<dataset>/test_lists/, writes <commit>/score/<dataset>/: cer.tsv,
+Reads <commit>/inference/<dataset>/ (or <out>/inference/<dataset>/) and <data>/<dataset>/test_lists/, writes
+<commit>/score/<dataset>/ (or <out>/score/<dataset>/): cer.tsv,
 layout.tsv and report.md. Run it again after more units were inferred; it scores whatever is there.
 
 A test list has one line per row, "<page>-<line_id>.jpg <reference text>", where <page> is the page's file name in
@@ -204,7 +206,7 @@ def table(rows, row_key, value, lists):
 
 
 def write_report(path, commit, dataset_name, env, text_rows, layout_rows, lists):
-    lines = [f'# Benchmark of pero-ocr {commit}: {dataset_name}', '',
+    lines = [f'# Benchmark {commit}: {dataset_name}', '',
              f"Python {env['python']}, torch {env['packages'].get('torch')}, GPU {env['gpu']}. "
              f"{len(lists)} test lists, {sum(len(v) for v in lists.values())} lines.", '',
              ]
@@ -234,13 +236,18 @@ def main():
     p.add_argument('--data', default=os.environ.get('PERO_TEST_DATA'))
     p.add_argument('--results', default=os.environ.get('PERO_INFERENCE'))
     p.add_argument('--commit', help='records folder name (default: the current commit)')
+    p.add_argument('--out', help='the folder of a free run (infer.py --out) instead of a commit')
     p.add_argument('--datasets', nargs='*', help='only these datasets')
     args = p.parse_args()
-    if not args.data or not args.results:
-        sys.exit('--data and --results (or PERO_TEST_DATA and PERO_INFERENCE) are required')
-    commit = args.commit or subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], check=True, capture_output=True,
-                                           text=True).stdout.strip()
-    inference = os.path.join(args.results, commit, 'inference')
+    if not args.data or not (args.results or args.out):
+        sys.exit('--data and --results or --out (or PERO_TEST_DATA and PERO_INFERENCE) are required')
+    if args.out:
+        root, label = args.out, os.path.basename(os.path.normpath(args.out))
+    else:
+        label = args.commit or subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], check=True,
+                                              capture_output=True, text=True).stdout.strip()
+        root = os.path.join(args.results, label)
+    inference = os.path.join(root, 'inference')
     if not os.path.isdir(inference):
         sys.exit(f'no records in {inference}')
     with open(os.path.join(inference, 'environment.json')) as f:
@@ -255,11 +262,11 @@ def main():
         lists = load_lists(dataset)
         text_rows = score_text(records, lists)
         layout_rows = score_layout(records, lists, dataset)
-        out = os.path.join(args.results, commit, 'score', name)
+        out = os.path.join(root, 'score', name)
         os.makedirs(out, exist_ok=True)
         write_tsv(os.path.join(out, 'cer.tsv'), text_rows)
         write_tsv(os.path.join(out, 'layout.tsv'), layout_rows)
-        write_report(os.path.join(out, 'report.md'), commit, name, env, text_rows, layout_rows, lists)
+        write_report(os.path.join(out, 'report.md'), label, name, env, text_rows, layout_rows, lists)
         print(os.path.join(out, 'report.md'))
 
 
