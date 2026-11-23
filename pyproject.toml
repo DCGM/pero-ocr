@@ -30,23 +30,23 @@ classifiers=[
 # install. Everything else is open.
 dependencies = [
     "numpy>=1.21",
-    "opencv-python>=4.11,<5",  # 5.x changes the line crops (cv2.remap) and with them the OCR text (#99); 4.5.5 changes the crops slightly (#94)
+    "opencv-python>=4.11,<5",  # 4.5.5 changes the line crops slightly (#94); 5.x changes them by about a grey level (cv2.remap) and fails the frozen line-cropper check, the OCR changes only at noise level (#99)
     "lxml>=4.7",
     "lmdb>=1.3",
     "lmdb<2; python_version < '3.9'",  # lmdb 2 does not build on Python 3.8 but does not declare it
     "levenshtein>=0.17",
-    "scipy>=1.10",  # scipy < 1.8 cannot read logits files written with a newer scipy (#94); 1.10 is the oldest tested
+    "scipy>=1.10,<2",  # scipy < 1.8 cannot read logits files written with a newer scipy (#94); 1.10 is the oldest tested; 2.0 removes scipy.ndimage.morphology/measurements, which the layout imports (#97)
     "numba>=0.55",
-    "torch>=2.4",
+    "torch>=2.4,<2.14",  # 2.14 (cuDNN 9.24) makes the LAYOUT_CNN layout slightly worse (fewer lines found, more on some GPUs than others); 2.4 to 2.13 change it only at noise level (#99)
     "torchvision>=0.19",
     "brnolm>=0.2",
     "scikit-learn>=1.0",
     "scikit-image>=0.19",
-    "shapely>=1.8,<2.1",  # 2.1 changes the region and line polygons of LAYOUT_CNN and RETRACE_REGIONS (#94); evaluate in #99
+    "shapely>=1.8,<2.1",  # 2.1 moves region and line polygons of LAYOUT_CNN (production config included) and RETRACE_REGIONS by up to a few pixels, same layout quality; it fails the frozen checks (#94, #99)
     "safe-gpu>=1.5.1",
-    "arabic_reshaper>=2.1",
-    "ultralytics",
-    "music21"
+    "arabic_reshaper>=2.1.3",  # 2.1.0 does not build with current setuptools
+    "ultralytics>=8.4",
+    "music21>=8.3"
 ]
 
 
