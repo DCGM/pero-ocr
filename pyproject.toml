@@ -29,7 +29,7 @@ classifiers=[
 # releases known to give the lock's results, upper bounds exist only for releases known to change results or not to
 # install. Everything else is open.
 dependencies = [
-    "numpy>=1.21",
+    "numpy>=1.21,<2.5",  # 2.5 returns complex eigenvectors from linalg.eig, which DETECT_STRAIGHT_LINES_IN_REGIONS cannot use (TypeError, #97); only reachable on Python >= 3.11
     "opencv-python>=4.11,<5",  # 4.5.5 changes the line crops slightly (#94); 5.x changes them by about a grey level (cv2.remap) and fails the frozen line-cropper check, the OCR changes only at noise level (#99)
     "lxml>=4.7",
     "lmdb>=1.3",
