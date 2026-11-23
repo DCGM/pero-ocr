@@ -9,7 +9,7 @@ The rules for where a test goes and when an engine needs a consistency check are
     pytest -m slow               # only the slow tests (parse_folder.py end-to-end runs)
     pytest -m gpu                # GPU tests (skipped automatically without CUDA)
 
-The basis environment (`requirements/lock.txt`) is one set of versions for Python 3.8, 3.9 and 3.10, the recommended way to run pero-ocr and the one tested in production (issue #94). `pip install -e ".[test]"` works too, with whatever versions `pyproject.toml` allows (the lock loosened, capped only where a release is known to cause problems); the consistency checks then tell whether those versions change any output. Frozen data and golden files are regenerated only in the basis environment.
+The basis environment (`requirements/lock.txt`) is one set of versions for Python 3.8, 3.9 and 3.10, the recommended way to run pero-ocr and the one tested in production (issue #94). `pip install -e ".[test]"` works too, with whatever versions `pyproject.toml` allows (the lock loosened, capped only where a release is known to cause problems); the consistency checks then tell whether those versions change any output. Such installs pass the CPU suite on Python 3.8 to 3.13 but were not tested in production. Frozen data and golden files are regenerated only in the basis environment.
 
 ## Layout
 

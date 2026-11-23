@@ -27,7 +27,8 @@ classifiers=[
 # Ranges for using pero-ocr as a dependency of other projects. To run pero-ocr on its own, install requirements/lock.txt:
 # the tested basis (Python 3.8 to 3.10, issue #94). These ranges are that lock loosened: lower bounds are the oldest
 # releases known to give the lock's results, upper bounds exist only for releases known to change results or not to
-# install. Everything else is open.
+# install. Everything else is open. Installs from these ranges pass the CPU suite (Python 3.8 to 3.13) and should work,
+# but only the lock and its variants on Python 3.8 and 3.9 were tested in production.
 dependencies = [
     "numpy>=1.21,<2.5",  # 2.5 returns complex eigenvectors from linalg.eig, which DETECT_STRAIGHT_LINES_IN_REGIONS cannot use (TypeError, #97); only reachable on Python >= 3.11
     "opencv-python>=4.11,<5",  # 4.5.5 changes the line crops slightly (#94); 5.x changes them by about a grey level (cv2.remap) and fails the frozen line-cropper check, the OCR changes only at noise level (#99)
