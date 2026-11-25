@@ -62,7 +62,9 @@ DECODER:
   TorchScript's fuser on (pero-ocr's default), a model's output on the GPU depends slightly (about 1e-5) on the pages
   processed before it in the same process, so a page would get different numbers in a full run, a resumed run and a
   top-up. A free run can leave it out (`--keep-torchscript-fuser`) to add to records made with the fuser on; a unit
-  is only ever added to with the config it was recorded with. Other `[PAGE_PARSER]` settings (`FILTER_CONFIDENT_LINES_THRESHOLD`) stay in the config.
+  is only ever added to with the engine (files and config) it was recorded with; `--force-engine` adds pages anyway,
+  for development, and records the change in the unit's `unit.json` (`engine_changes`: the files and config before, the
+  pages added after). Other `[PAGE_PARSER]` settings (`FILTER_CONFIDENT_LINES_THRESHOLD`) stay in the config.
 - A value is one name or a list. Any subset of the stages is valid.
 - An OCR engine listed with several croppers runs with each of them; a decoder then names the run it decodes as
   `<ocr>@<cropper>`.
@@ -99,7 +101,12 @@ In the basis environment (`requirements/lock.txt`); GPU:
     python benchmark/score.py                     # the benchmark of the records
 
 Adding an engine (or pages of a run) is adding it to a registry and running the same command; only what is missing
-runs. `score.py` scores a unit on a test list when the unit holds all the list's pages, otherwise it reports NA.
+runs. A unit whose engine was changed since (its files, e.g. a fixed model json) is not run again by itself: `--list`
+marks it ENGINE CHANGED, and unit folders the registry no longer has as orphan; delete them and run again to fill
+them in. A unit keeps one set of files per page, so computing some pages again is deleting their files
+(`lines/<page>.*`, `logprobs/<page>.npz`, for a layout unit `page_xml/<page>.xml`) and running again; when the engine
+changed since, add `--force-engine`, which `unit.json` records (`engine_changes`: which pages got the new engine).
+`score.py` scores a unit on a test list when the unit holds all the list's pages, otherwise it reports NA.
 `--datasets` and `--units` restrict a run, which is rarely needed.
 `--jobs` layout and OCR units run at a time on a GPU, of them at most `--big-jobs` (1) big OCR units (models over 150 M
 parameters, the mega transformer): several big models at once load the GPU to its limit (the machine of the first runs
@@ -141,12 +148,27 @@ The records of a commit (a free run's folder has the same structure, plus `infer
       dataset.json                      fingerprint of the pages (file names and hashes)
       LAYOUT_PARSER/<layout>/           page_xml/
       LINE_CROPPER/<cropper>/           crops.lmdb
-      OCR/<ocr>@<cropper>/              lines.tsv, logprobs.npz (+ page_xml/, logits/ when decoded)
-      DECODER/<lm>@<ocr>@<cropper>/     lines.tsv
+      OCR/<ocr>@<cropper>/              lines/, logprobs/ (+ page_xml/, logits/ when decoded)
+      DECODER/<lm>@<ocr>@<cropper>/     lines/
       logs/
   score/
     <dataset>/                          cer.tsv, layout.tsv, report.md
+      lines/<OCR|DECODER>/<unit>/       <test list>.txt: the unit's output on the lines of the test list
 ```
+
+Every unit has `unit.json` (the engine: its files and config; the runs). OCR and decoder units keep one set of files
+per page (`benchmark/records.py`), the lines in the page's PAGE XML order:
+
+- `lines/<page>.txt`: the lines in the format of the test lists, `<page>-<line_id>.jpg <text>`; a line the
+  confidence filter removed has no text;
+- `lines/<page>.tsv`: `line_id`, `confidence` (full precision), `kept` (0: the filter removed the line);
+- `logprobs/<page>.npz` (OCR): the full log-probabilities of the page's lines in a fixed subset of lines (1 in 64, by
+  a hash of `<page>/<line_id>`, the same in every unit), to compare the raw output of engines and environments; no file
+  for a page with no line in the subset.
+
+`score.py` writes `score/<dataset>/lines/<kind>/<unit>/<list>.txt`, the unit's output on exactly the lines of a test
+list in the list's order and format, so a test list and a unit (or two units, or two record sets) can be compared side
+by side (e.g. `meld test_lists/<list>.test_list score/<dataset>/lines/OCR/<unit>/<list>.txt`).
 
 Nothing is computed twice: each cropper crops once and the OCR engines read its crops; an OCR engine that differs
 from another only in a higher `FILTER_CONFIDENT_LINES_THRESHOLD` is derived from the other's run (its lines without

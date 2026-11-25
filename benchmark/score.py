@@ -7,12 +7,14 @@
 
 Reads <commit>/inference/<dataset>/ (or <out>/inference/<dataset>/) and <data>/<dataset>/test_lists/, writes
 <commit>/score/<dataset>/ (or <out>/score/<dataset>/): cer.tsv,
-layout.tsv and report.md. Run it again after more units were inferred; it scores whatever is there.
+layout.tsv and report.md, and lines/<OCR or DECODER>/<unit>/<test list>.txt: the unit's output on exactly the lines
+of the test list, in its order and format, to compare with the test list (or another unit's) line by line, e.g. in
+meld. Run it again after more units were inferred; it scores whatever is there.
 
 A test list has one line per row, "<page>-<line_id>.jpg <reference text>", where <page> is the page's file name in
 the dataset.
 
-A unit is scored on a test list when it holds every page of the list (the pages in its unit.json); otherwise its
+A unit is scored on a test list when it holds every page of the list (the pages whose files it has); otherwise its
 score on that list is NA. Which pages were inferred is up to infer.py and its registry; this script does not read it.
 
 Text (OCR/ and DECODER/ units): on every line of every test list, CER = edit distance / reference length, summed over
@@ -45,13 +47,10 @@ import unicodedata
 import numpy as np
 import Levenshtein
 
+from records import held_pages, line_key, read_page
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 POINTS = 20
-
-
-def read_tsv(path):
-    with open(path, encoding='utf-8', newline='') as f:
-        return list(csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE, escapechar='\\'))
 
 
 def clean(text):
@@ -90,20 +89,13 @@ def load_lists(dataset):
     return lists
 
 
-def unit_pages(folder, from_records):
-    """The pages a unit holds: unit.json "pages" (records made before page lists have their number there: then the
-    pages found in the unit's files, from_records())."""
-    with open(os.path.join(folder, 'unit.json')) as f:
-        pages = json.load(f)['pages']
-    return set(pages) if isinstance(pages, list) else from_records()
-
-
 def list_pages(lists):
     return {name: {page for page, _, _ in refs} for name, refs in lists.items()}
 
 
-def score_text(records, lists):
-    """A row for every text unit and test list; NA (cer None) when the unit does not hold every page of the list."""
+def score_text(records, lists, out):
+    """A row for every text unit and test list; NA (cer None) when the unit does not hold every page of the list.
+    Writes the unit's output on each list it holds to <out>/lines/<kind>/<unit>/<list>.txt."""
     rows = []
     pages_of = list_pages(lists)
     for kind in ('OCR', 'DECODER'):
@@ -113,19 +105,24 @@ def score_text(records, lists):
         for unit in sorted(os.listdir(folder)):
             if not os.path.exists(os.path.join(folder, unit, 'unit.json')):
                 continue
-            hyp = {(r['page'], r['line_id']): r for r in read_tsv(os.path.join(folder, unit, 'lines.tsv'))}
-            held = unit_pages(os.path.join(folder, unit), lambda: {page for page, _ in hyp})
+            held = held_pages(os.path.join(folder, unit))
+            hyp = {}
+            for page in set().union(*pages_of.values()) & held:
+                for line_id, text, conf, kept in read_page(os.path.join(folder, unit), page):
+                    hyp[(page, line_id)] = dict(text=text, confidence=conf, kept=kept)
             for name, refs in lists.items():
                 if not pages_of[name] <= held:
                     rows.append(dict(kind=kind, unit=unit, list=name, lines=0, chars='', errors='', cer=None,
                                      chars_modern='', errors_modern='', cer_modern=None, removed_lines=''))
                     continue
                 n = chars = errors = chars_m = errors_m = removed = 0
+                compare = []
                 for page, line_id, ref in refs:
                     r = hyp.get((page, line_id))
                     if r is None:
                         sys.exit(f'{os.path.join(folder, unit)}: holds page {page} but not its line {line_id}: the '
                                  f'test list does not belong to the PAGE XML the unit was inferred on')
+                    compare.append(f"{line_key(page, line_id)} {r['text']}\n")
                     n += 1
                     removed += r['kept'] == '0'
                     text = clean(r['text'])
@@ -133,6 +130,10 @@ def score_text(records, lists):
                     errors += Levenshtein.distance(text, ref)
                     chars_m += len(modernize(ref))
                     errors_m += Levenshtein.distance(modernize(text), modernize(ref))
+                lines_folder = os.path.join(out, 'lines', kind, unit)
+                os.makedirs(lines_folder, exist_ok=True)
+                with open(os.path.join(lines_folder, name + '.txt'), 'w', encoding='utf-8', newline='') as f:
+                    f.write(''.join(compare))
                 rows.append(dict(kind=kind, unit=unit, list=name, lines=n, chars=chars, errors=errors,
                                  cer=round(100 * errors / max(1, chars), 3), chars_modern=chars_m,
                                  errors_modern=errors_m, cer_modern=round(100 * errors_m / max(1, chars_m), 3),
@@ -188,7 +189,8 @@ def score_layout(records, lists, dataset):
         if not os.path.exists(os.path.join(folder, unit, 'unit.json')):
             continue
         xml = os.path.join(folder, unit, 'page_xml')
-        held = unit_pages(os.path.join(folder, unit), lambda: {os.path.splitext(f)[0] for f in os.listdir(xml)})
+        held = {f[:-4] for f in os.listdir(xml) if f.endswith('.xml') and not f.startswith('.')} if os.path.isdir(
+            xml) else set()
         result = {}
         for page, line_ids in by_page.items():
             if page not in held:
@@ -290,10 +292,10 @@ def main():
             print(f'{name}: no test lists in {dataset}, not scored')
             continue
         lists = load_lists(dataset)
-        text_rows = score_text(records, lists)
-        layout_rows = score_layout(records, lists, dataset)
         out = os.path.join(root, 'score', name)
         os.makedirs(out, exist_ok=True)
+        text_rows = score_text(records, lists, out)
+        layout_rows = score_layout(records, lists, dataset)
         write_tsv(os.path.join(out, 'cer.tsv'), text_rows)
         write_tsv(os.path.join(out, 'layout.tsv'), layout_rows)
         write_report(os.path.join(out, 'report.md'), label, name, env, text_rows, layout_rows, lists)

@@ -40,9 +40,11 @@ Units (one folder each in <commit>/inference/<dataset>/, complete when it holds 
     LAYOUT_PARSER/<layout>          the layout engine on every page image: page_xml/<page>.xml
     LINE_CROPPER/<cropper>          the line cropper on the lines of the dataset's PAGE XML: crops.lmdb, key
                                     "<page>/<line_id>", the crop as PNG (lossless)
-    OCR/<ocr>@<cropper>             the OCR engine on the stored crops of the cropper: lines.tsv (text, confidence,
-                                    kept), logprobs.npz (full log-probabilities of a fixed subset of lines, the same
-                                    subset for every engine). An OCR run a decoder decodes also keeps its full output
+    OCR/<ocr>@<cropper>             the OCR engine on the stored crops of the cropper, per page (records.py):
+                                    lines/<page>.txt (the lines in the format of the test lists), lines/<page>.tsv
+                                    (line id, confidence, kept), logprobs/<page>.npz (full log-probabilities of the
+                                    page's lines in a fixed subset of lines, the same subset for every engine). An OCR
+                                    run a decoder decodes also keeps its full output
                                     of every page, as a production worker stores it for the LM stage:
                                     page_xml/<page>.xml and logits/<page>.logits (PageLayout.save_logits_bytes), of
                                     the pages its decoders decode; --prune-logits deletes logits/ once all its
@@ -52,10 +54,14 @@ Units (one folder each in <commit>/inference/<dataset>/, complete when it holds 
                                     is not run: its unit is the other's lines without the lines of confidence <= the
                                     threshold, as PageParser removes them.
     DECODER/<lm>@<ocr>@<cropper>    the decoder on the stored output of the OCR run (where that output is not stored,
-                                    the OCR engine runs again and must give the recorded lines): lines.tsv
+                                    the OCR engine runs again and must give the recorded lines): lines/<page>.txt,
+                                    lines/<page>.tsv
 
-Every unit.json has "pages", the pages the unit holds (records made before page lists: their number, the first N
-pages). Every line of a page is inferred. Every page is processed with numpy's and Python's random generators seeded
+A unit holds the pages whose files it has (a cropper: its unit.json "pages"); a page is written completely or not at
+all, so an interrupted run loses at most the chunk it was computing (--chunk-pages), and deleting a page's files makes
+the next run compute it again. unit.json holds the engine (its files and config) and the runs. Pages are added only
+with the engine the unit was recorded with; --force-engine adds them anyway and records which pages got the new engine
+(unit.json "engine_changes"). Every line of a page is inferred. Every page is processed with numpy's and Python's random generators seeded
 from its name, so a rerun gives the same result (the layout engine breaks ties with np.random and orders the lines of a
 region with random.uniform, issue #100).
 
@@ -90,6 +96,8 @@ import zipfile
 import cv2
 import numpy as np
 
+import records
+
 logger = logging.getLogger('infer')
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -105,6 +113,7 @@ LMDB_MAP_SIZE = 1 << 40
 # for the slowest units of the eb446a3 run (decoders, ~22 s a page) and half a minute for a median unit (~0.7 s a page).
 CHUNK_PAGES = 25
 KEEP_TORCHSCRIPT_FUSER = False  # --keep-torchscript-fuser
+FORCE_ENGINE = False  # --force-engine
 BIG_MODEL_PARAMETERS = 150e6  # an OCR model with more parameters is big (--big-jobs): the mega transformer (261 M);
 #                               the other transformers have ~110 M, the CTC models ~17 M
 
@@ -510,11 +519,19 @@ def check_record(path, record, keys, what, force):
 
 
 def recorded_pages(folder, dataset):
-    """The pages a finished unit holds (set; empty when it is not finished). Records made before page lists hold the
-    first <pages> pages of the dataset (every page, or the first N of a trial)."""
+    """The pages a unit holds (empty when it was never run). OCR and DECODER units: the pages whose line files are
+    there (records.py); layout units: the pages whose page_xml/<page>.xml is there; line croppers: unit.json "pages"
+    (records made before page lists: their number, the first N pages of the dataset)."""
     path = os.path.join(folder, 'unit.json')
     if not os.path.exists(path):
         return set()
+    stage = os.path.basename(os.path.dirname(os.path.normpath(folder)))
+    if stage in ('OCR', 'DECODER'):
+        return records.held_pages(folder)
+    if stage == 'LAYOUT_PARSER':
+        xml = os.path.join(folder, 'page_xml')
+        return {f[:-4] for f in os.listdir(xml) if f.endswith('.xml') and not f.startswith('.')} if os.path.isdir(
+            xml) else set()
     with open(path) as f:
         pages = json.load(f)['pages']
     if isinstance(pages, int):
@@ -523,9 +540,11 @@ def recorded_pages(folder, dataset):
 
 
 class Unit:
-    """A unit's folder holds the pages it was run on (unit.json "pages"). A run computes the pages the registry gives
-    it that the unit does not hold yet into <unit>.partial/ and then adds them to the unit (a top-up), or, for a new
-    unit, renames the folder."""
+    """A unit's folder holds the pages it was run on: one set of files per page (OCR, DECODER: records.py; layout:
+    page_xml/<page>.xml), the line crops of a cropper in one LMDB (unit.json "pages"). A run computes the pages the
+    registry gives it that the unit does not hold, a chunk at a time, into <unit>.partial/ and then moves them into
+    the unit (a top-up), or, for a new unit, renames the folder. Deleting a page's files makes the next run compute
+    the page again."""
 
     def __init__(self, stage, name, out, dataset, wanted):
         self.stage, self.name, self.dataset = stage, name, dataset
@@ -556,11 +575,25 @@ class Unit:
         return not self.missing_pages()
 
     def check_engine(self, files, config):
-        """A top-up only with the engine the unit was recorded with."""
+        """A top-up only with the engine the unit was recorded with, unless --force-engine: then the change is recorded
+        in unit.json ("engine_changes") when the pages are added."""
         info = self.info()
-        if info is not None and (info.get('files') != files or info.get('config') != config):
+        self.engine_change = None
+        if info is None or (info.get('files') == files and info.get('config') == config):
+            return
+        if not FORCE_ENGINE:
             sys.exit(f'{self.id}: the engine (its files or config) is not the one the unit was recorded with; adding '
-                     f'pages would mix two engines: delete {self.final} to run it again')
+                     f'pages would mix two engines: delete {self.final} to run it again (--force-engine to add them '
+                     f'anyway)')
+        old_files, old_config = info.get('files') or {}, info.get('config')
+        change = {'files_before': {f: old_files.get(f) for f in sorted(set(old_files) | set(files))
+                                   if old_files.get(f) != files.get(f)}}
+        if old_config != config:
+            change['config_before'] = old_config
+        logger.warning(f'{self.id}: adding pages with another engine than the unit was recorded with (--force-engine): '
+                       + ', '.join(change['files_before']) + (' config' if 'config_before' in change else ''))
+        change['started_utc'] = utc_now()
+        self.engine_change = change
 
     def start(self, pages, replace=False):
         """Compute <pages> (page dicts); replace: compute the unit anew instead of adding to it."""
@@ -574,11 +607,16 @@ class Unit:
             logger.info(f'{self.id}: adding {len(pages)} pages to the {len(self.recorded())} it holds')
 
     def finish(self, info):
+        """Add the chunk computed into <unit>.partial/ to the unit. unit.json holds the engine and the runs; the pages
+        are the files (except a cropper's: its "pages")."""
         timing = dict(started_utc=self.started_utc, finished_utc=utc_now(),
                       seconds=round(time.time() - self.started, 1))
         new = [p['name'] for p in self.pages]
+        crops = self.stage == 'LINE_CROPPER'
+        if not crops:  # the counts of a run go into its entry: the unit's pages are its files
+            run = {k: info.pop(k) for k in ('lines', 'logprobs_lines', 'removed_lines') if k in info}
         if not self.topup:
-            info = dict(unit=self.id, **timing, **info, pages=new)
+            info = dict(unit=self.id, **timing, **info, **(dict(pages=new) if crops else dict(pages_run=len(new), **run)))
             with open(os.path.join(self.partial, 'unit.json'), 'w') as f:
                 json.dump(info, f, indent=1, ensure_ascii=False)
             shutil.rmtree(self.final, ignore_errors=True)
@@ -586,13 +624,23 @@ class Unit:
         else:
             old = self.info()
             order = {p['name']: i for i, p in enumerate(self.dataset.all_pages)}
-            counts = merge_unit(self.partial, self.final, set(new), order)
-            merged = dict(old, **{k: v for k, v in info.items() if k not in ('lines', 'logprobs_lines')}, **counts)
+            merge_unit(self.partial, self.final)
+            merged = dict(old, **{k: v for k, v in info.items() if k != 'lines'})
             merged['page_output'] = old.get('page_output', False) or info.get('page_output', False)
-            if 'lines' not in counts:  # layout, crops: the new pages' lines with the old
+            if crops:
                 merged['lines'] = old.get('lines', 0) + info.get('lines', 0)
-            merged['pages'] = sorted(self.recorded() | set(new), key=order.get)
-            merged['topups'] = old.get('topups', []) + [dict(timing, pages=len(new), lines=info.get('lines'))]
+                merged['pages'] = sorted(recorded_pages(self.final, self.dataset) | set(new), key=order.get)
+                merged['topups'] = old.get('topups', []) + [dict(timing, pages=len(new), lines=info.get('lines'))]
+            else:
+                merged['topups'] = old.get('topups', []) + [dict(timing, pages=len(new), **run)]
+            change = getattr(self, 'engine_change', None)
+            if change:  # --force-engine: the pages computed with the new engine, one entry per run
+                changes = old.get('engine_changes', [])
+                if changes and changes[-1].get('started_utc') == change['started_utc']:
+                    changes[-1]['pages'] = changes[-1]['pages'] + new
+                else:
+                    changes = changes + [dict(change, pages=new)]
+                merged['engine_changes'] = changes
             if 'page_output' not in old and 'page_output' not in info:
                 merged.pop('page_output')
             tmp = os.path.join(self.final, '.unit.json.tmp')
@@ -605,36 +653,15 @@ class Unit:
                     f'{len(self.wanted)} pages' + (' (done)' if held == len(self.wanted) else ''))
 
 
-def merge_unit(partial, final, new_pages, order):
-    """Add the pages computed into <partial> to the unit in <final>. Safe to repeat after an interruption: the rows of
-    the new pages already in <final> are replaced. Returns the counts of the merged files."""
-    counts = {}
-    for sub in ('page_xml', 'logits'):
+def merge_unit(partial, final):
+    """Move the pages computed into <partial> into the unit in <final> (a page's files replace the ones there). Safe to
+    repeat after an interruption."""
+    for sub in ('page_xml', 'logits', records.LINES, records.LOGPROBS):
         src = os.path.join(partial, sub)
         if os.path.isdir(src):
             os.makedirs(os.path.join(final, sub), exist_ok=True)
             for f in os.listdir(src):
                 os.replace(os.path.join(src, f), os.path.join(final, sub, f))
-    if os.path.exists(os.path.join(partial, 'lines.tsv')):
-        old, new = read_lines(os.path.join(final, 'lines.tsv')), read_lines(os.path.join(partial, 'lines.tsv'))
-        rows = [r for r in old[1:] if r[0] not in new_pages] + new[1:]
-        rows.sort(key=lambda r: order[r[0]])  # stable: a page's lines stay in their order
-        tmp = os.path.join(final, '.lines.tsv.tmp')
-        with open(tmp, 'w', encoding='utf-8', newline='') as f:
-            w = csv.writer(f, delimiter='\t', lineterminator='\n', quoting=csv.QUOTE_NONE, escapechar='\\')
-            w.writerows([old[0]] + rows)
-        os.replace(tmp, os.path.join(final, 'lines.tsv'))
-        counts['lines'] = len(rows)
-    if os.path.exists(os.path.join(partial, 'logprobs.npz')):
-        with np.load(os.path.join(final, 'logprobs.npz')) as f:
-            logits = {k: f[k] for k in f.files if k.split('/', 1)[0] not in new_pages}
-        with np.load(os.path.join(partial, 'logprobs.npz')) as f:
-            logits.update({k: f[k] for k in f.files})
-        logits = dict(sorted(logits.items(), key=lambda kv: order[kv[0].split('/', 1)[0]]))
-        tmp = os.path.join(final, '.logprobs.tmp.npz')
-        np.savez(tmp, **logits)
-        os.replace(tmp, os.path.join(final, 'logprobs.npz'))
-        counts['logprobs_lines'] = len(logits)
     if os.path.isdir(os.path.join(partial, 'crops.lmdb')):
         import lmdb
         src = lmdb.open(os.path.join(partial, 'crops.lmdb'), subdir=True, readonly=True, lock=False)
@@ -644,7 +671,6 @@ def merge_unit(partial, final, new_pages, order):
                 w.put(key, value)
         src.close()
         dst.close()
-    return counts
 
 
 def utc_now():
@@ -678,6 +704,13 @@ def chunks(items):
     interruption loses at most one chunk)."""
     for i in range(0, len(items), CHUNK_PAGES):
         yield items[i:i + CHUNK_PAGES]
+
+
+def unit_engine(registry, unit):
+    """The engine whose files a unit records: the stage's engine, for OCR the run's engine, for a decoder the LM."""
+    if unit.stage == 'OCR':
+        return registry.ocr_engine(unit.name)
+    return registry.engines[unit.stage][unit.name.split('@', 1)[0]]
 
 
 def plan(registry, out, dataset):
@@ -825,33 +858,20 @@ def run_crops(units, registry, dataset, workers):
 # OCR and decoders
 
 
-class LineWriter:
-    def __init__(self, path):
-        self.f = path if isinstance(path, io.StringIO) else open(path, 'w', encoding='utf-8', newline='')
-        self.w = csv.writer(self.f, delimiter='\t', lineterminator='\n', quoting=csv.QUOTE_NONE, escapechar='\\')
-        self.w.writerow(['page', 'line_id', 'text', 'confidence', 'kept'])
-        self.n = 0
-
-    def page(self, page, line_ids, layout):
-        """Every line of the input; kept=0 for lines the PAGE_PARSER filter removed (no text)."""
-        lines = {line.id: line for line in layout.lines_iterator()}
-        for line_id in line_ids:
-            line = lines.get(line_id)
-            if line is None:
-                self.w.writerow([page, line_id, '', '', 0])
-            else:
-                text = (line.transcription or '').replace('\t', ' ').replace('\n', ' ')
-                conf = '' if line.transcription_confidence is None else repr(float(line.transcription_confidence))
-                self.w.writerow([page, line_id, text, conf, 1])
-            self.n += 1
-
-    def close(self):
-        self.f.close()
-
-
-def read_lines(path):
-    with open(path, encoding='utf-8', newline='') as f:
-        return list(csv.reader(f, delimiter='\t', quoting=csv.QUOTE_NONE, escapechar='\\'))
+def page_rows(line_ids, layout):
+    """(line_id, text, confidence, kept) of every line of the input (records.write_page); kept '0' for the lines the
+    PAGE_PARSER filter removed (no text, no confidence)."""
+    lines = {line.id: line for line in layout.lines_iterator()}
+    rows = []
+    for line_id in line_ids:
+        line = lines.get(line_id)
+        if line is None:
+            rows.append((line_id, '', '', '0'))
+        else:
+            text = (line.transcription or '').replace('\t', ' ').replace('\n', ' ')
+            conf = '' if line.transcription_confidence is None else repr(float(line.transcription_confidence))
+            rows.append((line_id, text, conf, '1'))
+    return rows
 
 
 def crops_env(out, cropper):
@@ -884,8 +904,7 @@ def run_ocr(unit, registry, dataset, out):
         if kept:
             os.makedirs(os.path.join(unit.partial, 'page_xml'))
             os.makedirs(os.path.join(unit.partial, 'logits'))
-        writer = LineWriter(os.path.join(unit.partial, 'lines.tsv'))
-        logits = {}
+        n_lines = n_logprobs = 0
         for page, image, layout in read_pages(chunk, crops=env):
             name = page['name']
             seed_page(name)
@@ -893,18 +912,19 @@ def run_ocr(unit, registry, dataset, out):
             for line in layout.lines_iterator():
                 line.transcription = None
             layout = parser.process_page(image, layout)
-            writer.page(name, line_ids, layout)
-            for line in layout.lines_iterator():
-                if line.logits is not None and in_logits_subset(f'{name}/{line.id}'):
-                    logits[f'{name}/{line.id}'] = prepare_dense_logits(line).astype(np.float32)
+            rows = page_rows(line_ids, layout)
+            logprobs = {line.id: prepare_dense_logits(line).astype(np.float32) for line in layout.lines_iterator()
+                        if line.logits is not None and in_logits_subset(f'{name}/{line.id}')}
             if name in kept:
                 layout.to_pagexml(os.path.join(unit.partial, 'page_xml', name + '.xml'))
                 with open(os.path.join(unit.partial, 'logits', name + '.logits'), 'wb') as f:
                     f.write(layout.save_logits_bytes(missing_line_logits_ok=True))
-        writer.close()
-        np.savez(os.path.join(unit.partial, 'logprobs.npz'), **logits)
-        unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(config), lines=writer.n,
-                         logprobs_lines=len(logits),
+            records.write_logprobs(unit.partial, name, logprobs)
+            records.write_page(unit.partial, name, rows)
+            n_lines += len(rows)
+            n_logprobs += len(logprobs)
+        unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(config), lines=n_lines,
+                         logprobs_lines=n_logprobs,
                          logprobs_subset=f'1/{LOGITS_SUBSET} by md5 of "<page>/<line_id>"', page_output=bool(kept)))
     del parser
     env.close()
@@ -913,7 +933,8 @@ def run_ocr(unit, registry, dataset, out):
 def run_derived(unit, registry, dataset, out):
     """An OCR run that differs from its base only in a higher FILTER_CONFIDENT_LINES_THRESHOLD: the base's lines,
     with the lines the filter removes (confidence <= threshold, as PageParser filters) marked kept=0. Cheap, so it is
-    derived anew on all its pages (those it holds and those it gets) whenever pages are added."""
+    derived anew on all its pages (those it holds and those it gets) whenever it lacks pages: after pages of the base
+    were computed again, delete them here too."""
     base = registry.base(unit.name)
     base_folder = os.path.join(out, 'OCR', base)
     threshold = registry.threshold(unit.name)
@@ -921,43 +942,37 @@ def run_derived(unit, registry, dataset, out):
     page_dicts = [p for p in dataset.all_pages if p['name'] in pages]
     need_pages(f'OCR/{base}', out, dataset, page_dicts)
     unit.start(page_dicts, replace=True)
-    rows = read_lines(os.path.join(base_folder, 'lines.tsv'))
-    removed, n = set(), 0
-    with open(os.path.join(unit.partial, 'lines.tsv'), 'w', encoding='utf-8', newline='') as f:
-        w = csv.writer(f, delimiter='\t', lineterminator='\n', quoting=csv.QUOTE_NONE, escapechar='\\')
-        w.writerow(rows[0])
-        for name, line_id, text, conf, kept in rows[1:]:
-            if name not in pages:
-                continue
+    n = n_removed = n_logprobs = 0
+    for page in page_dicts:
+        name = page['name']
+        rows, removed = [], set()
+        for line_id, text, conf, kept in records.read_page(base_folder, name):
             if kept == '1' and conf != '' and float(conf) <= threshold:
                 text, conf, kept = '', '', '0'
-                removed.add(f'{name}/{line_id}')
-            w.writerow([name, line_id, text, conf, kept])
-            n += 1
-    with np.load(os.path.join(base_folder, 'logprobs.npz')) as base_logits:
-        logits = {k: base_logits[k] for k in base_logits.files if k not in removed and k.split('/', 1)[0] in pages}
-    np.savez(os.path.join(unit.partial, 'logprobs.npz'), **logits)
+                removed.add(line_id)
+            rows.append((line_id, text, conf, kept))
+        logprobs = {k: v for k, v in records.read_logprobs(base_folder, name).items() if k not in removed}
+        records.write_logprobs(unit.partial, name, logprobs)
+        records.write_page(unit.partial, name, rows)
+        n, n_removed, n_logprobs = n + len(rows), n_removed + len(removed), n_logprobs + len(logprobs)
     with open(os.path.join(base_folder, 'unit.json')) as f:
         base_info = json.load(f)
     engine = registry.ocr_engine(unit.name)
     unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(engine.config()),
                      derived_from=base, base_finished_utc=base_info['finished_utc'], threshold=threshold,
-                     lines=n, removed_lines=len(removed), logprobs_lines=len(logits)))
+                     lines=n, removed_lines=n_removed, logprobs_lines=n_logprobs))
 
 
 def ocr_output(run, pages, registry, dataset, out):
     """The folder with the stored output (page_xml/, logits/) of an OCR run, for <pages>. Pages whose output is not
     stored (pruned, or no decoder decoded the page when it ran) are run again; their lines must equal the unit's
-    lines.tsv (same code, same seeds), otherwise the records do not belong together."""
+    recorded lines (same code, same seeds), otherwise the records do not belong together."""
     folder = os.path.join(out, 'OCR', run)
     need_pages(f'OCR/{run}', out, dataset, pages)
     missing = [p for p in pages if not os.path.exists(os.path.join(folder, 'logits', p['name'] + '.logits'))]
     if not missing:
         return folder
     logger.info(f'OCR/{run}: output of {len(missing)} pages is not stored, running the OCR engine again')
-    recorded = {}
-    for row in read_lines(os.path.join(folder, 'lines.tsv'))[1:]:
-        recorded.setdefault(row[0], []).append(row)
     parser, _ = ocr_parser(registry, run)
     env = crops_env(out, run.split('@', 1)[1])
     for sub in ('page_xml', 'logits'):
@@ -969,12 +984,8 @@ def ocr_output(run, pages, registry, dataset, out):
         for line in layout.lines_iterator():
             line.transcription = None
         layout = parser.process_page(image, layout)
-        check = io.StringIO()
-        LineWriter(check).page(name, line_ids, layout)
-        rows = list(csv.reader(io.StringIO(check.getvalue()), delimiter='\t', quoting=csv.QUOTE_NONE,
-                               escapechar='\\'))[1:]
-        if rows != recorded.get(name, []):
-            sys.exit(f'OCR/{run}: page {name} run again differs from its lines.tsv; the OCR unit was recorded '
+        if page_rows(line_ids, layout) != records.read_page(folder, name):
+            sys.exit(f'OCR/{run}: page {name} run again differs from its recorded lines; the OCR unit was recorded '
                      f'differently (another environment?): delete OCR/{run} and run it again')
         for sub, file, data in (('page_xml', name + '.xml', None),
                                 ('logits', name + '.logits', layout.save_logits_bytes(missing_line_logits_ok=True))):
@@ -1004,29 +1015,28 @@ def run_decoder(unit, registry, dataset, out):
     need_pages(f'OCR/{run}', out, dataset, pages)
     base = registry.base(run)
     ocr_folder = ocr_output(base, pages, registry, dataset, out)
-    removed = set()
-    if base != run:
-        removed = {(r[0], r[1]) for r in read_lines(os.path.join(ocr_unit, 'lines.tsv'))[1:] if r[4] == '0'}
     decoder = PageParser(config, config_path=engine.folder)
     with open(os.path.join(ocr_unit, 'unit.json')) as f:
         ocr_info = json.load(f)
     for chunk in chunks(pages):
         unit.start(chunk)
-        writer = LineWriter(os.path.join(unit.partial, 'lines.tsv'))
+        n_lines = 0
         for page in chunk:
             name = page['name']
             seed_page(name)
             line_ids = [line.id for line in PageLayout(file=page['page_xml']).lines_iterator()]
             layout = PageLayout(file=os.path.join(ocr_folder, 'page_xml', name + '.xml'))
-            if removed:
+            if base != run:  # the lines the run's higher threshold removes
+                removed = {line_id for line_id, _, _, kept in records.read_page(ocr_unit, name) if kept == '0'}
                 for region in layout.regions:
-                    region.lines = [line for line in region.lines if (name, line.id) not in removed]
+                    region.lines = [line for line in region.lines if line.id not in removed]
             layout.load_logits(os.path.join(ocr_folder, 'logits', name + '.logits'))
             layout = decoder.process_page(None, layout)
-            writer.page(name, line_ids, layout)
-        writer.close()
+            rows = page_rows(line_ids, layout)
+            records.write_page(unit.partial, name, rows)
+            n_lines += len(rows)
         unit.finish(dict(engine=lm, files=engine.files(), config=config_text(config), ocr_run=run,
-                         ocr_unit_finished_utc=ocr_info['finished_utc'], lines=writer.n))
+                         ocr_unit_finished_utc=ocr_info['finished_utc'], lines=n_lines))
 
 
 def prune_logits(registry, out, units):
@@ -1057,13 +1067,17 @@ def write_report(inference, commit):
                 if os.path.exists(path):
                     with open(path) as f:
                         info = json.load(f)
-                    pages = info.get('pages', '')
+                    held = recorded_pages(os.path.join(folder, name), None) if stage != 'LINE_CROPPER' else None
+                    pages = info.get('pages', '') if held is None else sorted(held)
                     seconds = info['seconds'] + sum(t['seconds'] for t in info.get('topups', []))
                     finished = info['topups'][-1]['finished_utc'] if info.get('topups') else info['finished_utc']
+                    lines = info.get('lines', '') if stage == 'LINE_CROPPER' else ''
+                    if stage in ('OCR', 'DECODER'):
+                        lines = sum(records.count_lines(os.path.join(folder, name), p) for p in pages)
                     if info.get('adopted_from'):
                         name += f" (adopted from {info['adopted_from'][:7]})"
                     rows.append((dataset, stage, name, len(pages) if isinstance(pages, list) else pages,
-                                 info.get('lines', ''), seconds, finished))
+                                 lines, seconds, finished))
     with open(os.path.join(inference, 'environment.json')) as f:
         env = json.load(f)
     lines = [f'# Inference {commit}', '',
@@ -1258,7 +1272,8 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name, uni
             '--datasets', dataset.name, '--crop-workers', '0', '--decoder-jobs', '1'] + \
            (['--out', args.out] if args.out else ['--results', args.results]) + \
            (['--pages', str(args.pages)] if args.pages else []) + \
-           (['--force-environment'] if args.force_environment else []) + ['--chunk-pages', str(args.chunk_pages)] + \
+           (['--force-environment'] if args.force_environment else []) + \
+           (['--force-engine'] if args.force_engine else []) + ['--chunk-pages', str(args.chunk_pages)] + \
            (['--keep-torchscript-fuser'] if args.keep_torchscript_fuser else [])
 
     def done(uid):
@@ -1357,7 +1372,7 @@ def dataset_folders(data, wanted):
 
 
 def main():
-    global CHUNK_PAGES, KEEP_TORCHSCRIPT_FUSER
+    global CHUNK_PAGES, KEEP_TORCHSCRIPT_FUSER, FORCE_ENGINE
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--data', default=os.environ.get('PERO_TEST_DATA'))
     p.add_argument('--models', default=os.environ.get('PERO_TEST_MODELS'))
@@ -1391,6 +1406,9 @@ def main():
     p.add_argument('--prune-logits', action='store_true',
                    help='delete the stored logits of the OCR runs whose decoders are all done, run nothing')
     p.add_argument('--force-environment', action='store_true')
+    p.add_argument('--force-engine', action='store_true',
+                   help='add pages to a unit although its engine (files or config) changed since it was recorded; '
+                        'unit.json records the change ("engine_changes"). For development: such a unit mixes engines')
     p.add_argument('--adopt-from', metavar='COMMIT_OR_FOLDER',
                    help='take the --adopt units over from the records of this commit (in --results) or folder instead '
                         'of computing them; only when the code change does not touch their stages')
@@ -1405,6 +1423,7 @@ def main():
         sys.exit('--chunk-pages must be at least 1')
     CHUNK_PAGES = args.chunk_pages
     KEEP_TORCHSCRIPT_FUSER = args.keep_torchscript_fuser
+    FORCE_ENGINE = args.force_engine
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
     for name in ('data', 'models') + (() if args.out else ('results',)):
         if not getattr(args, name):
@@ -1439,10 +1458,14 @@ def main():
             prune_logits(registry, out, all_units)
         return
     if args.list:
-        for dataset, registry, out, units, _ in work:
+        for dataset, registry, out, units, all_units in work:
             print(f'{dataset.name} ({len(dataset.pages)} pages):')
             for u in units:
                 notes = []
+                info = u.info()
+                if info is not None and info.get('files') != unit_engine(registry, u).files():
+                    notes.append('ENGINE CHANGED since recorded: delete the unit to run it again, or its pages and '
+                                 'run them with --force-engine')
                 if registry.unit_pages[u.id][1] is not None:
                     notes.append(f'pages of {registry.unit_pages[u.id][1]}')
                 if u.stage == 'OCR' and registry.base(u.name) != u.name:
@@ -1451,6 +1474,13 @@ def main():
                 state = 'done   ' if not missing else 'missing' if not have else 'partial'
                 count = f'{have}/{len(u.wanted)} pages'
                 print(f'  {state} {u.id}  ({count}{"".join("; " + n for n in notes)})')
+            for stage in STAGES:
+                folder = os.path.join(out, stage)
+                for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+                    uid = f'{stage}/{name}'
+                    if (os.path.isdir(os.path.join(folder, name)) and not name.endswith('.partial')
+                            and uid not in all_units and any(uid.startswith(prefix) for prefix in args.units)):
+                        print(f'  orphan  {uid}  (not in the registry)')
         return
     if args.adopt:
         source, source_commit = adopt_source(args.adopt_from, args.results)
