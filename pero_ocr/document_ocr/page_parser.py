@@ -23,6 +23,7 @@ from pero_ocr.layout_engines.smart_sorter import SmartRegionSorter
 from pero_ocr.layout_engines.transformer_sorter import TransformerRegionSorter
 from pero_ocr.layout_engines.line_in_region_detector import detect_lines_in_region
 from pero_ocr.layout_engines.baseline_refiner import refine_baseline
+from pero_ocr.layout_engines.pianoform_systems import merge_pianoform_systems
 from pero_ocr.layout_engines import layout_helpers as helpers
 
 
@@ -38,6 +39,8 @@ def layout_parser_factory(config, device, config_path=''):
         layout_parser = LayoutExtractor(config, device, config_path=config_path)
     elif config['METHOD'] == 'LAYOUT_YOLO':
         layout_parser = LayoutExtractorYolo(config, device, config_path=config_path)
+    elif config['METHOD'] == 'PIANOFORM_MERGER':
+        layout_parser = PianoformMerger(config, device, config_path=config_path)
     elif config['METHOD'] == 'LINES_SIMPLE_THRESHOLD':
         layout_parser = TextlineExtractorSimple(config, config_path=config_path)
     elif config['METHOD'] == 'LINE_FILTER':
@@ -409,6 +412,31 @@ class LayoutExtractorYolo(object):
 
         last_used_id = sorted(ids)[-1]
         return last_used_id + 1
+
+
+class PianoformMerger(object):
+    """Detects braces and merges each pair of staff regions joined by one into a pianoform region.
+
+    The staff regions come from a previous layout step or from the input PAGE XML.
+    """
+
+    def __init__(self, config, device, config_path=''):
+        use_cpu = config.getboolean('USE_CPU')
+        self.engine = LayoutEngineYolo(
+            model_path=compose_path(config['MODEL_PATH'], config_path),
+            device=device if not use_cpu else torch.device("cpu"),
+            detection_threshold=config.getfloat('DETECTION_THRESHOLD'),
+            image_size=LayoutExtractorYolo.get_image_size(config)
+        )
+        self.staff_category = config.get('STAFF_CATEGORY', fallback='Notový zápis')
+        self.min_staff_confidence = config.getfloat('MIN_STAFF_CONFIDENCE', fallback=0.0)
+        self.padding = config.getint('PADDING', fallback=20)
+
+    def process_page(self, img, page_layout: PageLayout):
+        result = self.engine.detect(img)
+        braces = [box.tolist() for box in result.boxes.data.cpu()]
+        return merge_pianoform_systems(page_layout, braces, img.shape, self.staff_category,
+                                       self.min_staff_confidence, self.padding)
 
 
 class LineFilter(object):
