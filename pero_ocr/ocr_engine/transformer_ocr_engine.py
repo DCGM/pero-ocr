@@ -28,7 +28,13 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         self.load_net()
         self.logger.info(self.net)
 
-        self.max_decoded_seq_length = 210
+        self.max_decoded_seq_length = int(self.config.get('max_decoded_seq_length', 210))
+        self.token_separator = self.config.get('token_separator', '')
+
+        # Tokens the model was trained to see before the sentence boundary (e.g. dataset and direction tokens).
+        self.prefix_inds = [self.characters.index(token) for token in self.config.get('prefix_tokens', [])]
+        if self.prefix_inds and not self.exported:
+            raise ValueError('prefix_tokens are supported only for exported transformers.')
 
     def load_net(self):
         if self.device.type == "cpu":
@@ -83,8 +89,7 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         encoded_lines = self.net.encode(lines)
         encoded_lines = self.net.adapt(encoded_lines)
 
-        partial_transcriptions = torch.tensor([self.sentence_boundary_ind] * lines.shape[0], dtype=torch.long,
-                                              device=self.device).unsqueeze(1)
+        partial_transcriptions = self.initial_transcriptions(lines.shape[0])
         alive_mask = torch.full((lines.shape[0],), 1, dtype=torch.long, device=self.device)
 
         logits = []
@@ -108,10 +113,15 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
 
             partial_transcriptions = torch.cat([partial_transcriptions, sampled_characters.unsqueeze(1)], dim=1)
 
-        outs = self.postprocess_decoded(partial_transcriptions[:, 1:], self.ignore_ind, self.sentence_boundary_ind)
+        outs = self.postprocess_decoded(partial_transcriptions[:, len(self.prefix_inds) + 1:], self.ignore_ind,
+                                        self.sentence_boundary_ind)
         logits = torch.stack(logits).float().permute(1, 0, 2)
 
         return outs, logits
+
+    def initial_transcriptions(self, count):
+        start = self.prefix_inds + [self.sentence_boundary_ind]
+        return torch.tensor(start, dtype=torch.long, device=self.device).unsqueeze(0).repeat(count, 1)
 
     def transcribe_batch_beam_search_exported(self, inputs):
         labels = []
@@ -153,7 +163,7 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         encoded_lines = self.net.adapt(encoded_lines)
         encoded_lines = encoded_lines.repeat(1, self.beam_size, 1)
 
-        partial_transcriptions = torch.tensor([self.sentence_boundary_ind] * self.beam_size, dtype=torch.long, device=self.device).unsqueeze(1)
+        partial_transcriptions = self.initial_transcriptions(self.beam_size)
         alive_mask = torch.full((self.beam_size,), 1, dtype=torch.long, device=self.device)
 
         beam_logprobs = torch.zeros((self.beam_size, 1), device=self.device)
@@ -187,7 +197,8 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
             partial_transcriptions = partial_transcriptions.index_select(0, beam_idxs)
             partial_transcriptions = torch.cat([partial_transcriptions, logit_idxs.unsqueeze(1)], dim=1)
 
-        labels = self.postprocess_decoded(partial_transcriptions[:, 1:], self.ignore_ind, self.sentence_boundary_ind)
+        labels = self.postprocess_decoded(partial_transcriptions[:, len(self.prefix_inds) + 1:], self.ignore_ind,
+                                          self.sentence_boundary_ind)
         logits = torch.stack(line_logits).float()
 
         return labels, logits, beam_logprobs
@@ -252,6 +263,6 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
     def decode(self, labels):
         outputs = []
         for line_labels in labels:
-            outputs.append(''.join([self.characters[c] for c in line_labels]))
+            outputs.append(self.token_separator.join([self.characters[c] for c in line_labels]))
         return outputs
 
