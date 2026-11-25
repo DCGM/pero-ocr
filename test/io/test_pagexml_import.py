@@ -61,6 +61,16 @@ def test_line_without_polygon_gets_one_from_baseline_and_heights():
     assert text_line.polygon[:, 1].max() == pytest.approx(29, abs=1)
 
 
+@pytest.mark.xfail(reason='#96: the polygon estimate (baseline_to_textline) crashes on a single-point baseline, so the '
+                          'whole page fails to load', strict=True)
+def test_line_without_polygon_and_with_a_single_point_baseline():
+    one_point = '<TextLine id="l2" custom="{&quot;heights&quot;: [12, 4]}"><Baseline points="10,25"/></TextLine>'
+    lines = page(region(lines=line() + one_point)).regions[0].lines
+    assert [text_line.id for text_line in lines] == ['l1', 'l2']
+    assert lines[1].polygon[:, 1].min() == pytest.approx(13, abs=1)
+    assert lines[1].polygon[:, 1].max() == pytest.approx(29, abs=1)
+
+
 def test_region_without_coords_is_estimated_from_lines():
     """Issue #79."""
     layout = page(region(coords='', lines=line()))

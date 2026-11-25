@@ -1,5 +1,10 @@
-"""Layout helpers (pero_ocr.layout_engines.layout_helpers) used inside the layout engines: filtering lists by a mask."""
+"""Layout helpers (pero_ocr.layout_engines.layout_helpers) used inside the layout engines: filtering lists by a mask,
+the line polygon from a baseline and its heights (baseline_to_textline)."""
 import unittest
+
+import numpy as np
+import pytest
+
 from pero_ocr.layout_engines import layout_helpers
 
 
@@ -30,3 +35,16 @@ class FilterLinesTests(unittest.TestCase):
 
     def test_fail_for_too_high(self):
         self.assertRaises(Exception, layout_helpers.filter_list, [0, 1, 0], [3])
+
+
+def test_textline_around_a_horizontal_baseline():
+    polygon = layout_helpers.baseline_to_textline(np.array([[10., 20.], [50., 20.]]), [5, 3])
+    assert polygon.tolist() == [[10, 15], [50, 15], [50, 23], [10, 23]]
+
+
+@pytest.mark.xfail(reason='#96: baseline_to_textline crashes (ValueError, non-broadcastable output operand) on a '
+                          'baseline with a single point; such lines exist in annotated data', strict=True)
+def test_textline_around_a_single_point_baseline():
+    polygon = layout_helpers.baseline_to_textline(np.array([[10., 20.]]), [5, 3])
+    assert polygon[:, 1].min() == pytest.approx(15)
+    assert polygon[:, 1].max() == pytest.approx(23)
