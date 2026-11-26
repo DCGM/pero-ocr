@@ -1200,7 +1200,7 @@ def run_decoder(unit, registry, dataset, out):
     ocr_unit = os.path.join(out, 'OCR', run)
     config = engine.config()
     unit.check_engine(engine.files(), config_text(config))
-    alphabet = decoder_alphabet(registry.engines['OCR'][run.split('@', 1)[0]])
+    charset = decoder_charset(registry.engines['OCR'][run.split('@', 1)[0]])
     pages = unit.missing_pages()
     need_pages(f'OCR/{run}', out, dataset, pages)
     base = registry.base(run)
@@ -1208,7 +1208,7 @@ def run_decoder(unit, registry, dataset, out):
     run_config = engine.config()
     if not run_config.has_section('OCR'):
         run_config.add_section('OCR')
-    run_config['OCR']['OCR_JSON'] = alphabet['path']
+    run_config['OCR']['OCR_JSON'] = charset['path']
     decoder = PageParser(run_config, config_path=engine.folder)
     for chunk in chunks(pages):
         unit.start(chunk)
@@ -1228,13 +1228,13 @@ def run_decoder(unit, registry, dataset, out):
             rows = page_rows(line_ids, layout)
             records.write_page(unit.partial, name, rows)
         unit.finish(dict(engine=lm, files=engine.files(), config=config_text(config), ocr_run=run,
-                         alphabet_of=alphabet['engine'], alphabet_md5=alphabet['md5']))
+                         charset_of=charset['engine'], charset_md5=charset['md5']))
 
 
-def decoder_alphabet(ocr_engine):
+def decoder_charset(ocr_engine):
     """The characters a decoder reads the logits of an OCR engine with: the OCR engine's own (its [OCR] OCR_JSON), as
     for a decoder in the same config as the OCR. The decoder's own [OCR] OCR_JSON is not used: a decoder can decode
-    OCR engines with different alphabets, and its config keeps its own section for the record."""
+    OCR engines with different char sets, and its config keeps its own section for the record."""
     path = os.path.join(ocr_engine.folder, ocr_engine.config()['OCR']['OCR_JSON'])
     return dict(engine=ocr_engine.name, path=os.path.abspath(path), md5=md5_file(path))
 
