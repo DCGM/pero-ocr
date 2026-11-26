@@ -84,7 +84,7 @@ the next run compute it again. engine.json holds the engine (unit, engine, files
 an adopted unit (adopted_from) or one extended with --force-model (engine_changes); pages.tsv the processing of every
 page (page, seconds: wall time of the engine's call, lines: the lines it processed (a decoder: decoded, the lines
 over its confidence threshold keep the OCR text), chars: the characters it wrote in them (OCR, decoders), width_px:
-the total width of the line crops it read (OCR), gpu_peak_mb: peak GPU memory; with --jobs over 1 units share a GPU,
+the total width of the line crops it read (OCR), frames: the logit frames of the lines it decoded (decoders), gpu_peak_mb: peak GPU memory; with --jobs over 1 units share a GPU,
 so the times include waiting for each other). Pages are added only
 with the engine the unit was recorded with; --force-model adds them anyway and records which pages got the new engine
 (unit.json "engine_changes"). Every line of a page is inferred. Every page is processed with numpy's and Python's random generators seeded
@@ -722,7 +722,7 @@ def recorded_pages(folder, dataset):
     return set(read_page_stats(folder))
 
 
-PAGE_STATS = 'pages.tsv'  # per unit: page, seconds, lines, chars, width_px, gpu_peak_mb
+PAGE_STATS = 'pages.tsv'  # per unit: page, seconds, lines, chars, width_px, frames, gpu_peak_mb
 CROPS = 'crops.png.lmdb'  # a cropper's line crops, PNG images
 
 
@@ -756,7 +756,7 @@ def write_page_stats(folder, rows, order):
     """<folder>/pages.tsv: {page: row}, in the benchmark's page order."""
     tmp = os.path.join(folder, '.' + PAGE_STATS + '.tmp')
     with open(tmp, 'w', newline='') as f:
-        w = csv.DictWriter(f, fieldnames=['page', 'seconds', 'lines', 'chars', 'width_px', 'gpu_peak_mb'], delimiter='\t',
+        w = csv.DictWriter(f, fieldnames=['page', 'seconds', 'lines', 'chars', 'width_px', 'frames', 'gpu_peak_mb'], delimiter='\t',
                            lineterminator='\n')
         w.writeheader()
         for page in sorted(rows, key=lambda p: order.get(p, len(order))):
@@ -827,13 +827,13 @@ class Unit:
         if self.topup:
             logger.info(f'{self.id}: adding {len(pages)} pages to the {len(self.recorded())} it holds')
 
-    def page_done(self, name, seconds, lines, gpu_peak_mb, chars='', width_px=''):
+    def page_done(self, name, seconds, lines, gpu_peak_mb, chars='', width_px='', frames=''):
         """The processing of one page: wall seconds of the engine's call, the lines it processed (a decoder: the lines
         it decoded; lines over its confidence threshold keep the OCR text), the characters it wrote in them (OCR and
         decoders, as the engine wrote them, before any NFC of the output), the total width in pixels of the line crops
-        it read (OCR), the peak GPU memory in MB."""
+        it read (OCR), the logit frames of the lines it decoded (decoders), the peak GPU memory in MB."""
         self.stats[name] = dict(page=name, seconds=seconds, lines=lines, chars=chars, width_px=width_px,
-                                gpu_peak_mb=gpu_peak_mb)
+                                frames=frames, gpu_peak_mb=gpu_peak_mb)
 
     def finish(self, info):
         """Add the chunk computed into <unit>.partial/ to the unit. engine.json holds the engine, unit.json (when it
@@ -1263,19 +1263,26 @@ def run_decoder(unit, registry, dataset, out):
             if n != len(to_decode):
                 logger.warning(f'{unit.id}: page {name}: {n} lines decoded, {len(to_decode)} expected')
             unit.page_done(name, seconds, n, gpu, sum(len(line.transcription or '') for line in layout.lines_iterator()
-                                                       if line.id in to_decode))
+                                                       if line.id in to_decode), frames=sum(to_decode.values()))
             rows = page_rows(line_ids, layout)
             records.write_page(unit.partial, name, rows)
         unit.finish(dict(engine=lm, files=engine.files(), config=config_text(config)))
 
 
 def lines_to_decode(page_decoder, layout):
-    """The ids of the lines a PageDecoder will decode: its categories, with logits, and not confident enough to keep
-    the OCR text (pero-ocr's own test, line_confident_enough, with its threshold)."""
+    """{line id: logit frames} of the lines a PageDecoder will decode: its categories, with logits, and not confident
+    enough to keep the OCR text (pero-ocr's own test, line_confident_enough, with its threshold); the frames are those
+    it decodes (prepare_dense_logits: every frame, the padding included)."""
     from pero_ocr.document_ocr.page_parser import line_confident_enough, prepare_dense_logits
     threshold = page_decoder.line_confidence_threshold
-    return {line.id for line in layout.lines_iterator(page_decoder.categories) if line.logits is not None
-            and (threshold is None or not line_confident_enough(prepare_dense_logits(line), threshold))}
+    out = {}
+    for line in layout.lines_iterator(page_decoder.categories):
+        if line.logits is None:
+            continue
+        logits = prepare_dense_logits(line)
+        if threshold is None or not line_confident_enough(logits, threshold):
+            out[line.id] = logits.shape[0]
+    return out
 
 
 def decoder_charset(ocr_engine):
@@ -1316,11 +1323,12 @@ def write_report(out, commit):
                 processed = sum(int(r['lines']) for r in stats) if stats else ''
                 chars = sum(int(r['chars']) for r in stats if r.get('chars')) if any(r.get('chars') for r in stats) else ''
                 width = sum(int(r['width_px']) for r in stats if r.get('width_px')) if any(r.get('width_px') for r in stats) else ''
+                frames = sum(int(r['frames']) for r in stats if r.get('frames')) if any(r.get('frames') for r in stats) else ''
                 gpu = max((int(r['gpu_peak_mb']) for r in stats if r['gpu_peak_mb']), default='')
                 if info.get('adopted_from'):
                     name += f" (adopted from {info['adopted_from'][:7]})"
-                rows.append((stage, name, len(pages) if isinstance(pages, list) else pages, processed, chars, width, seconds,
-                             gpu))
+                rows.append((stage, name, len(pages) if isinstance(pages, list) else pages, processed, chars, width, frames,
+                             seconds, gpu))
     with open(os.path.join(out, 'environment.json')) as f:
         env = json.load(f)
     lines = [f'# Inference {commit}: {os.path.basename(os.path.normpath(out))}', '',
@@ -1328,10 +1336,10 @@ def write_report(out, commit):
              'adopted from older records).', '',
              f"Python {env['python']}, torch {env['packages'].get('torch')} (CUDA {env['torch_cuda']}), "
              f"numpy {env['packages'].get('numpy')}, opencv {env['packages'].get('opencv-python')}, GPU {env['gpu']}.",
-             '', '| stage | unit | pages | lines processed | chars written | crop width px | seconds | peak GPU MB |',
-             '|---|---|---|---|---|---|---|---|']
-    lines += [f"| {k} | {n} | {p} | {l} | {c} | {w} | {f'{s:.0f}' if s != '' else ''} | {g} |"
-              for k, n, p, l, c, w, s, g in rows]
+             '', '| stage | unit | pages | lines processed | chars written | crop width px | logit frames | seconds | '
+                 'peak GPU MB |', '|---|---|---|---|---|---|---|---|---|']
+    lines += [f"| {k} | {n} | {p} | {l} | {c} | {w} | {fr} | {f'{s:.0f}' if s != '' else ''} | {g} |"
+              for k, n, p, l, c, w, fr, s, g in rows]
     if any('(adopted from' in r[1] for r in rows):
         lines += ['', 'Adopted units were computed by the commit they name and copied here, not run by this commit '
                       '(adopted.json: the source and the files the code changed in between).']
