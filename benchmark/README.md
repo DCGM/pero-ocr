@@ -149,6 +149,8 @@ where):
 Every chunk of pages a unit adds records the host and the commit it was computed on (`unit.json`), so a resumed or
 topped-up unit says where each part came from. A run holds `<benchmark>/.lock` while it adds to the records: a
 second run on the same records (by mistake, or another person) stops and says who holds it; `--list` needs no lock.
+The lock is the operating system's lock on that file, released however the run ends (a crash or a kill leaves no
+stale lock); the file is deleted when the run ends normally, and one left by a crash only says who ran last.
 A stopped or crashed run is resumed with the same command: the chunks it finished are kept, the chunk in progress is
 computed again. Each benchmark's records are self-contained (nothing is stored at the level of the commit), so different
 benchmarks of one commit can be made by different people on different machines and their folders put together.

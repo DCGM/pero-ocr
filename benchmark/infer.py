@@ -44,7 +44,8 @@ the guard's flag forces it; every forced addition is noted in <benchmark>/forced
                   a free run: the commit and uncommitted changes of its first run (run.json)  --force-commit
     model         a unit: the model files and config it was recorded with (unit.json)        --force-model
 Every chunk of pages a unit adds records the host and commit it was computed on (unit.json). A run holds
-<benchmark>/.lock while it adds to the records: a second run on the same records stops with who holds it.
+<benchmark>/.lock while it adds to the records: a second run on the same records stops with who holds it (released
+however a run ends; the file is deleted at its normal end).
 
 The configs are used as they are; the code only sets the RUN_* switches of [PAGE_PARSER] to the engine's stage. Adding
 an engine to a registry and running infer.py again computes only what is missing.
@@ -503,26 +504,50 @@ def current_commit():
         return None
 
 
-LOCKS = []  # the lock files held by this process (closing one releases its lock)
+LOCKS = []  # (path, file) of the lock files held by this process (closing one releases its lock)
 
 
 def lock_records(out):
     """Hold <benchmark records>/.lock for the rest of this process: two runs adding to the same records at once
-    would write the same units. A second run stops with who holds it."""
+    would write the same units. A second run stops with who holds it. The lock is the operating system's lock on the
+    open file, released when the process ends in any way (a crash or kill leaves no stale lock); the file is deleted
+    when the run ends normally (release_locks), a file left by a crash only says who ran last. After taking the lock,
+    the file locked must still be the file at the path (another run may have deleted it meanwhile); otherwise take it
+    again."""
     os.makedirs(out, exist_ok=True)
     path = os.path.join(out, '.lock')
-    f = open(path, 'a+')
-    try:
-        fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        f.seek(0)
-        sys.exit(f'{out}: another run is adding to these records ({f.read().strip() or "unknown"}); wait for it or '
-                 f'stop it')
+    while True:
+        f = open(path, 'a+')
+        try:
+            fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            f.seek(0)
+            holder = f.read().strip() or 'unknown'
+            f.close()
+            sys.exit(f'{out}: another run is adding to these records ({holder}); wait for it or stop it')
+        try:
+            same = os.stat(path).st_ino == os.fstat(f.fileno()).st_ino
+        except FileNotFoundError:
+            same = False
+        if same:
+            break
+        f.close()  # locked a file that was deleted meanwhile: take the lock of the current one
     f.seek(0)
     f.truncate()
     f.write(f'pid {os.getpid()} on {socket.gethostname()} since {utc_now()}: {shlex.join(sys.argv)}\n')
     f.flush()
-    LOCKS.append(f)
+    LOCKS.append((path, f))
+
+
+def release_locks():
+    """Delete the lock files and release the locks (at the normal end of a run)."""
+    while LOCKS:
+        path, f = LOCKS.pop()
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        f.close()
 
 
 def record_free_run(out, force):
@@ -1675,4 +1700,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        release_locks()  # also after sys.exit (a failed unit, a refused run): the locks were this run's
