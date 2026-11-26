@@ -54,6 +54,9 @@ repository = "https://github.com/DCGM/pero-ocr"
 [tool.setuptools]
 include-package-data = false
 
+[tool.setuptools.package-data]
+"pero_ocr.music.lmx" = ["LICENSE"]
+
 [tool.setuptools.package-dir]
 "pero_ocr" = "pero_ocr"
 "pero_ocr.user_scripts" = "user_scripts"
