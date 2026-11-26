@@ -13,8 +13,7 @@ BRACE_EXTENSION = 0.3
 SYSTEM_PADDING = 20
 
 
-def merge_pianoform_systems(page_layout: PageLayout, braces: list, page_size, staff_category: str,
-                            min_staff_confidence: float) -> PageLayout:
+def merge_pianoform_systems(page_layout: PageLayout, braces: list, page_size, staff_category: str) -> PageLayout:
     """Replace each pair of staff regions joined by a brace with one pianoform region.
 
     Args:
@@ -22,13 +21,8 @@ def merge_pianoform_systems(page_layout: PageLayout, braces: list, page_size, st
             in the given order and a staff already paired with one brace is not paired again.
         page_size: (height, width) of the page image.
         staff_category: category of the staff regions to pair.
-        min_staff_confidence: staves detected with a lower confidence are not paired.
     """
-    staves = []
-    for region in page_layout.regions:
-        confidence = region.detection_confidence
-        if region.category == staff_category and (confidence is None or confidence >= min_staff_confidence):
-            staves.append(region)
+    staves = [region for region in page_layout.regions if region.category == staff_category]
     paired_ids = set()
 
     for brace in braces:

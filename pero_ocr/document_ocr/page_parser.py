@@ -429,13 +429,11 @@ class PianoformMerger(object):
             image_size=LayoutExtractorYolo.get_image_size(config)
         )
         self.staff_category = config.get('STAFF_CATEGORY', fallback='Notový zápis')
-        self.min_staff_confidence = config.getfloat('MIN_STAFF_CONFIDENCE', fallback=0.5)
 
     def process_page(self, img, page_layout: PageLayout):
         result = self.engine.detect(img)
         braces = [box.tolist() for box in result.boxes.data.cpu()]
-        return merge_pianoform_systems(page_layout, braces, img.shape, self.staff_category,
-                                       self.min_staff_confidence)
+        return merge_pianoform_systems(page_layout, braces, img.shape, self.staff_category)
 
 
 class LineFilter(object):
