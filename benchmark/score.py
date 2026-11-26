@@ -20,7 +20,8 @@ score on that list is NA. Which pages were inferred is up to infer.py and its re
 
 Text (OCR/ and DECODER/ units): on every line of every test list, CER = edit distance / reference length, summed over
 the list's lines. Both texts are NFC with single spaces and no space at the start or end (the references are stored
-that way). A line the engine removed (the PAGE_PARSER confidence filter) counts as an empty transcription.
+that way). A line the engine did not output (e.g. removed by the PAGE_PARSER confidence filter) counts as an empty
+transcription.
 Two versions: CER against the references as transcribed, and modernized CER, where both the reference and the output
 are rewritten by the modern German rules of the training data (a vowel with a combining small e above, U+0364, to the
 vowel with umlaut or diaeresis, and long s to s; the "modern_german" test sets of the PERO training scripts). Models
@@ -109,24 +110,23 @@ def score_text(records, lists, out):
             held = held_pages(os.path.join(folder, unit))
             hyp = {}
             for page in set().union(*pages_of.values()) & held:
-                for line_id, text, conf, kept in read_page(os.path.join(folder, unit), page):
-                    hyp[(page, line_id)] = dict(text=text, confidence=conf, kept=kept)
+                for line_id, text, conf in read_page(os.path.join(folder, unit), page):
+                    hyp[(page, line_id)] = text
             for name, refs in lists.items():
                 if not pages_of[name] <= held:
                     rows.append(dict(kind=kind, unit=unit, list=name, lines=0, chars='', errors='', cer=None,
-                                     chars_modern='', errors_modern='', cer_modern=None, removed_lines=''))
+                                     chars_modern='', errors_modern='', cer_modern=None, missing_lines=''))
                     continue
-                n = chars = errors = chars_m = errors_m = removed = 0
+                n = chars = errors = chars_m = errors_m = missing = 0
                 compare = []
                 for page, line_id, ref in refs:
-                    r = hyp.get((page, line_id))
-                    if r is None:
-                        sys.exit(f'{os.path.join(folder, unit)}: holds page {page} but not its line {line_id}: the '
-                                 f'test list does not belong to the PAGE XML the unit was inferred on')
-                    compare.append(f"{line_key(page, line_id)} {r['text']}\n")
+                    hyp_text = hyp.get((page, line_id))
+                    missing += hyp_text is None
+                    hyp_text = hyp_text or ''
+                    one_line = hyp_text.replace('\r', ' ').replace('\n', ' ')  # the test-list format: a line per line
+                    compare.append(f"{line_key(page, line_id)} {one_line}\n")
                     n += 1
-                    removed += r['kept'] == '0'
-                    text = clean(r['text'])
+                    text = clean(hyp_text)
                     chars += len(ref)
                     errors += Levenshtein.distance(text, ref)
                     chars_m += len(modernize(ref))
@@ -138,7 +138,7 @@ def score_text(records, lists, out):
                 rows.append(dict(kind=kind, unit=unit, list=name, lines=n, chars=chars, errors=errors,
                                  cer=round(100 * errors / max(1, chars), 3), chars_modern=chars_m,
                                  errors_modern=errors_m, cer_modern=round(100 * errors_m / max(1, chars_m), 3),
-                                 removed_lines=removed))
+                                 missing_lines=missing))
     return rows
 
 
@@ -251,10 +251,10 @@ def write_report(path, commit, dataset_name, env, text_rows, layout_rows, lists)
             lines += table([dict(r, decoder=r['unit']) for r in text_rows if r['kind'] == 'DECODER'], 'decoder',
                            value, lists)
         lines.append('')
-    removed = [r for r in text_rows if r['removed_lines']]
-    if removed:
-        lines += ['', '## Lines removed by the confidence filter (counted as empty)', '']
-        lines += table([dict(r, unit=f"{r['kind']}/{r['unit']}") for r in removed], 'unit', 'removed_lines', lists)
+    missing = [r for r in text_rows if r['missing_lines']]
+    if missing:
+        lines += ['', '## Lines of the test lists the engine did not output (counted as empty)', '']
+        lines += table([dict(r, unit=f"{r['kind']}/{r['unit']}") for r in missing], 'unit', 'missing_lines', lists)
     if layout_rows:
         lines += ['', '## Layout: annotated lines found [%]', '']
         lines += table([dict(r, layout=r['unit']) for r in layout_rows], 'layout', 'found', lists)

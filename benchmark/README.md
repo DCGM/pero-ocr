@@ -135,7 +135,7 @@ Official and free runs:
   uncommitted code, one's own engines or data, a trial on a few pages (`--pages N`), the full output of every page
   for debugging (`--full-output`: OCR and decoder units also keep `page_xml/`, `alto/` and, OCR, `logits/` of every
   page, as pero-ocr exports them, with the text as the engine wrote it; a unit has them for all its pages or for
-  none). `<folder>/<benchmark>/run.json`
+  none; a derived unit gets its base's output without the lines its threshold removes). `<folder>/<benchmark>/run.json`
   records the commit, the uncommitted changes and the command of every run into it. Score it with
   `python benchmark/score.py --out <folder>`.
 
@@ -218,11 +218,11 @@ times include waiting for each other. LAYOUT_CNN runs its ParseNet on the image 
 (further when the image is over `MAX_MEGAPIXELS`) and padded to a multiple of 64; when the lines it finds are too
 small or too large for the network, it runs it a second time at another downsample, and keeps only the second
 output. A unit derived by a higher threshold computes nothing and has no `pages.tsv`. OCR and decoder units keep one set of files
-per page (`benchmark/records.py`), the lines in the page's PAGE XML order:
+per page (`benchmark/records.py`):
 
-- `lines/<page>.tsv`: `line_id`, `confidence` (full precision), `kept` (0: the confidence filter removed the line;
-  it has no text and no confidence), `text` (as the engine wrote it; a tab, newline or backslash in it escaped by a
-  backslash);
+- `lines/<page>.tsv`: every line the engine output, in its order: `line_id`, `confidence` (full precision), `text`
+  (as the engine wrote it; a tab, newline or backslash in it escaped by a backslash). A line it did not output (the
+  confidence filter removes lines) is not there; `score.py` counts it as an empty transcription;
 - `logits.1in64/<page>.logits` (OCR): the logits of the page's lines in a fixed subset of lines (1 in 64, by a hash
   of `<page>/<line_id>`, the same in every unit), in pero-ocr's format (`PageLayout.save_logits_bytes`: the sparse
   logits, characters and logit coordinates; `PageLayout.load_logits` reads it), to compare the raw output of engines

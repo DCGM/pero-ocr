@@ -62,7 +62,7 @@ Units (one folder each in <commit>/<benchmark>/, complete when it holds engine.j
     LINE_CROPPER/<cropper>          the line cropper on the lines of the benchmark's PAGE XML: crops.png.lmdb, key
                                     "<page>/<line_id>", the crop as PNG (lossless); its pages: pages.tsv
     OCR/<ocr>@<cropper>             the OCR engine on the stored crops of the cropper, per page (records.py):
-                                    lines/<page>.tsv (line id, confidence, kept, text), logits.1in64/<page>.logits (the logits of the page's
+                                    lines/<page>.tsv (line id, confidence, text of every line it output), logits.1in64/<page>.logits (the logits of the page's
                                     lines in a fixed subset of lines, the same subset for every engine, in pero-ocr's
                                     format). An OCR run a decoder decodes also keeps its full output
                                     of every page, as a production worker stores it for the LM stage:
@@ -78,7 +78,9 @@ Units (one folder each in <commit>/<benchmark>/, complete when it holds engine.j
     --full-output (free runs)       OCR and decoder units also keep the full output of every page they compute, as
                                     pero-ocr exports it: page_xml/<page>.xml, alto/<page>.xml and (OCR) logits/
                                     <page>.logits, never pruned; a unit has it for all its pages or for none (alto/
-                                    marks it). The text is as the engine wrote it (no OUTPUT_NFC).
+                                    marks it). The text is as the engine wrote it (no OUTPUT_NFC). A derived OCR
+                                    unit gets its base's output without the lines its threshold removes (decided on
+                                    the full-precision confidences of lines/, PAGE XML keeps 3 decimals).
 
 A unit holds the pages whose files it has (a cropper: the pages of its pages.tsv); a page is written completely or not at
 all, so an interrupted run loses at most the chunk it was computing (--chunk-pages), and deleting a page's files makes
@@ -1207,20 +1209,12 @@ def run_crops(units, registry, dataset, workers):
 # OCR and decoders
 
 
-def page_rows(line_ids, layout):
-    """(line_id, text, confidence, kept) of every line of the input (records.write_page); kept '0' for the lines the
-    PAGE_PARSER filter removed (no text, no confidence)."""
-    lines = {line.id: line for line in layout.lines_iterator()}
-    rows = []
-    for line_id in line_ids:
-        line = lines.get(line_id)
-        if line is None:
-            rows.append((line_id, '', '', '0'))
-        else:
-            text = (line.transcription or '').replace('\t', ' ').replace('\n', ' ')
-            conf = '' if line.transcription_confidence is None else repr(float(line.transcription_confidence))
-            rows.append((line_id, text, conf, '1'))
-    return rows
+def page_rows(layout):
+    """(line_id, text, confidence) of every line of the engine's output, in its order (records.write_page); the lines
+    it did not output (the PAGE_PARSER confidence filter) are not there."""
+    return [(line.id, line.transcription or '',
+             '' if line.transcription_confidence is None else repr(float(line.transcription_confidence)))
+            for line in layout.lines_iterator()]
 
 
 def crops_env(out, cropper):
@@ -1272,7 +1266,6 @@ def run_ocr(unit, registry, dataset, out):
         for page, image, layout in read_pages(chunk, crops=env):
             name = page['name']
             start_page(name, parser)
-            line_ids = [line.id for line in layout.lines_iterator()]
             for line in layout.lines_iterator():
                 line.transcription = None
             layout, seconds, gpu = measured(parser.process_page, image, layout)
@@ -1280,7 +1273,7 @@ def run_ocr(unit, registry, dataset, out):
             unit.page_done(name, seconds, gpu_peak_mb=gpu, lines=len(read),
                            chars=sum(len(line.transcription or '') for line in read),
                            width_px=sum(line.crop.shape[1] for line in read))
-            rows = page_rows(line_ids, layout)
+            rows = page_rows(layout)
             logits = layout.save_logits_bytes(missing_line_logits_ok=True)
             if name in kept:
                 layout.to_pagexml(os.path.join(unit.partial, 'page_xml', name + '.xml'))
@@ -1289,7 +1282,7 @@ def run_ocr(unit, registry, dataset, out):
             if FULL_OUTPUT:  # last: the ALTO export computes the confidences of lines that have none
                 layout.to_altoxml(os.path.join(unit.partial, ALTO, name + '.xml'))
             records.write_logits(unit.partial, name, records.logits_of_lines(
-                logits, [i for i in line_ids if in_logits_subset(f'{name}/{i}')]))
+                logits, [i for i, _, _ in rows if in_logits_subset(f'{name}/{i}')]))
             records.write_page(unit.partial, name, rows)
         unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(config)))
     del parser
@@ -1298,7 +1291,7 @@ def run_ocr(unit, registry, dataset, out):
 
 def run_derived(unit, registry, dataset, out):
     """An OCR run that differs from its base only in a higher FILTER_CONFIDENT_LINES_THRESHOLD: the base's lines,
-    with the lines the filter removes (confidence <= threshold, as PageParser filters) marked kept=0. Cheap, so it is
+    without the lines the filter removes (confidence <= threshold, as PageParser filters). Cheap, so it is
     derived anew on all its pages (those it holds and those it gets) whenever it lacks pages: after pages of the base
     were computed again, delete them here too."""
     base = registry.base(unit.name)
@@ -1307,19 +1300,31 @@ def run_derived(unit, registry, dataset, out):
     pages = unit.recorded() | set(unit.wanted)
     page_dicts = [p for p in dataset.all_pages if p['name'] in pages]
     need_pages(f'OCR/{base}', out, dataset, page_dicts)
+    if FULL_OUTPUT and not os.path.isdir(os.path.join(base_folder, ALTO)):
+        sys.exit(f'{unit.id} --full-output: its base OCR/{base} was recorded without it')
     unit.start(page_dicts, replace=True)
+    if FULL_OUTPUT:
+        for sub in ('page_xml', 'logits', ALTO):
+            os.makedirs(os.path.join(unit.partial, sub))
     for page in page_dicts:
         name = page['name']
-        rows, removed = [], set()
-        for line_id, text, conf, kept in records.read_page(base_folder, name):
-            if kept == '1' and conf != '' and float(conf) <= threshold:
-                text, conf, kept = '', '', '0'
-                removed.add(line_id)
-            rows.append((line_id, text, conf, kept))
+        rows = [(line_id, text, conf) for line_id, text, conf in records.read_page(base_folder, name)
+                if conf == '' or float(conf) > threshold]  # the full-precision confidences of lines/
         logits = records.read_logits(base_folder, name)
         if logits is not None:
             records.write_logits(unit.partial, name, records.logits_of_lines(
-                logits, [line_id for line_id, _, _, _ in rows if line_id not in removed]))
+                logits, [line_id for line_id, _, _ in rows]))
+        if FULL_OUTPUT:  # the base's full output without the removed lines, exported again as the engine would
+            from pero_ocr.core.layout import PageLayout
+            keep = {line_id for line_id, _, _ in rows}
+            layout = PageLayout(file=os.path.join(base_folder, 'page_xml', name + '.xml'))
+            for region in layout.regions:
+                region.lines = [line for line in region.lines if line.id in keep]
+            layout.load_logits(os.path.join(base_folder, 'logits', name + '.logits'))
+            layout.to_pagexml(os.path.join(unit.partial, 'page_xml', name + '.xml'))
+            with open(os.path.join(unit.partial, 'logits', name + '.logits'), 'wb') as f:
+                f.write(layout.save_logits_bytes(missing_line_logits_ok=True))
+            layout.to_altoxml(os.path.join(unit.partial, ALTO, name + '.xml'))
         records.write_page(unit.partial, name, rows)
     engine = registry.ocr_engine(unit.name)
     unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(engine.config())))  # no pages.tsv
@@ -1342,11 +1347,10 @@ def ocr_output(run, pages, registry, dataset, out):
     for page, image, layout in read_pages(missing, crops=env):
         name = page['name']
         start_page(name, parser)
-        line_ids = [line.id for line in layout.lines_iterator()]
         for line in layout.lines_iterator():
             line.transcription = None
         layout = parser.process_page(image, layout)
-        if page_rows(line_ids, layout) != records.read_page(folder, name):
+        if page_rows(layout) != records.read_page(folder, name):
             sys.exit(f'OCR/{run}: page {name} run again differs from its recorded lines; the OCR unit was recorded '
                      f'differently (another environment?): delete OCR/{run} and run it again')
         for sub, file, data in (('page_xml', name + '.xml', None),
@@ -1392,12 +1396,11 @@ def run_decoder(unit, registry, dataset, out):
         for page in chunk:
             name = page['name']
             start_page(name, decoder)
-            line_ids = [line.id for line in PageLayout(file=page['page_xml']).lines_iterator()]
             layout = PageLayout(file=os.path.join(ocr_folder, 'page_xml', name + '.xml'))
             if base != run:  # the lines the run's higher threshold removes
-                removed = {line_id for line_id, _, _, kept in records.read_page(ocr_unit, name) if kept == '0'}
+                output = {line_id for line_id, _, _ in records.read_page(ocr_unit, name)}
                 for region in layout.regions:
-                    region.lines = [line for line in region.lines if line.id not in removed]
+                    region.lines = [line for line in region.lines if line.id in output]
             layout.load_logits(os.path.join(ocr_folder, 'logits', name + '.logits'))
             to_decode = lines_to_decode(decoder.decoder, layout)
             decoded = decoder.decoder.lines_decoded
@@ -1408,7 +1411,7 @@ def run_decoder(unit, registry, dataset, out):
             unit.page_done(name, seconds, gpu_peak_mb=gpu, lines=n,
                            chars=sum(len(line.transcription or '') for line in layout.lines_iterator()
                                      if line.id in to_decode), frames=sum(to_decode.values()))
-            rows = page_rows(line_ids, layout)
+            rows = page_rows(layout)
             if FULL_OUTPUT:
                 layout.to_pagexml(os.path.join(unit.partial, 'page_xml', name + '.xml'))
                 layout.to_altoxml(os.path.join(unit.partial, ALTO, name + '.xml'))

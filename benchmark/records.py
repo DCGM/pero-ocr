@@ -3,10 +3,11 @@ tools read them).
 
 A unit holds a page when it holds its lines file:
 
-    lines/<page>.tsv      every line of the input PAGE XML in its order: line_id, confidence (full precision, empty
-                          when the line has none), kept (0: the PAGE_PARSER filter removed the line; it has no text and
-                          no confidence), text (as the engine wrote it); tab-separated, a tab, newline or backslash in
-                          the text escaped by a backslash (csv, QUOTE_NONE, escapechar '\\')
+    lines/<page>.tsv      every line of the engine's output, in its order: line_id, confidence (full precision, empty
+                          when the line has none), text (as the engine wrote it); a line of the input the engine did
+                          not output (e.g. removed by the PAGE_PARSER confidence filter) is not there; tab-separated,
+                          a tab, newline or backslash in the text escaped by a backslash (csv, QUOTE_NONE,
+                          escapechar '\\')
     logits.1in64/<page>.logits   OCR units: the logits of the page's lines in the fixed subset, one line in 64 by a
                           hash of "<page>/<line_id>", the same in every unit, in pero-ocr's format
                           (PageLayout.save_logits_bytes: a pickled dict of the lines' sparse logits, their characters
@@ -24,7 +25,7 @@ import pickle
 LINES = 'lines'
 LOGITS_SUBSET = 64  # one line in LOGITS_SUBSET keeps its logits in every OCR unit
 LOGITS = f'logits.1in{LOGITS_SUBSET}'
-HEADER = ['line_id', 'confidence', 'kept', 'text']
+HEADER = ['line_id', 'confidence', 'text']
 DIALECT = dict(delimiter='\t', lineterminator='\n', quoting=csv.QUOTE_NONE, escapechar='\\')
 
 
@@ -42,24 +43,23 @@ def _write(path, data):
 
 
 def write_page(folder, page, rows):
-    """rows: (line_id, text, confidence, kept) of every line of the page, confidence a string ('' for none), kept
-    '1' or '0'."""
+    """rows: (line_id, text, confidence) of every line of the engine's output, confidence a string ('' for none)."""
     os.makedirs(os.path.join(folder, LINES), exist_ok=True)
     tsv = io.StringIO()
     w = csv.writer(tsv, **DIALECT)
     w.writerow(HEADER)
-    w.writerows([(line_id, conf, kept, text) for line_id, text, conf, kept in rows])
+    w.writerows([(line_id, conf, text) for line_id, text, conf in rows])
     _write(os.path.join(folder, LINES, page + '.tsv'), tsv.getvalue())
 
 
 def read_page(folder, page):
-    """[(line_id, text, confidence, kept)] of a page the unit holds."""
+    """[(line_id, text, confidence)] of a page the unit holds."""
     path = os.path.join(folder, LINES, page + '.tsv')
     with open(path, encoding='utf-8', newline='') as f:
         table = list(csv.reader(f, **DIALECT))
     if table[0] != HEADER:
         raise ValueError(f'{path}: unexpected header {table[0]}')
-    return [(line_id, text, conf, kept) for line_id, conf, kept, text in table[1:]]
+    return [(line_id, text, conf) for line_id, conf, text in table[1:]]
 
 
 def held_pages(folder):
