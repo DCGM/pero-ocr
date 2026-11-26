@@ -163,7 +163,8 @@ The records of a commit (a free run's folder has the same structure, plus `<benc
     LINE_CROPPER/<cropper>/           crops.lmdb
     OCR/<ocr>@<cropper>/              lines/, logprobs/ (+ page_xml/, logits/ when decoded)
     DECODER/<lm>@<ocr>@<cropper>/     lines/
-    logs/
+    logs/                             <unit>.log: every attempt of a unit appended, between a start and an end line
+                                      (a start line without an end line: that attempt was killed or stopped)
     score/                            cer.tsv, layout.tsv, report.md
       lines/<OCR|DECODER>/<unit>/     <test list>.txt: the unit's output on the lines of the test list
 ```

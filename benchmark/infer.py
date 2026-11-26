@@ -18,7 +18,8 @@ code, one's own engines or data); it records the commit, the uncommitted changes
 
 The records of a benchmark are self-contained: <commit>/<benchmark>/ holds the units, environment.json (the
 environment they were made in; a benchmark's units are all made in one), benchmark.json (its pages and their
-checksums), adopted.json (units adopted from another commit), report.md, logs/ and, from score.py, score/. Nothing is
+checksums), adopted.json (units adopted from another commit), report.md, logs/ (one log per unit, every attempt
+appended between a start and an end line) and, from score.py, score/. Nothing is
 stored at the level of the commit, so different benchmarks of one commit can be made by different people on different
 machines and put together by copying their folders.
 
@@ -96,6 +97,7 @@ import platform
 import queue
 import random
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1357,9 +1359,15 @@ def run_parallel(todo, registry, dataset, out, args, folder_name, units):
                         time.sleep(30)
                     name = unit.id.replace('/', '__')
                     logger.info(f'start {dataset.name}: {unit.id}' + ('' if gpu is None else f' on GPU {gpu}'))
-                    log = open(os.path.join(out, 'logs', name + '.log'), 'w')
+                    # one log per unit, every attempt appended (a resumed unit keeps the log of the attempt that
+                    # crashed or was stopped), each between a header and a footer line
+                    cmd = base + ['--units', unit.id]
+                    log = open(os.path.join(out, 'logs', name + '.log'), 'a')
+                    log.write(f'===== {utc_now()} start: holds {len(unit.recorded() & unit.wanted)} of its '
+                              f'{len(unit.wanted)} pages; GPU {gpu}; {shlex.join(cmd)}\n')
+                    log.flush()
                     env = None if gpu is None else dict(os.environ, CUDA_VISIBLE_DEVICES=gpu)
-                    proc = subprocess.Popen(base + ['--units', unit.id], stdout=log, stderr=subprocess.STDOUT,
+                    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT,
                                             env=env, preexec_fn=lambda: os.nice(10))
                     if unit.stage == 'DECODER':
                         running_decoders[gpu] += 1
@@ -1371,6 +1379,7 @@ def run_parallel(todo, registry, dataset, out, args, folder_name, units):
                 time.sleep(10)
                 continue
             code = proc.wait()
+            log.write(f'===== {utc_now()} end: exit code {code}\n')
             log.close()
             with lock:
                 if unit.stage == 'DECODER':
