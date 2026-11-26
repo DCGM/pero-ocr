@@ -10,7 +10,8 @@ def line_image(n_runs: int, run_width: int = 16, gap: int = 16, height: int = LI
                margin: int = 8) -> np.ndarray:
     """Line crop with ``n_runs`` bright blocks, uint8 HxWx3.
 
-    Runs and gaps are multiples of 4 px so they align with the 4-px subsampling of the stand-in OCR models."""
+    Runs and gaps are multiples of 4 px so they align with the 4-px subsampling of the stand-in OCR models (with the
+    defaults also with a subsampling of 2 or 8 of the tiny CTC model, the crop being padded by 32 px)."""
     width = 2 * margin + n_runs * run_width + max(n_runs - 1, 0) * gap
     img = np.zeros((height, max(width, 2 * margin), 3), dtype=np.uint8)
     x = margin

@@ -70,10 +70,10 @@ def ink_colour(character: str, doubt: float = 0.0) -> Tuple[int, int, int]:
     return int(round(255 * (1.0 - doubt))), 255 - LEVEL_STEP * level, 255
 
 
-def _frames(x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
-    """N,3,H,W image in [0, 1] -> per 4-px column block (T = W // 4), each N,T: the fraction of its columns that are
-    ink (at least a quarter of their pixels are ink), and over the ink the character level (from green / blue) and
-    the doubt (from red / blue)."""
+def _frames(x: Tensor, subsampling: int = 4) -> Tuple[Tensor, Tensor, Tensor]:
+    """N,3,H,W image in [0, 1] -> per ``subsampling``-px column block (T = W // subsampling), each N,T: the fraction
+    of its columns that are ink (at least a quarter of their pixels are ink), and over the ink the character level
+    (from green / blue) and the doubt (from red / blue)."""
     ink_px = (x.mean(dim=1) > 0.5).float()  # N,H,W
     n_ink = ink_px.sum(dim=1)  # N,W
     column = (n_ink >= 0.25 * x.shape[2]).float()
@@ -81,24 +81,27 @@ def _frames(x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
     blue = x[:, 2].clamp(min=1e-3)
     green = (x[:, 1] / blue * ink_px).sum(dim=1) / n_ink.clamp(min=1.0)
     red = (x[:, 0] / blue * ink_px).sum(dim=1) / n_ink.clamp(min=1.0)
-    ink = F.avg_pool1d(column.unsqueeze(1), 4, 4).squeeze(1)
-    weight = F.avg_pool1d(column.unsqueeze(1), 4, 4).squeeze(1).clamp(min=1e-6)
-    green = F.avg_pool1d((green * column).unsqueeze(1), 4, 4).squeeze(1) / weight
-    red = F.avg_pool1d((red * column).unsqueeze(1), 4, 4).squeeze(1) / weight
+    ink = F.avg_pool1d(column.unsqueeze(1), subsampling, subsampling).squeeze(1)
+    weight = ink.clamp(min=1e-6)
+    green = F.avg_pool1d((green * column).unsqueeze(1), subsampling, subsampling).squeeze(1) / weight
+    red = F.avg_pool1d((red * column).unsqueeze(1), subsampling, subsampling).squeeze(1) / weight
     level = torch.round((1.0 - green) * 255.0 / 25.0)  # LEVEL_STEP (torchscript cannot read the global)
     return ink, level, 1.0 - red
 
 
 class TinyCTC(nn.Module):
-    def __init__(self, n_characters: int, embed_num: int = 4):
+    """``subsampling``: the line width per output frame (real CTC networks: 4, or 8 for those with an attention
+    encoder on 8 px wide patches)."""
+    def __init__(self, n_characters: int, embed_num: int = 4, subsampling: int = 4):
         super().__init__()
         self.n_out = n_characters + 1  # + blank, which is the last class
         self.n_characters = n_characters
+        self.subsampling = subsampling
         self.embeddings_layer = nn.Embedding(embed_num, 1)
 
     def forward(self, x: Tensor, embed_ids: Optional[Tensor] = None) -> Tensor:
         """N,3,H,W -> N,C,T logits, blank is the last class."""
-        ink, level, doubt = _frames(x)
+        ink, level, doubt = _frames(x, self.subsampling)
         shift = torch.zeros_like(level) if embed_ids is None else embed_ids.to(level.dtype).unsqueeze(1)
         n_letters = self.n_characters - 1
         char_ids = 1 + torch.remainder(level + shift, n_letters).long()  # N,T
@@ -279,10 +282,12 @@ def _save_script(module: nn.Module, path: str) -> str:
     return path
 
 
-def write_ctc(directory: str, characters=CHARACTERS, embed_num: Optional[int] = None, extra: dict = None) -> str:
+def write_ctc(directory: str, characters=CHARACTERS, embed_num: Optional[int] = None, extra: dict = None,
+              subsampling: int = 4) -> str:
     """Write an OCR json + torchscript CTC model, return the json path."""
     os.makedirs(directory, exist_ok=True)
-    _save_script(TinyCTC(len(characters), embed_num=embed_num or 4), os.path.join(directory, 'model.pt'))
+    _save_script(TinyCTC(len(characters), embed_num=embed_num or 4, subsampling=subsampling),
+                 os.path.join(directory, 'model.pt'))
     config = {
         'checkpoint': './model.pt',
         'line_px_height': LINE_PX_HEIGHT,

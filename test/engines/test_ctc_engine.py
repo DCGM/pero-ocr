@@ -1,6 +1,7 @@
 """The CTC OCR engine (PytorchEngineLineOCR) with the tiny CTC model: loading the model and its json (checkpoint
 paths, the CPU checkpoint, embeddings, output substitution), batching by width, extreme line sizes, the logits
-format, and reading the text and doubt that the colours of the crop encode (test/tiny_models.py)."""
+format and the frames of the text at different subsamplings of the network, and reading the text and doubt that the
+colours of the crop encode (test/tiny_models.py)."""
 import os
 import shutil
 
@@ -10,7 +11,7 @@ from scipy import sparse
 
 from pero_ocr.ocr_engine.pytorch_ocr_engine import PytorchEngineLineOCR, greedy_decode_ctc
 from test import tiny_models
-from test.synthetic import line_image
+from test.synthetic import line_image, text_line
 
 N_OUT = len(tiny_models.CHARACTERS) + 1
 
@@ -38,6 +39,50 @@ def test_logits_format(engine):
         assert line_logits.dtype == np.float32
         assert line_logits.shape[1] == N_OUT
         assert line_coords == [engine.line_padding_px // 4, (engine.line_padding_px + line.shape[1]) // 4]
+
+
+@pytest.fixture(scope='module')
+def engine_with_subsampling(tmp_path_factory, cpu):
+    """The tiny CTC model written with a given subsampling (the line width per output frame), one engine each."""
+    engines = {}
+
+    def get(subsampling):
+        if subsampling not in engines:
+            directory = str(tmp_path_factory.mktemp(f'subsampling{subsampling}'))
+            engines[subsampling] = PytorchEngineLineOCR(tiny_models.write_ctc(directory, subsampling=subsampling), cpu)
+        return engines[subsampling]
+    return get
+
+
+ASSUMES_4 = pytest.mark.xfail(reason='#110: PytorchEngineLineOCR assumes a subsampling of 4 (net_subsampling = 4) '
+                                     'for every network', strict=True)
+
+
+def best_path(logits, characters):
+    """Greedy CTC decoding of dense T,C logits, blank last."""
+    best = np.argmax(logits, axis=1)
+    return ''.join(characters[c] for i, c in enumerate(best)
+                   if c != logits.shape[1] - 1 and (i == 0 or c != best[i - 1]))
+
+
+@pytest.mark.parametrize('subsampling', [2, 4, 8])
+def test_transcription_does_not_depend_on_the_subsampling(engine_with_subsampling, subsampling):
+    transcriptions, logits, _ = engine_with_subsampling(subsampling).process_lines([text_line('abc')],
+                                                                                    sparse_logits=False)
+    assert transcriptions == ['abc']
+    assert logits[0].shape[0] == (2 * 32 + text_line('abc').shape[1]) // subsampling  # padded 32 px on each side
+
+
+@pytest.mark.parametrize('subsampling', [pytest.param(2, marks=ASSUMES_4), 4, pytest.param(8, marks=ASSUMES_4)])
+def test_logit_coords_cover_the_text_at_any_subsampling(engine_with_subsampling, subsampling):
+    """logit_coords are the frames of the line without its padding; the ALTO export aligns the words to them only, so
+    with wrong ones the words are misplaced (#110)."""
+    engine = engine_with_subsampling(subsampling)
+    line = text_line('abc')
+    _, logits, coords = engine.process_lines([line], sparse_logits=False)
+    assert coords[0] == [engine.line_padding_px // subsampling,
+                         (engine.line_padding_px + line.shape[1]) // subsampling]
+    assert best_path(logits[0][coords[0][0]:coords[0][1]], engine.characters) == 'abc'
 
 
 def test_dense_logits(engine):
