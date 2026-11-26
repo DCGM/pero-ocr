@@ -82,8 +82,8 @@ A unit holds the pages whose files it has (a cropper: the pages of its pages.tsv
 all, so an interrupted run loses at most the chunk it was computing (--chunk-pages), and deleting a page's files makes
 the next run compute it again. engine.json holds the engine (unit, engine, files, config); unit.json exists only for
 an adopted unit (adopted_from) or one extended with --force-model (engine_changes); pages.tsv the processing of every
-page in the columns of its stage (page, seconds: wall time of the engine's call, gpu_peak_mb; layout: lines detected;
-cropper: crops; OCR: lines read, chars written, width_px of the crops; decoder: lines_decoded (the lines over its
+page in the columns of its stage (page, seconds: wall time of the engine's call, gpu_peak_mb; layout: image_px,
+pass1_px, pass2_px (the ParseNet's input in each pass; empty: no such pass); cropper: crops; OCR: lines read, chars written, width_px of the crops; decoder: lines_decoded (the lines over its
 confidence threshold keep the OCR text), chars written, frames of those lines; with --jobs over 1 units share a GPU,
 so the times include waiting for each other). Pages are added only
 with the engine the unit was recorded with; --force-model adds them anyway and records which pages got the new engine
@@ -803,7 +803,7 @@ def recorded_pages(folder, dataset):
 
 PAGE_STATS = 'pages.tsv'  # per unit: the processing of every page, the columns of its stage (PAGE_COLUMNS)
 PAGE_COLUMNS = {
-    'LAYOUT_PARSER': ('page', 'seconds', 'gpu_peak_mb', 'lines'),             # lines: detected
+    'LAYOUT_PARSER': ('page', 'seconds', 'gpu_peak_mb', 'image_px', 'pass1_px', 'pass2_px'),  # ParseNet passes
     'LINE_CROPPER': ('page', 'seconds', 'crops'),                            # on the CPU
     'OCR': ('page', 'seconds', 'gpu_peak_mb', 'lines', 'chars', 'width_px'),  # lines read, chars written, crop width
     'DECODER': ('page', 'seconds', 'gpu_peak_mb', 'lines_decoded', 'chars', 'frames'),  # frames: of the decoded lines
@@ -914,7 +914,8 @@ class Unit:
 
     def page_done(self, name, seconds, **counts):
         """The processing of one page: the wall seconds of the engine's call and what its stage counts
-        (PAGE_COLUMNS): peak GPU memory in MB, lines detected (layout), crops (cropper), lines read, characters
+        (PAGE_COLUMNS): peak GPU memory in MB, the pixels of the input image and of each ParseNet pass (layout),
+        crops (cropper), lines read, characters
         written (as the engine wrote them, before any NFC of the output) and the total width of the crops (OCR), lines
         decoded (the lines over the decoder's confidence threshold keep the OCR text), characters written and logit
         frames of those lines (decoder)."""
@@ -926,7 +927,7 @@ class Unit:
     def finish(self, info):
         """Add the chunk computed into <unit>.partial/ to the unit. engine.json holds the engine, unit.json (when it
         applies) adopted_from and engine_changes; the pages are the files
-        (a cropper's: the rows of pages.tsv), their processing (seconds, lines, GPU memory) is pages.tsv."""
+        (a cropper's: the rows of pages.tsv), their processing is pages.tsv."""
         new = [p['name'] for p in self.pages]
         order = {p['name']: i for i, p in enumerate(self.dataset.all_pages)}
         if not self.topup:
@@ -1083,6 +1084,35 @@ def read_pages(pages, with_layout=True, crops=None, depth=3):
 # Layout
 
 
+class _NetInputs:
+    """Stands in for a TorchParseNet's network: calls it and records the pixels of every input it gets."""
+
+    def __init__(self, net, passes):
+        self.net, self.passes = net, passes
+
+    def __call__(self, x, *args, **kwargs):
+        self.passes.append(int(x.shape[-2]) * int(x.shape[-1]))
+        return self.net(x, *args, **kwargs)
+
+
+def watch_parsenet_inputs(parser, config, unit_id):
+    """The list the pixels of every ParseNet pass of a page go to (the canvas the network gets: the image resized by
+    the downsample and padded to a multiple of 64), or None when the engine has no ParseNet. LAYOUT_CNN runs the
+    network once at its starting downsample and a second time when the lines it found need another one; the first
+    pass's output is then only measured. The measurement relies on TorchParseNet calling its network as .net once
+    per pass: when a LAYOUT_CNN engine has no such network, the run stops instead of leaving the columns empty."""
+    from pero_ocr.layout_engines.torch_parsenet import TorchParseNet
+    passes, watched = [], 0
+    for obj in _parser_objects(parser):
+        if isinstance(obj, TorchParseNet) and obj.net is not None:
+            obj.net = _NetInputs(obj.net, passes)
+            watched += 1
+    if not watched and any(config[s].get('METHOD') == 'LAYOUT_CNN' for s in config.sections()):
+        sys.exit(f'{unit_id}: a LAYOUT_CNN engine without a TorchParseNet network (.net) to measure its passes '
+                 f'(watch_parsenet_inputs: has pero-ocr changed?)')
+    return passes if watched else None
+
+
 def run_layout(unit, registry, dataset):
     from pero_ocr.core.layout import PageLayout
     from pero_ocr.document_ocr.page_parser import PageParser
@@ -1090,15 +1120,23 @@ def run_layout(unit, registry, dataset):
     config = engine.config()
     unit.check_engine(engine.files(), config_text(config))
     parser = PageParser(config, config_path=engine.folder)
+    passes = watch_parsenet_inputs(parser, config, unit.id)
     for pages in chunks(unit.missing_pages()):
         unit.start(pages)
         os.makedirs(os.path.join(unit.partial, 'page_xml'))
         for page, image, _ in read_pages(pages, with_layout=False):
             start_page(page['name'], parser)
+            if passes is not None:
+                passes.clear()
             layout = PageLayout(id=page['name'], page_size=(image.shape[0], image.shape[1]))
             layout, seconds, gpu = measured(parser.process_page, image, layout)
             layout.to_pagexml(os.path.join(unit.partial, 'page_xml', page['name'] + '.xml'))
-            unit.page_done(page['name'], seconds, gpu_peak_mb=gpu, lines=sum(1 for _ in layout.lines_iterator()))
+            if passes is not None and not 1 <= len(passes) <= 2:
+                sys.exit(f'{unit.id}: page {page["name"]}: {len(passes)} ParseNet passes recorded; pages.tsv has '
+                         f'columns for 1 or 2 (PAGE_COLUMNS, watch_parsenet_inputs: has pero-ocr changed?)')
+            pass_px = (passes or []) + [''] * (2 - len(passes or []))
+            unit.page_done(page['name'], seconds, gpu_peak_mb=gpu, image_px=image.shape[0] * image.shape[1],
+                           pass1_px=pass_px[0], pass2_px=pass_px[1])
         unit.finish(dict(engine=unit.name, files=engine.files(), config=config_text(config)))
     del parser
 
@@ -1397,6 +1435,14 @@ def prune_logits(registry, out, units):
 # Report
 
 
+def processed_total(column, stats):
+    """A column of pages.tsv summed over the pages for the report; pixels in Mpx, with the pages that have them."""
+    values = [int(r[column]) for r in stats if r.get(column)]
+    if column in ('image_px', 'pass1_px', 'pass2_px'):  # areas (width_px of OCR is a width)
+        return f"{sum(values) / 1e6:.1f} Mpx {column[:-3].replace('_', ' ')} ({len(values)} pages)"
+    return f"{sum(values)} {column.replace('_', ' ')}"
+
+
 def write_report(out, commit):
     """<benchmark records>/report.md: the units of the benchmark."""
     rows = []
@@ -1412,8 +1458,7 @@ def write_report(out, commit):
                 seconds = sum(float(r['seconds']) for r in stats if r.get('seconds')) if stats else ''
                 gpu = max((int(r['gpu_peak_mb']) for r in stats if r.get('gpu_peak_mb')), default='')
                 counted = [c for c in PAGE_COLUMNS[stage] if c not in ('page', 'seconds', 'gpu_peak_mb')]
-                processed = ', '.join(f"{sum(int(r[c]) for r in stats if r.get(c))} {c.replace('_', ' ')}" for c in counted
-                                      if any(r.get(c) for r in stats))
+                processed = ', '.join(processed_total(c, stats) for c in counted if any(r.get(c) for r in stats))
                 if info.get('adopted_from'):
                     name += f" (adopted from {info['adopted_from'][:7]})"
                 rows.append((stage, name, len(pages) if isinstance(pages, list) else pages, seconds, gpu, processed))

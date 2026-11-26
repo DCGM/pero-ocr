@@ -203,7 +203,7 @@ pages). Every unit except a derived one also has
 
 | stage | columns |
 |---|---|
-| layout | `page`, `seconds`, `gpu_peak_mb`, `lines` (detected) |
+| layout | `page`, `seconds`, `gpu_peak_mb`, `image_px` (the pixels of the page image), `pass1_px`, `pass2_px` (the pixels of the ParseNet's input in each pass, empty when there was no such pass) |
 | cropper | `page`, `seconds`, `crops` (on the CPU) |
 | OCR | `page`, `seconds`, `gpu_peak_mb`, `lines` (read), `chars` (written), `width_px` (the total width of the crops it read: its input size) |
 | decoder | `page`, `seconds`, `gpu_peak_mb`, `lines_decoded`, `chars` (written in those lines), `frames` (the logit frames of those lines, the padding included: its input size) |
@@ -212,7 +212,10 @@ pages). Every unit except a derived one also has
 memory; `chars` counts the text as the engine wrote it, before any NFC of the output. A decoder decodes only the lines
 over its confidence threshold, the others keep the OCR text. The counts can be derived from the records too (except a
 decoder's), and are kept with the inference as a check of them. With `--jobs` over 1 units share a GPU, so their
-times include waiting for each other. A unit derived by a higher threshold computes nothing and has no `pages.tsv`. OCR and decoder units keep one set of files
+times include waiting for each other. LAYOUT_CNN runs its ParseNet on the image resized by its starting downsample
+(further when the image is over `MAX_MEGAPIXELS`) and padded to a multiple of 64; when the lines it finds are too
+small or too large for the network, it runs it a second time at another downsample, and keeps only the second
+output. A unit derived by a higher threshold computes nothing and has no `pages.tsv`. OCR and decoder units keep one set of files
 per page (`benchmark/records.py`), the lines in the page's PAGE XML order:
 
 - `lines/<page>.txt`: the lines in the format of the test lists, `<page>-<line_id>.jpg <text>`; a line the
