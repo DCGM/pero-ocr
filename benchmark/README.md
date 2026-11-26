@@ -95,8 +95,8 @@ DECODER:
   benchmark, a run gets only pages its input run gets, a cropper gives lines of the height the
   OCR network takes, and the OCR engines a decoder decodes are CTC engines (not transformers).
 - A decoder reads the logits of an OCR run with the OCR engine's char set (its `[OCR] OCR_JSON`), as it does in a
-  config together with the OCR; its own `[OCR] OCR_JSON` is not used. `unit.json` records the OCR engine whose char
-  set it used and the md5 of that file (`charset_of`, `charset_md5`). Whether the language model fits that char set is
+  config together with the OCR; its own `[OCR] OCR_JSON` is not used (the OCR engine is in the decoder unit's name,
+  its files in the OCR unit's `engine.json`). Whether the language model fits that char set is
   not checked here: pero-ocr gives the language model the index of each OCR output, not the character, so the characters the
   language model knows must be the char set's first characters, in order.
 
@@ -113,7 +113,7 @@ Adding an engine (or pages of a run) is adding it to a registry and running the 
 runs. A unit whose engine was changed since (its files, e.g. a fixed model json) is not run again by itself: `--list`
 marks it ENGINE CHANGED, and unit folders the registry no longer has as orphan; delete them and run again to fill
 them in. A unit keeps one set of files per page, so computing some pages again is deleting their files
-(`lines/<page>.*`, `logprobs/<page>.npz`, for a layout unit `page_xml/<page>.xml`) and running again; when the engine
+(`lines/<page>.*`, `logprobs.1in64/<page>.npz`, for a layout unit `page_xml/<page>.xml`) and running again; when the engine
 changed since, add `--force-model`, which `unit.json` records (`engine_changes`: which pages got the new engine).
 `score.py` scores a unit on a test list when the unit holds all the list's pages, otherwise it reports NA.
 Several registries (one per benchmark) can be run at once (`--registry R.yaml S.yaml`). `--units` restricts a run,
@@ -176,7 +176,7 @@ The records of a commit (a free run's folder has the same structure, plus `<benc
     report.md                         the units
     LAYOUT_PARSER/<layout>/           page_xml/
     LINE_CROPPER/<cropper>/           crops.png.lmdb (the line crops as PNG; its pages: pages.tsv)
-    OCR/<ocr>@<cropper>/              lines/, logprobs/ (+ page_xml/, logits/ when decoded)
+    OCR/<ocr>@<cropper>/              lines/, logprobs.1in64/ (+ page_xml/, logits/ when a decoder decodes it)
     DECODER/<lm>@<ocr>@<cropper>/     lines/
     logs/                             <unit>.log: every attempt of a unit appended, between a start and an end line
                                       (a start line without an end line: that attempt was killed or stopped)
@@ -185,18 +185,12 @@ The records of a commit (a free run's folder has the same structure, plus `<benc
 ```
 
 Every unit has `engine.json`, the engine it ran: `unit` (its id), `engine` (the engine's name), `files` (the md5 of
-every file of the engine's folder) and `config` (the config it ran with); a unit is complete when it has it. What a kind
-of unit adds is in `unit.json`:
-
-| unit | `unit.json` |
-|---|---|
-| OCR | `logprobs_subset` (which lines get full log-probabilities), `page_output` (whether its PAGE XML and logits are kept for a decoder) |
-| OCR derived by a higher threshold | `derived_from` (the base unit), `threshold` |
-| decoder | `ocr_run` (the OCR run it decodes), `charset_of` and `charset_md5` (whose char set it read the logits with) |
-| any, when it applies | `adopted_from` (the commit it was copied from), `engine_changes` (`--force-model`: what changed, which pages) |
-
-Layout units and croppers have no `unit.json` unless one of the last row applies; a cropper's crops are one LMDB
-(`crops.png.lmdb`), so the rows of its `pages.tsv` are the pages it holds. Every unit except a derived one also has
+every file of the engine's folder) and `config` (the config it ran with); a unit is complete when it has it. Everything
+else follows from the unit's name, its engine and its folders: a decoder's OCR run is in its name, a derived unit's
+threshold in its config, a cropper's pages are the rows of its `pages.tsv` and its crops `crops.png.lmdb`, an OCR unit
+keeps `page_xml/` and `logits/` only for the pages a decoder decodes. `unit.json` appears only when a unit was adopted
+(`adopted_from`: the commit it was copied from) or extended with `--force-model` (`engine_changes`: what changed, which
+pages). Every unit except a derived one also has
 `pages.tsv`, the processing of every page: `page`,
 `seconds` (wall time of the engine's call for the page, without reading and writing), `lines` (the lines it processed;
 a decoder: the lines it decoded, as the lines over its confidence threshold keep the OCR text), `gpu_peak_mb` (peak GPU
@@ -207,7 +201,7 @@ per page (`benchmark/records.py`), the lines in the page's PAGE XML order:
 - `lines/<page>.txt`: the lines in the format of the test lists, `<page>-<line_id>.jpg <text>`; a line the
   confidence filter removed has no text;
 - `lines/<page>.tsv`: `line_id`, `confidence` (full precision), `kept` (0: the filter removed the line);
-- `logprobs/<page>.npz` (OCR): the full log-probabilities of the page's lines in a fixed subset of lines (1 in 64, by
+- `logprobs.1in64/<page>.npz` (OCR): the full log-probabilities of the page's lines in a fixed subset of lines (1 in 64, by
   a hash of `<page>/<line_id>`, the same in every unit), to compare the raw output of engines and environments; no file
   for a page with no line in the subset.
 

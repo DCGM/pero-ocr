@@ -8,8 +8,10 @@ A unit holds a page when it holds both line files of the page:
                           text); it can be compared with a test list line by line (e.g. meld)
     lines/<page>.tsv      the rest of each line, in the same order: line_id, confidence (full precision, empty when
                           the line has none), kept (0: the filter removed the line)
-    logprobs/<page>.npz   OCR units: the full log-probabilities of the page's lines in the fixed subset (key: the
-                          line id); no file when none of its lines is in the subset
+    logprobs.1in64/<page>.npz   OCR units: the full log-probabilities of the page's lines in the fixed subset, one
+                          line in 64 by a hash of "<page>/<line_id>", the same in every unit (key: the line id); no
+                          file when none of its lines is in the subset. The folder name says the subset, so records
+                          made with another one do not look comparable.
 
 Every file is written under a temporary name and renamed, so a page is either there completely or not at all; deleting
 a page's files makes the next run compute it again.
@@ -21,7 +23,8 @@ import os
 import numpy as np
 
 LINES = 'lines'
-LOGPROBS = 'logprobs'
+LOGPROBS_SUBSET = 64  # one line in LOGPROBS_SUBSET keeps its log-probabilities
+LOGPROBS = f'logprobs.1in{LOGPROBS_SUBSET}'
 HEADER = ['line_id', 'confidence', 'kept']
 
 

@@ -63,7 +63,7 @@ Units (one folder each in <commit>/<benchmark>/, complete when it holds engine.j
                                     "<page>/<line_id>", the crop as PNG (lossless); its pages: pages.tsv
     OCR/<ocr>@<cropper>             the OCR engine on the stored crops of the cropper, per page (records.py):
                                     lines/<page>.txt (the lines in the format of the test lists), lines/<page>.tsv
-                                    (line id, confidence, kept), logprobs/<page>.npz (full log-probabilities of the
+                                    (line id, confidence, kept), logprobs.1in64/<page>.npz (full log-probabilities of the
                                     page's lines in a fixed subset of lines, the same subset for every engine). An OCR
                                     run a decoder decodes also keeps its full output
                                     of every page, as a production worker stores it for the LM stage:
@@ -80,8 +80,8 @@ Units (one folder each in <commit>/<benchmark>/, complete when it holds engine.j
 
 A unit holds the pages whose files it has (a cropper: the pages of its pages.tsv); a page is written completely or not at
 all, so an interrupted run loses at most the chunk it was computing (--chunk-pages), and deleting a page's files makes
-the next run compute it again. engine.json holds the engine (unit, engine, files, config), unit.json what the kind
-of unit adds (below); pages.tsv the processing of every
+the next run compute it again. engine.json holds the engine (unit, engine, files, config); unit.json exists only for
+an adopted unit (adopted_from) or one extended with --force-model (engine_changes); pages.tsv the processing of every
 page (page, seconds: wall time of the engine's call, lines: the lines it processed (a decoder: decoded, the lines
 over its confidence threshold keep the OCR text), gpu_peak_mb: peak GPU memory; with --jobs over 1 units share a GPU,
 so the times include waiting for each other). Pages are added only
@@ -137,7 +137,7 @@ RUN_SWITCH = {'LAYOUT_PARSER': 'RUN_LAYOUT_PARSER', 'LINE_CROPPER': 'RUN_LINE_CR
               'DECODER': 'RUN_DECODER'}
 THRESHOLD = 'FILTER_CONFIDENT_LINES_THRESHOLD'
 IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp', '.jp2')
-LOGITS_SUBSET = 64  # one line in LOGITS_SUBSET keeps its logits (chosen by a hash of its key, the same for every model)
+LOGITS_SUBSET = records.LOGPROBS_SUBSET  # one line in it keeps its log-probabilities (a hash of its key, the same for every model)
 LMDB_MAP_SIZE = 1 << 40
 # A unit adds its computed pages to its folder every CHUNK_PAGES pages (--chunk-pages). 25 pages are under 10 minutes
 # for the slowest units of the eb446a3 run (decoders, ~22 s a page) and half a minute for a median unit (~0.7 s a page).
@@ -674,8 +674,8 @@ ENGINE_FIELDS = ('unit', 'engine', 'files', 'config')  # engine.json: what every
 
 
 def read_unit(folder):
-    """A unit's record: engine.json (unit, engine, files, config; a unit is complete when it has it) and unit.json (what
-    its kind of unit adds), as one dict; None for a unit that does not exist."""
+    """A unit's record: engine.json (unit, engine, files, config; a unit is complete when it has it) and unit.json (only
+    adopted_from, engine_changes when they apply), as one dict; None for a unit that does not exist."""
     path = os.path.join(folder, 'engine.json')
     if not os.path.exists(path):
         return None
@@ -831,8 +831,8 @@ class Unit:
         self.stats[name] = dict(page=name, seconds=seconds, lines=lines, gpu_peak_mb=gpu_peak_mb)
 
     def finish(self, info):
-        """Add the chunk computed into <unit>.partial/ to the unit. engine.json holds the engine, unit.json what the kind
-        of unit adds; the pages are the files
+        """Add the chunk computed into <unit>.partial/ to the unit. engine.json holds the engine, unit.json (when it
+        applies) adopted_from and engine_changes; the pages are the files
         (a cropper's: the rows of pages.tsv), their processing (seconds, lines, GPU memory) is pages.tsv."""
         new = [p['name'] for p in self.pages]
         order = {p['name']: i for i, p in enumerate(self.dataset.all_pages)}
@@ -848,7 +848,6 @@ class Unit:
             if self.stats:  # before the record: a page's row may stay if interrupted here, the next run replaces it
                 write_page_stats(self.final, dict(read_page_stats(self.final), **self.stats), order)
             merged = dict(old, **info)
-            merged['page_output'] = old.get('page_output', False) or info.get('page_output', False)
             change = getattr(self, 'engine_change', None)
             if change:  # --force-model: the pages computed with the new engine, one entry per run
                 changes = old.get('engine_changes', [])
@@ -857,8 +856,6 @@ class Unit:
                 else:
                     changes = changes + [dict(change, pages=new)]
                 merged['engine_changes'] = changes
-            if 'page_output' not in old and 'page_output' not in info:
-                merged.pop('page_output')
             write_unit(self.final, merged)  # the unit holds the new pages from here on
             shutil.rmtree(self.partial)
         held = len(self.recorded() & set(self.wanted))
@@ -1138,8 +1135,7 @@ def run_ocr(unit, registry, dataset, out):
                     f.write(layout.save_logits_bytes(missing_line_logits_ok=True))
             records.write_logprobs(unit.partial, name, logprobs)
             records.write_page(unit.partial, name, rows)
-        unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(config),
-                         logprobs_subset=f'1/{LOGITS_SUBSET} by md5 of "<page>/<line_id>"', page_output=bool(kept)))
+        unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(config)))
     del parser
     env.close()
 
@@ -1168,8 +1164,7 @@ def run_derived(unit, registry, dataset, out):
         records.write_logprobs(unit.partial, name, logprobs)
         records.write_page(unit.partial, name, rows)
     engine = registry.ocr_engine(unit.name)
-    unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(engine.config()),
-                     derived_from=base, threshold=threshold))  # nothing computed: no pages.tsv
+    unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(engine.config())))  # no pages.tsv
 
 
 def ocr_output(run, pages, registry, dataset, out):
@@ -1220,7 +1215,7 @@ def run_decoder(unit, registry, dataset, out):
     ocr_unit = os.path.join(out, 'OCR', run)
     config = engine.config()
     unit.check_engine(engine.files(), config_text(config))
-    charset = decoder_charset(registry.engines['OCR'][run.split('@', 1)[0]])
+    charset = decoder_charset(registry.engines['OCR'][run.split('@', 1)[0]])  # the OCR engine's json
     pages = unit.missing_pages()
     need_pages(f'OCR/{run}', out, dataset, pages)
     base = registry.base(run)
@@ -1228,7 +1223,7 @@ def run_decoder(unit, registry, dataset, out):
     run_config = engine.config()
     if not run_config.has_section('OCR'):
         run_config.add_section('OCR')
-    run_config['OCR']['OCR_JSON'] = charset['path']
+    run_config['OCR']['OCR_JSON'] = charset
     decoder = PageParser(run_config, config_path=engine.folder)
     for chunk in chunks(pages):
         unit.start(chunk)
@@ -1247,16 +1242,14 @@ def run_decoder(unit, registry, dataset, out):
             unit.page_done(name, seconds, decoder.decoder.lines_decoded - decoded, gpu)
             rows = page_rows(line_ids, layout)
             records.write_page(unit.partial, name, rows)
-        unit.finish(dict(engine=lm, files=engine.files(), config=config_text(config), ocr_run=run,
-                         charset_of=charset['engine'], charset_md5=charset['md5']))
+        unit.finish(dict(engine=lm, files=engine.files(), config=config_text(config)))
 
 
 def decoder_charset(ocr_engine):
     """The characters a decoder reads the logits of an OCR engine with: the OCR engine's own (its [OCR] OCR_JSON), as
     for a decoder in the same config as the OCR. The decoder's own [OCR] OCR_JSON is not used: a decoder can decode
     OCR engines with different char sets, and its config keeps its own section for the record."""
-    path = os.path.join(ocr_engine.folder, ocr_engine.config()['OCR']['OCR_JSON'])
-    return dict(engine=ocr_engine.name, path=os.path.abspath(path), md5=md5_file(path))
+    return os.path.abspath(os.path.join(ocr_engine.folder, ocr_engine.config()['OCR']['OCR_JSON']))
 
 
 def prune_logits(registry, out, units):
