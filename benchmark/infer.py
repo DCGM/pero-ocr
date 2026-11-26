@@ -87,7 +87,9 @@ cropper: crops; OCR: lines read, chars written, width_px of the crops; decoder: 
 confidence threshold keep the OCR text), chars written, frames of those lines; with --jobs over 1 units share a GPU,
 so the times include waiting for each other). Pages are added only
 with the engine the unit was recorded with; --force-model adds them anyway and records which pages got the new engine
-(unit.json "engine_changes"). Every line of a page is inferred. Every page is processed with numpy's and Python's random generators seeded
+(unit.json "engine_changes"). Every line of a page is inferred. Every page is processed as if it were the first: the
+state pero-ocr's engines keep from page to page (PageState) is reset before it, so a page's records do not depend on the
+pages before it (their order, a page list, a resumed run). Every page is processed with numpy's and Python's random generators seeded
 from its name, so a rerun gives the same result (the layout engine breaks ties with np.random and orders the lines of a
 region with random.uniform, issue #100).
 
@@ -169,6 +171,83 @@ def seed_page(name):
     """Seed every random generator pero-ocr uses from the page name (issue #100)."""
     np.random.seed(page_seed(name))
     random.seed(page_seed(name))
+
+
+_MISSING = object()
+
+
+def _parser_objects(root):
+    """pero-ocr's objects reachable from a PageParser (its engines and their helpers), not the models (torch modules,
+    tensors) or arrays."""
+    import torch
+    seen, out, todo = set(), [], [root]
+    while todo:
+        obj = todo.pop()
+        if id(obj) in seen or isinstance(obj, (torch.nn.Module, torch.Tensor, np.ndarray)):
+            continue
+        seen.add(id(obj))
+        if isinstance(obj, dict):
+            todo += list(obj.values())
+        elif isinstance(obj, (list, tuple, set)):
+            todo += list(obj)
+        elif type(obj).__module__.startswith('pero_ocr') and hasattr(obj, '__dict__'):
+            out.append(obj)
+            todo += list(vars(obj).values())
+    return out
+
+
+def _in_place(obj):
+    """What a restore of the attributes cannot undo: the content of an object's containers and arrays."""
+    def item(x):
+        return x if isinstance(x, (int, float, str, bool, type(None))) else id(x)
+    fp = {}
+    for k, v in vars(obj).items():
+        if isinstance(v, np.ndarray):
+            fp[k] = (v.shape, str(v.dtype), hashlib.md5(v.tobytes()).hexdigest() if v.size <= 10 ** 6 else v.size)
+        elif isinstance(v, dict):
+            fp[k] = tuple((item(a), item(b)) for a, b in v.items())
+        elif isinstance(v, (list, set)):
+            fp[k] = tuple(item(x) for x in v)
+    return fp
+
+
+class PageState:
+    """Every page is processed as if it were the first: the attributes of pero-ocr's objects in a parser (not the
+    models) as after loading, restored before every page. pero-ocr keeps state from page to page in production
+    (LAYOUT_CNN: the downsample it adapted to, TorchParseNet.last_downsample; a decoder with CARRY_H_OVER: the last
+    line of the page before, PageDecoder.last_line; issue #96); a page's records must not depend on the pages before
+    it (their order, a page list, a resumed run). A container or array changed in place cannot be restored: the run
+    stops and names it."""
+
+    def __init__(self, parser):
+        self.saved = [(obj, dict(vars(obj)), _in_place(obj)) for obj in _parser_objects(parser)]
+
+    def restore(self):
+        for obj, attrs, fp in self.saved:
+            d = vars(obj)
+            for k in [k for k in d if k not in attrs]:
+                del d[k]
+            for k, v in attrs.items():
+                if d.get(k, _MISSING) is not v:
+                    d[k] = v
+            if _in_place(obj) != fp:
+                changed = sorted(k for k in set(fp) | set(_in_place(obj)) if fp.get(k) != _in_place(obj).get(k))
+                sys.exit(f'{type(obj).__module__}.{type(obj).__name__}: {", ".join(changed)} changed in place on a page; '
+                         f'its state would carry over to the next page (PageState cannot restore it)')
+
+
+_PAGE_STATES = {}  # parser -> its PageState, recorded before its first page
+
+
+def start_page(name, parser):
+    """Before every page an engine processes: the parser back to its state after loading (PageState) and the random
+    generators seeded from the page name."""
+    state = _PAGE_STATES.get(parser)
+    if state is None:
+        _PAGE_STATES[parser] = PageState(parser)
+    else:
+        state.restore()
+    seed_page(name)
 
 
 def in_logits_subset(key):
@@ -1015,7 +1094,7 @@ def run_layout(unit, registry, dataset):
         unit.start(pages)
         os.makedirs(os.path.join(unit.partial, 'page_xml'))
         for page, image, _ in read_pages(pages, with_layout=False):
-            seed_page(page['name'])
+            start_page(page['name'], parser)
             layout = PageLayout(id=page['name'], page_size=(image.shape[0], image.shape[1]))
             layout, seconds, gpu = measured(parser.process_page, image, layout)
             layout.to_pagexml(os.path.join(unit.partial, 'page_xml', page['name'] + '.xml'))
@@ -1042,7 +1121,7 @@ def _crop_page(args):
             config = configparser.ConfigParser()
             config.read_string(text)
             _croppers[name] = PageParser(config, config_path=folder)
-        seed_page(page['name'])
+        start_page(page['name'], _croppers[name])
         layout = PageLayout(file=page['page_xml'])
         t0 = time.perf_counter()
         layout = _croppers[name].process_page(image, layout)
@@ -1145,7 +1224,7 @@ def run_ocr(unit, registry, dataset, out):
             os.makedirs(os.path.join(unit.partial, 'logits'))
         for page, image, layout in read_pages(chunk, crops=env):
             name = page['name']
-            seed_page(name)
+            start_page(name, parser)
             line_ids = [line.id for line in layout.lines_iterator()]
             for line in layout.lines_iterator():
                 line.transcription = None
@@ -1212,7 +1291,7 @@ def ocr_output(run, pages, registry, dataset, out):
         os.makedirs(os.path.join(folder, sub), exist_ok=True)
     for page, image, layout in read_pages(missing, crops=env):
         name = page['name']
-        seed_page(name)
+        start_page(name, parser)
         line_ids = [line.id for line in layout.lines_iterator()]
         for line in layout.lines_iterator():
             line.transcription = None
@@ -1258,7 +1337,7 @@ def run_decoder(unit, registry, dataset, out):
         unit.start(chunk)
         for page in chunk:
             name = page['name']
-            seed_page(name)
+            start_page(name, decoder)
             line_ids = [line.id for line in PageLayout(file=page['page_xml']).lines_iterator()]
             layout = PageLayout(file=os.path.join(ocr_folder, 'page_xml', name + '.xml'))
             if base != run:  # the lines the run's higher threshold removes

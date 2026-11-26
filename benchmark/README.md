@@ -164,8 +164,13 @@ benchmarks of one commit can be made by different people on different machines a
   claim. `<benchmark>/adopted.json` records the source commit, the files changed in between and the units; the report
   marks them.
 
-Every page is processed with numpy's and Python's random generators seeded from its name, so the layout engine's
-random tie-breaks (issue #100) are the same in every run.
+Every page is processed as if it were the first one: before each page, the state pero-ocr's engines keep from page to
+page is reset (the attributes of pero-ocr's objects in the parser, not the models, back to their values after loading;
+a container changed in place stops the run). In production the same parser carries such state over (the downsample
+`LAYOUT_CNN` adapted to on the previous page; with `CARRY_H_OVER` the decoder's last line of the previous page, issue
+#96), so a page's result there depends on the pages before it; in the benchmark it must not depend on their order, a
+page list or a resumed run. And every page is processed with numpy's and Python's random generators seeded from its
+name, so the layout engine's random tie-breaks (issue #100) are the same in every run.
 
 The records of a commit (a free run's folder has the same structure, plus `<benchmark>/run.json`):
 
