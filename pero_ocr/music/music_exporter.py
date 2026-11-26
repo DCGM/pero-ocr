@@ -9,7 +9,7 @@ import music21 as music
 
 from pero_ocr.core.layout import PageLayout, RegionLayout, TextLine
 from pero_ocr.layout_engines.layout_helpers import split_page_layout_by_categories
-from pero_ocr.layout_engines.pianoform_systems import PIANOFORM_CATEGORY, vertical_center
+from pero_ocr.layout_engines.pianoform_systems import PIANOFORM_CATEGORY
 from pero_ocr.music.lmx_exporter import lmx_systems_to_musicxml
 from pero_ocr.music.music_structures import Measure
 from pero_ocr.music.output_translator import OutputTranslator as Translator
@@ -90,8 +90,6 @@ class MusicPageExporter:
     def export_pianoform_systems(self, page_layout: PageLayout, file_id: str = None) -> None:
         """Export the piano systems of the page (LMX transcriptions) as one piano score."""
         regions = [region for region in page_layout.regions if region.category == PIANOFORM_CATEGORY]
-        # Top to bottom: the region order is unreliable for vertically overlapping systems.
-        regions.sort(key=vertical_center)
         systems = []
         for region in regions:
             systems += [line.transcription for line in region.lines if line.transcription]
