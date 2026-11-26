@@ -81,7 +81,7 @@ def run_layout_cnn(directory, inputs, params):
     out = {}
     for config_name, options in params['configs'].items():
         config = configparser.ConfigParser()
-        config.read_dict({'S': {'MODEL_PATH': os.path.join(directory, 'parsenet.pt'), 'USE_CPU': 'yes',
+        config.read_dict({'S': {'MODEL_PATH': os.path.join(directory, 'model.pt'), 'USE_CPU': 'yes',
                                 **{key.upper(): str(value) for key, value in options.items()}}})
         for name in params['pages']:
             image = inputs[f'page/{name}']
@@ -110,7 +110,7 @@ def run_layout_cnn(directory, inputs, params):
 
 def run_lm(directory, inputs, params):
     characters = params['characters']
-    lm = LMWrapper(construct_lm(os.path.join(directory, 'lm.pt')), characters, CPU)
+    lm = LMWrapper(construct_lm(os.path.join(directory, 'model.pt')), characters, CPU)
     out = {}
     for prefix in params['prefixes']:
         h = lm.initial_h(1)

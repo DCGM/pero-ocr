@@ -11,7 +11,7 @@ The rules for where a test goes and when an engine needs a consistency check are
 
 The basis environment (`requirements/lock.txt`) is one set of versions for Python 3.8, 3.9 and 3.10, the recommended way to run pero-ocr and the one tested in production (issue #94). `pip install -e ".[test]"` works too, with whatever versions `pyproject.toml` allows (the lock loosened, capped only where a release is known to cause problems); the consistency checks then tell whether those versions change any output. Such installs pass the CPU suite on Python 3.8 to 3.13 but were not tested in production. Frozen data and golden files are regenerated only in the basis environment.
 
-## Layout
+## Tiers
 
 | directory | what | needs |
 |---|---|---|
@@ -19,10 +19,10 @@ The basis environment (`requirements/lock.txt`) is one set of versions for Pytho
 | `page_parser/` | `PageParser` built from config: which sections run and in which order, numbered sections, what `PageParser` itself does with the result, and full production-like pipelines | CPU |
 | `stages/` | every kind of config section as a stage: which engine a section builds, and what the stage does around the engine that is the same for all its engines | CPU |
 | `engines/` | every engine as a black box, with all its options, driven by tiny torchscript models; YOLO with a fake ultralytics | CPU |
-| `engines/consistency/` | every engine, with a frozen model, still turns a frozen input into exactly the frozen output (the smart sorter and the line cropper have no model) | CPU |
+| `engines/consistency/` | every engine that can have a meaningful check (`engines/README.md`) still turns a frozen input into exactly the frozen output, with a frozen model where it has one | CPU |
 | `io/` | PAGE XML / ALTO / logits: export, import (also from other tools), round trips, known bugs | CPU |
 | `io/consistency/` | the exporters still write the committed golden IO files, and the committed PAGE XML still reads back | CPU |
-| `unit/` | internals in isolation: algorithms and data structures with no config section of their own (decoder internals, hypotheses, confusion networks, confidences, alignments, the layout data model), mirroring the `pero_ocr` package | CPU |
+| `unit/` | internals in isolation: algorithms and data structures with no config section of their own (decoder internals, hypotheses, confusion networks, confidences, alignments, the page data model `PageLayout`, `RegionLayout`, `TextLine`), mirroring the `pero_ocr` package | CPU |
 
 The tiers follow the call stack: `parse_folder.py` wraps `PageParser`, which runs the stages, which wrap the engines, which produce the `PageLayout` that `io` exports.
 
@@ -34,20 +34,14 @@ Each tier tests its own logic and treats the tier below as a black box:
 - **`cli/`** tests `parse_folder.py` itself: arguments, files, skipping, errors, exit codes, and full runs.
 - **`unit/`** tests what has no config section and is not an engine: the internals that the engines and stages are built from. A test that drives an engine through its public interface belongs to `engines/`, even if it checks exact numbers.
 
-| config section | stage (`stages/`) | engine | engine tests (`engines/`) | consistency check (`engines/consistency/`) |
-|---|---|---|---|---|
-| `[LAYOUT_PARSER] METHOD = LAYOUT_CNN` | `test_layout_stage.py` | `LayoutExtractor`, `LayoutEngine` | `test_layout_cnn.py`, `test_layout_engine.py` | `test_layout_cnn.py` |
-| `METHOD = LAYOUT_YOLO` | | `LayoutExtractorYolo`, `LayoutEngineYolo` | `test_layout_yolo.py` | none: ultralytics loads the model |
-| `METHOD = REGION_SORTER_SMART`, `REGION_SORTER_NAIVE` | | `SmartRegionSorter`, `NaiveRegionSorter` | `test_region_sorters.py` | `test_smart_sorter.py` (smart only; the naive sorter after its bug is fixed) |
-| `METHOD = REGION_SORTER_TRANSFORMER` | | `TransformerRegionSorter` | `test_region_sorter_transformer.py` | `test_region_sorter_transformer.py` |
-| `METHOD = REGION_WHOLE_PAGE` | | `WholePageRegion` | `test_region_whole_page.py` | none: trivial |
-| `METHOD = LINE_POSTPROCESSING` | | `LinePostprocessor`, `PostprocessingEngine` | `test_line_postprocessing.py` | `test_line_postprocessing.py` |
-| `METHOD = LAYOUT_POSTPROCESSING` | | `LayoutPostprocessor` (`layout_helpers.retrace_region`) | `test_layout_postprocessing.py` | `test_layout_postprocessing.py` |
-| `[LINE_CROPPER]` | `test_cropper_stage.py` | `EngineLineCropper` | `test_line_cropper.py` | `test_line_cropper.py` |
-| `[OCR]` | `test_ocr_stage.py` | `PytorchEngineLineOCR`, `TransformerEngineLineOCR` | `test_ctc_engine.py`, `test_transformer_engine.py` | `test_ctc_engine.py`, `test_transformer_engine.py` |
-| `[DECODER]` | `test_decoder_stage.py` | `GreedyDecoder`, `CTCPrefixLogRawNumpyDecoder`, the language model (`construct_lm`, `LMWrapper`) | `test_decoders.py`, `test_lm.py` | `test_lm.py` (FAST-LOG-RAW with the LM) |
+| config section | stage tests (`stages/`) | engines |
+|---|---|---|
+| `[LAYOUT_PARSER]` | `test_layout_stage.py` | one per `METHOD` (layout methods, region sorters, postprocessing) |
+| `[LINE_CROPPER]` | `test_cropper_stage.py` | `EngineLineCropper` |
+| `[OCR]` | `test_ocr_stage.py` | `PytorchEngineLineOCR`, `TransformerEngineLineOCR` |
+| `[DECODER]` | `test_decoder_stage.py` | `GreedyDecoder`, `CTCPrefixLogRawNumpyDecoder`, the language model |
 
-Not covered: `REGION_SIMPLE_THRESHOLD`, `LINES_SIMPLE_THRESHOLD` and `LINE_FILTER`, which may be dropped (issues #101 and #102).
+Every engine with its engine tests and its consistency check (or why it has none) is listed in `engines/README.md`.
 
 The markers `gpu`, `models` (real models, `PERO_TEST_MODELS`) and `regression` (the external page sample, `PERO_TEST_DATA`) are deselected by default.
 
@@ -75,8 +69,8 @@ The YOLO layout engine (`LAYOUT_YOLO`) is the exception: ultralytics, not pero-o
 
 1. Engine tests in `engines/test_<engine>.py`: the engine built directly, every option it has, as a black box.
 2. If its config section kind is new, a stage file in `stages/`; otherwise add it to the stage's `METHOD` / `TYPE` dispatch tests.
-3. A consistency check in `engines/consistency/test_<engine>.py`, with a tiny model if it has a network, run as production would configure it. Engines without a meaningful one (a model loaded by a third-party library, or trivial code with no library underneath) are listed with the reason in `engines/consistency/README.md`.
-4. The row in the table of config sections above, and a production-shaped pipeline in `page_parser/` if production will use it.
+3. A consistency check in `engines/consistency/test_<engine>.py`, with a tiny model if it has a network, run as production would configure it. Engines without a meaningful one (a model loaded by a third-party library, or trivial code with no library underneath) get the reason in their consistency-check cell of the table in `engines/README.md`.
+4. Its row in the engine table in `engines/README.md`, and a production-shaped pipeline in `page_parser/` if production will use it.
 
 ## Known bugs and limits
 

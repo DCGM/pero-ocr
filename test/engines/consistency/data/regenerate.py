@@ -184,7 +184,7 @@ def region_sorter_transformer_input():
     for name, boxes in pages.items():
         inputs[f'boxes/{name}'] = boxes.astype(np.int64)
         inputs[f'image/{name}'] = mark_reading_order(np.zeros((1000, 800, 3), dtype=np.uint8), marked.get(name, []))
-    params = {'config': {'model_path': 'model-cuda.pt', 'max_bbox_count': 32, 'image_width': 64, 'image_height': 64,
+    params = {'config': {'model_path': 'model.pt', 'max_bbox_count': 32, 'image_width': 64, 'image_height': 64,
                          'use_cpu': 'yes'},
               'pages': list(pages)}
     return inputs, params
@@ -371,7 +371,10 @@ MODELS = {  # the frozen models, written into data/<name>/ (the smart sorter and
     'transformer': tiny_models.write_transformer,
     'layout_cnn': tiny_models.write_parsenet,
     'lm': tiny_models.write_lm,
-    'region_sorter_transformer': tiny_models.write_region_sorter,
+    'region_sorter_transformer': lambda d: tiny_models.write_region_sorter(d, 'model.pt'),  # no 'cuda': one file
+}
+GPU_FILES = {  # every config names model.pt; on CPU, which the checks run on, these engines load model.pt.cpu,
+    'ctc', 'transformer', 'layout_cnn',  # so the model.pt the writer saves next to it is not kept
 }
 
 
@@ -384,6 +387,8 @@ def regenerate(name, outputs_only):
     else:
         if name in MODELS:
             MODELS[name](directory)
+            if name in GPU_FILES:
+                os.remove(os.path.join(directory, 'model.pt'))
         inputs, params = INPUTS[name]()
         frozen_engines.save_input(directory, inputs, params)
         _, inputs, params, _ = frozen_engines.load(name, with_output=False)  # run on exactly what the check reads

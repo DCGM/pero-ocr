@@ -44,7 +44,7 @@ def test_loads_brnolm_torchscript_lm(lm):
 
 
 def test_path_relative_to_config_path(tiny_model_dir):
-    assert construct_lm('lm/lm.pt', config_path=tiny_model_dir).vocab == construct_lm(f'{tiny_model_dir}/lm/lm.pt').vocab
+    assert construct_lm('lm/model.pt', config_path=tiny_model_dir).vocab == construct_lm(f'{tiny_model_dir}/lm/model.pt').vocab
 
 
 def test_file_that_is_not_an_lm_raises(tmp_path):

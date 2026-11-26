@@ -60,7 +60,7 @@ LM_DECODER = """
 [DECODER]
 TYPE = FAST-LOG-RAW
 BEAM_SIZE = 8
-LM = ./lm/lm.pt
+LM = ./lm/model.pt
 LM_SCALE = 0.4
 INSERTION_BONUS = 1.0
 USE_CPU = yes
@@ -204,7 +204,7 @@ def test_relative_paths_resolve_against_config_path(tmp_path, cpu):
     tiny_models.write_ctc(str(model_dir / 'ocr'))
     tiny_models.write_parsenet(str(model_dir / 'layout'))
     tiny_models.write_lm(str(model_dir / 'lm'))
-    config = full_config('layout/parsenet.pt', 'ocr/ocr_engine.json', extra=LM_DECODER)
+    config = full_config('layout/model.pt', 'ocr/ocr_engine.json', extra=LM_DECODER)
     config['PAGE_PARSER']['RUN_DECODER'] = 'yes'
     parser = pp.PageParser(config, device=cpu, config_path=str(model_dir))
     assert texts(parser.process_page(PAGE, new_page())) == ['a'] * 3

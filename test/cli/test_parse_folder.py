@@ -34,7 +34,7 @@ LOGGING_LEVEL = WARNING
 
 [LAYOUT_PARSER_1]
 METHOD = LAYOUT_CNN
-MODEL_PATH = ./layout/parsenet.pt
+MODEL_PATH = ./layout/model.pt
 USE_CPU = yes
 DOWNSAMPLE = 4
 DETECTION_THRESHOLD = 0.2
@@ -82,7 +82,7 @@ def write_engine(directory, transformer=False, layout=True, decoder=False, lm=Fa
         f.write(ENGINE_CONFIG.format(method='pytorch_ocr-transformer' if transformer else 'pytorch_ocr',
                                      layout='yes' if layout else 'no', decoder='yes' if decoder else 'no',
                                      lm_scale='0.4' if lm else '0.0',
-                                     lm_line='LM = ./language_model/lm.pt\nINSERTION_BONUS = 1.0\n' if lm else ''))
+                                     lm_line='LM = ./language_model/model.pt\nINSERTION_BONUS = 1.0\n' if lm else ''))
     return config
 
 

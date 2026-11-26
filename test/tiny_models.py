@@ -321,7 +321,7 @@ def write_transformer(directory: str, characters=CHARACTERS, stop: bool = True, 
 def write_parsenet(directory: str) -> str:
     """Write a torchscript ParseNet stand-in, return the model path (without the '.cpu' suffix)."""
     os.makedirs(directory, exist_ok=True)
-    return _save_script(TinyParseNet(), os.path.join(directory, 'parsenet.pt'))
+    return _save_script(TinyParseNet(), os.path.join(directory, 'model.pt'))
 
 
 def write_lm(directory: str, characters=CHARACTERS) -> str:
@@ -335,20 +335,21 @@ def write_lm(directory: str, characters=CHARACTERS) -> str:
     preferences = torch.zeros(len(vocab_list), len(vocab_list))
     preferences[vocab[LM_PREFERS[0]], vocab[LM_PREFERS[1]]] = LM_PREFERENCE
     parts = _LanguageModelParts(TinyLMModel(len(vocab_list)).eval(), TinyLMDecoder(preferences).eval(), vocab)
-    path = os.path.join(directory, 'lm.pt')
+    path = os.path.join(directory, 'model.pt')
     torchscript_export(parts, path)
     return path
 
 
-def write_region_sorter(directory: str) -> str:
-    """Write a torchscript reading-order model, return the path a config names (model-cuda.pt).
+def write_region_sorter(directory: str, name: str = 'model-cuda.pt') -> str:
+    """Write a torchscript reading-order model, return the path a config names (by default model-cuda.pt).
 
     TransformerRegionSorter replaces 'cuda' with 'cpu' in the file name when it runs on CPU, so write both, like the
-    files of the real models."""
+    files of the real models (one file when the name has no 'cuda')."""
     os.makedirs(directory, exist_ok=True)
-    path = os.path.join(directory, 'model-cuda.pt')
+    path = os.path.join(directory, name)
     torch.jit.script(TinyRegionSorter().eval()).save(path)
-    shutil.copyfile(path, os.path.join(directory, 'model-cpu.pt'))
+    if 'cuda' in name:
+        shutil.copyfile(path, os.path.join(directory, name.replace('cuda', 'cpu')))
     return path
 
 

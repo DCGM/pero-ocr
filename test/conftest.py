@@ -43,12 +43,12 @@ def transformer_json(tiny_model_dir):
 
 @pytest.fixture(scope='session')
 def parsenet_path(tiny_model_dir):
-    return os.path.join(tiny_model_dir, 'parsenet', 'parsenet.pt')
+    return os.path.join(tiny_model_dir, 'parsenet', 'model.pt')
 
 
 @pytest.fixture(scope='session')
 def lm_path(tiny_model_dir):
-    return os.path.join(tiny_model_dir, 'lm', 'lm.pt')
+    return os.path.join(tiny_model_dir, 'lm', 'model.pt')
 
 
 @pytest.fixture(scope='session')

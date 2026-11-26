@@ -1,6 +1,6 @@
 {
  "config": {
-  "model_path": "model-cuda.pt",
+  "model_path": "model.pt",
   "max_bbox_count": 32,
   "image_width": 64,
   "image_height": 64,
