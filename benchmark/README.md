@@ -132,7 +132,9 @@ Official and free runs:
 - **Official** (the default): what a commit produces, for the published benchmark and the consistency tests. The
   working tree must be clean; the records go to `$PERO_INFERENCE/<commit>/`.
 - **Free** (`--out <folder>`): the same run into any folder, not bound to the commit: another Python environment,
-  uncommitted code, one's own engines or data, a trial on a few pages (`--pages N`). `<folder>/<benchmark>/run.json`
+  uncommitted code, one's own engines or data, a trial on a few pages (`--pages N`), the full log-probabilities of
+  more lines (`--logprobs-subset N`: one line in N, e.g. 1 for every line, in `logprobs.1in<N>/`; official runs keep
+  1 in 64, and a unit never mixes two subsets). `<folder>/<benchmark>/run.json`
   records the commit, the uncommitted changes and the command of every run into it. Score it with
   `python benchmark/score.py --out <folder>`.
 
