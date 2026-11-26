@@ -67,7 +67,7 @@ DECODER:
   TorchScript's fuser on (pero-ocr's default), a model's output on the GPU depends slightly (about 1e-5) on the pages
   processed before it in the same process, so a page would get different numbers in a full run, a resumed run and a
   top-up. A free run can leave it out (`--keep-torchscript-fuser`) to add to records made with the fuser on; a unit
-  is only ever added to with the engine (files and config) it was recorded with; `--force-engine` adds pages anyway,
+  is only ever added to with the engine (files and config) it was recorded with; `--force-model` adds pages anyway,
   for development, and records the change in the unit's `unit.json` (`engine_changes`: the files and config before, the
   pages added after). Other `[PAGE_PARSER]` settings (`FILTER_CONFIDENT_LINES_THRESHOLD`) stay in the config.
 - A value is one name or a list. Any subset of the stages is valid.
@@ -114,7 +114,7 @@ runs. A unit whose engine was changed since (its files, e.g. a fixed model json)
 marks it ENGINE CHANGED, and unit folders the registry no longer has as orphan; delete them and run again to fill
 them in. A unit keeps one set of files per page, so computing some pages again is deleting their files
 (`lines/<page>.*`, `logprobs/<page>.npz`, for a layout unit `page_xml/<page>.xml`) and running again; when the engine
-changed since, add `--force-engine`, which `unit.json` records (`engine_changes`: which pages got the new engine).
+changed since, add `--force-model`, which `unit.json` records (`engine_changes`: which pages got the new engine).
 `score.py` scores a unit on a test list when the unit holds all the list's pages, otherwise it reports NA.
 Several registries (one per benchmark) can be run at once (`--registry R.yaml S.yaml`). `--units` restricts a run,
 which is rarely needed.
@@ -136,13 +136,27 @@ Official and free runs:
   records the commit, the uncommitted changes and the command of every run into it. Score it with
   `python benchmark/score.py --out <folder>`.
 
-Within the records of one benchmark, official or free, results are added only from the same environment and the same
-pages. Each benchmark's records are self-contained (nothing is stored at the level of the commit), so different
+Within the records of one benchmark, official or free, results are added only under the same conditions; each guard
+can be forced by its flag, and every forced addition is noted in `<benchmark>/forced.json` (what differed, when,
+where):
+
+| guard | what must be the same | flag |
+|---|---|---|
+| environment | the machine (hostname) and the environment (Python, packages, CUDA, cuDNN, GPU, GPU driver) of `environment.json`, and the pages of `benchmark.json` | `--force-environment` |
+| commit | official records: the folder is the commit (a clean checkout), so other code never adds to them; a free run: the commit and uncommitted changes of its first run (`run.json`) | `--force-commit` |
+| model | a unit: its model files and config (`unit.json`) | `--force-model` |
+
+Every chunk of pages a unit adds records the host and the commit it was computed on (`unit.json`), so a resumed or
+topped-up unit says where each part came from. A run holds `<benchmark>/.lock` while it adds to the records: a
+second run on the same records (by mistake, or another person) stops and says who holds it; `--list` needs no lock.
+A stopped or crashed run is resumed with the same command: the chunks it finished are kept, the chunk in progress is
+computed again. Each benchmark's records are self-contained (nothing is stored at the level of the commit), so different
 benchmarks of one commit can be made by different people on different machines and their folders put together.
 
 - **Adopting units** (`--adopt-from <commit> --adopt LINE_CROPPER/ OCR/ DECODER/`): when a commit changes only some
   stages, its run copies the complete units of the other stages from the records of the earlier commit instead of
-  computing them again, and computes only the rest. The source must have been inferred in the same environment and
+  computing them again, and computes only the rest. The source must have been inferred on the same machine, in the
+  same environment and
   on the same pages (both checked, per benchmark); that the change does not touch the adopted stages is the caller's
   claim. `<benchmark>/adopted.json` records the source commit, the files changed in between and the units; the report
   marks them.

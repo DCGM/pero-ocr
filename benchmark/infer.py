@@ -36,6 +36,16 @@ Inputs (environment variables or options):
     PERO_INFERENCE     the records of official runs: <PERO_INFERENCE>/<commit>/<benchmark>/ (a free run:
                        <--out>/<benchmark>/)
 
+Guards: adding to existing records (resuming a run, adding units or pages) is refused when it would mix them, unless
+the guard's flag forces it; every forced addition is noted in <benchmark>/forced.json (what differed, when, where):
+    environment   the same machine (hostname) and environment (python, packages, CUDA, cuDNN, GPU, GPU driver) as
+                  environment.json, and the same pages as benchmark.json                     --force-environment
+    commit        official records: the folder is the commit (a clean checkout), so other code never adds to them;
+                  a free run: the commit and uncommitted changes of its first run (run.json)  --force-commit
+    model         a unit: the model files and config it was recorded with (unit.json)        --force-model
+Every chunk of pages a unit adds records the host and commit it was computed on (unit.json). A run holds
+<benchmark>/.lock while it adds to the records: a second run on the same records stops with who holds it.
+
 The configs are used as they are; the code only sets the RUN_* switches of [PAGE_PARSER] to the engine's stage. Adding
 an engine to a registry and running infer.py again computes only what is missing.
 
@@ -70,7 +80,7 @@ Units (one folder each in <commit>/<benchmark>/, complete when it holds unit.jso
 A unit holds the pages whose files it has (a cropper: its unit.json "pages"); a page is written completely or not at
 all, so an interrupted run loses at most the chunk it was computing (--chunk-pages), and deleting a page's files makes
 the next run compute it again. unit.json holds the engine (its files and config) and the runs. Pages are added only
-with the engine the unit was recorded with; --force-engine adds them anyway and records which pages got the new engine
+with the engine the unit was recorded with; --force-model adds them anyway and records which pages got the new engine
 (unit.json "engine_changes"). Every line of a page is inferred. Every page is processed with numpy's and Python's random generators seeded
 from its name, so a rerun gives the same result (the layout engine breaks ties with np.random and orders the lines of a
 region with random.uniform, issue #100).
@@ -78,12 +88,14 @@ region with random.uniform, issue #100).
 Adopting units (--adopt-from <commit or folder> --adopt <unit id prefixes>): a run whose code changes only some stages
 copies the complete units of the other stages from the records of another commit instead of computing them again, e.g.
 a change of the layout engine adopts LINE_CROPPER/ OCR/ DECODER/ and computes only LAYOUT_PARSER/. The source must have
-been inferred in the same environment and on the same pages (both are checked, per benchmark); that the code change
+been inferred on the same machine, in the same environment and on the same pages (all checked, per benchmark; or
+--force-environment); that the code change
 does not touch the adopted stages is the caller's claim. <commit>/<benchmark>/adopted.json records the source, the
 files the code changed between the two commits and the adopted units; each adopted unit.json gets "adopted_from";
 report.md says so.
 """
 import argparse
+import fcntl
 import configparser
 import csv
 import datetime
@@ -98,6 +110,7 @@ import queue
 import random
 import re
 import shlex
+import socket
 import shutil
 import subprocess
 import sys
@@ -125,7 +138,8 @@ LMDB_MAP_SIZE = 1 << 40
 # for the slowest units of the eb446a3 run (decoders, ~22 s a page) and half a minute for a median unit (~0.7 s a page).
 CHUNK_PAGES = 25
 KEEP_TORCHSCRIPT_FUSER = False  # --keep-torchscript-fuser
-FORCE_ENGINE = False  # --force-engine
+FORCE_ENGINE = False  # --force-model
+RUN = {}  # where this process runs (host, commit): recorded with every chunk of pages a unit adds
 BIG_MODEL_PARAMETERS = 150e6  # an OCR model with more parameters is big (--big-jobs): the mega transformer (261 M);
 #                               the other transformers have ~110 M, the CTC models ~17 M
 
@@ -481,9 +495,41 @@ def official_commit():
     return commit
 
 
-def record_free_run(out):
-    """Append to <benchmark records>/run.json what a free run ran with: the commit, uncommitted changes, the command."""
-    run = dict(started_utc=utc_now(), argv=sys.argv, python=sys.executable, cwd=os.getcwd())
+def current_commit():
+    """The commit of the checkout, '+' when it has uncommitted changes (None outside a git checkout)."""
+    try:
+        return git('rev-parse', 'HEAD') + ('+' if git('status', '--porcelain', '--untracked-files=no') else '')
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
+LOCKS = []  # the lock files held by this process (closing one releases its lock)
+
+
+def lock_records(out):
+    """Hold <benchmark records>/.lock for the rest of this process: two runs adding to the same records at once
+    would write the same units. A second run stops with who holds it."""
+    os.makedirs(out, exist_ok=True)
+    path = os.path.join(out, '.lock')
+    f = open(path, 'a+')
+    try:
+        fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.seek(0)
+        sys.exit(f'{out}: another run is adding to these records ({f.read().strip() or "unknown"}); wait for it or '
+                 f'stop it')
+    f.seek(0)
+    f.truncate()
+    f.write(f'pid {os.getpid()} on {socket.gethostname()} since {utc_now()}: {shlex.join(sys.argv)}\n')
+    f.flush()
+    LOCKS.append(f)
+
+
+def record_free_run(out, force):
+    """Append to <benchmark records>/run.json what a free run ran with: the commit, uncommitted changes, the command.
+    Adding to a free run's records needs the code of its first run (the commit and the uncommitted changes), unless
+    --force-commit (noted in forced.json)."""
+    run = dict(started_utc=utc_now(), argv=sys.argv, python=sys.executable, cwd=os.getcwd(), host=RUN.get('hostname'))
     try:
         run['commit'] = git('rev-parse', 'HEAD')
         run['dirty'] = git('status', '--porcelain', '--untracked-files=no').splitlines()
@@ -495,6 +541,19 @@ def record_free_run(out):
     if os.path.exists(path):
         with open(path) as f:
             runs = json.load(f)
+    if runs:
+        first = runs[0]
+        def show(diff):  # uncommitted changes: their fingerprint and size, not the text
+            return 'none' if not diff else f'md5 {hashlib.md5(diff.encode()).hexdigest()[:12]} ({diff.count(chr(10)) + 1} lines)'
+        details = ([f"commit: {first.get('commit')} -> {run.get('commit')}"] if first.get('commit') != run.get('commit')
+                   else []) + ([f"uncommitted changes: {show(first.get('diff'))} -> {show(run.get('diff'))}"]
+                               if first.get('diff') != run.get('diff') else [])
+        if details and not force:
+            sys.exit(f'{out} was inferred with other code; adding to it would mix them (--force-commit to do it '
+                     f'anyway):\n' + '\n'.join('  ' + d for d in details))
+        if details:
+            logger.warning(f'{out}: adding with other code (--force-commit): ' + '; '.join(details))
+            note_forced(out, 'with other code', '--force-commit', details)
     with open(path, 'w') as f:
         json.dump(runs + [run], f, indent=1, ensure_ascii=False)
 
@@ -503,6 +562,8 @@ def environment():
     import importlib.metadata as metadata
     import torch
     env = {
+        'hostname': socket.gethostname(),
+        'gpu_driver': gpu_driver(),
         'python': platform.python_version(),
         'platform': platform.platform(),
         'packages': {d.metadata['Name'].lower(): d.version for d in metadata.distributions() if d.metadata['Name']},
@@ -514,29 +575,66 @@ def environment():
     return env
 
 
-ENV_KEYS = ('python', 'packages', 'torch_cuda', 'cudnn', 'gpu')
+def gpu_driver():
+    """The NVIDIA driver version (None without nvidia-smi)."""
+    try:
+        out = subprocess.run(['nvidia-smi', '--query-gpu=driver_version', '--format=csv,noheader'], check=True,
+                             capture_output=True, text=True, timeout=30).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out[0] if out else None
 
 
-def check_record(path, record, keys, what, force):
-    """Write the record, or require that an existing one has the same keys."""
+# The environment of a benchmark's records: the machine (hostname) and the software and GPU of its runs. Adding to the
+# records needs the same, unless --force-environment. hostname and gpu_driver are compared only with records that have
+# them (records made before they were recorded do not).
+ENV_KEYS = ('hostname', 'gpu_driver', 'python', 'packages', 'torch_cuda', 'cudnn', 'gpu')
+ENV_KEYS_ADDED_LATER = ('hostname', 'gpu_driver')
+
+
+def record_differences(old, record, keys):
+    differ = [k for k in keys if old.get(k) != record.get(k)
+              and not (k in ENV_KEYS_ADDED_LATER and k not in old)]
+    details = []
+    for k in differ:
+        a, b = old.get(k), record.get(k)
+        if isinstance(a, dict) and isinstance(b, dict):
+            details += [f'{k}: {p}: {a.get(p)} -> {b.get(p)}' for p in sorted(set(a) | set(b)) if a.get(p) != b.get(p)]
+        else:
+            details.append(f'{k}: {a} -> {b}')
+    return details
+
+
+def note_forced(out, what, flag, details):
+    """<benchmark records>/forced.json: every guard a run broke through with its --force flag, and what differed."""
+    path = os.path.join(out, 'forced.json')
+    entries = []
+    if os.path.exists(path):
+        with open(path) as f:
+            entries = json.load(f)
+    entries.append(dict(utc=utc_now(), what=what, flag=flag, host=RUN.get('hostname'), commit=RUN.get('commit'),
+                        argv=sys.argv, differences=details))
+    with open(path, 'w') as f:
+        json.dump(entries, f, indent=1, ensure_ascii=False)
+
+
+def check_record(path, record, keys, what, flag, force):
+    """Write the record, or require that an existing one has the same keys; with the force flag, add anyway and note
+    it in forced.json (the record keeps its first values)."""
     if not os.path.exists(path):
         with open(path, 'w') as f:
             json.dump(record, f, indent=1, sort_keys=True)
         return
     with open(path) as f:
         old = json.load(f)
-    differ = [k for k in keys if old.get(k) != record.get(k)]
-    if differ and not force:
-        details = []
-        for k in differ:
-            a, b = old.get(k), record.get(k)
-            if isinstance(a, dict) and isinstance(b, dict):
-                details += [f'  {k}: {p}: {a.get(p)} -> {b.get(p)}' for p in sorted(set(a) | set(b))
-                            if a.get(p) != b.get(p)][:20]
-            else:
-                details.append(f'  {k}: {a} -> {b}')
-        sys.exit(f'{os.path.dirname(path)} was inferred {what}; adding to it would mix them (--force-environment to '
-                 f'do it anyway):\n' + '\n'.join(details))
+    details = record_differences(old, record, keys)
+    if not details:
+        return
+    if not force:
+        sys.exit(f'{os.path.dirname(path)} was inferred {what}; adding to it would mix them ({flag} to do it anyway):\n'
+                 + '\n'.join('  ' + d for d in details[:20]))
+    logger.warning(f'{os.path.dirname(path)}: adding {what} ({flag}): ' + '; '.join(details[:5]))
+    note_forced(os.path.dirname(path), what, flag, details)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -600,7 +698,7 @@ class Unit:
         return not self.missing_pages()
 
     def check_engine(self, files, config):
-        """A top-up only with the engine the unit was recorded with, unless --force-engine: then the change is recorded
+        """A top-up only with the engine the unit was recorded with, unless --force-model: then the change is recorded
         in unit.json ("engine_changes") when the pages are added."""
         info = self.info()
         self.engine_change = None
@@ -608,14 +706,14 @@ class Unit:
             return
         if not FORCE_ENGINE:
             sys.exit(f'{self.id}: the engine (its files or config) is not the one the unit was recorded with; adding '
-                     f'pages would mix two engines: delete {self.final} to run it again (--force-engine to add them '
+                     f'pages would mix two engines: delete {self.final} to run it again (--force-model to add them '
                      f'anyway)')
         old_files, old_config = info.get('files') or {}, info.get('config')
         change = {'files_before': {f: old_files.get(f) for f in sorted(set(old_files) | set(files))
                                    if old_files.get(f) != files.get(f)}}
         if old_config != config:
             change['config_before'] = old_config
-        logger.warning(f'{self.id}: adding pages with another engine than the unit was recorded with (--force-engine): '
+        logger.warning(f'{self.id}: adding pages with another engine than the unit was recorded with (--force-model): '
                        + ', '.join(change['files_before']) + (' config' if 'config_before' in change else ''))
         change['started_utc'] = utc_now()
         self.engine_change = change
@@ -635,7 +733,7 @@ class Unit:
         """Add the chunk computed into <unit>.partial/ to the unit. unit.json holds the engine and the runs; the pages
         are the files (except a cropper's: its "pages")."""
         timing = dict(started_utc=self.started_utc, finished_utc=utc_now(),
-                      seconds=round(time.time() - self.started, 1))
+                      seconds=round(time.time() - self.started, 1), host=RUN.get('hostname'), commit=RUN.get('commit'))
         new = [p['name'] for p in self.pages]
         crops = self.stage == 'LINE_CROPPER'
         if not crops:  # the counts of a run go into its entry: the unit's pages are its files
@@ -659,7 +757,7 @@ class Unit:
             else:
                 merged['topups'] = old.get('topups', []) + [dict(timing, pages=len(new), **run)]
             change = getattr(self, 'engine_change', None)
-            if change:  # --force-engine: the pages computed with the new engine, one entry per run
+            if change:  # --force-model: the pages computed with the new engine, one entry per run
                 changes = old.get('engine_changes', [])
                 if changes and changes[-1].get('started_utc') == change['started_utc']:
                     changes[-1]['pages'] = changes[-1]['pages'] + new
@@ -1149,7 +1247,7 @@ def adopt_source(value, results):
     return source, commit
 
 
-def adopt_units(source, source_commit, work, prefixes):
+def adopt_units(source, source_commit, work, prefixes, force):
     """Copy the complete units matching <prefixes> from <source>/<benchmark>/ into the records being made, where they
     are not there yet. The source must have been inferred in this benchmark's environment and on the same pages.
     Copies, not links: a later top-up of an adopted unit must not change the source."""
@@ -1162,10 +1260,14 @@ def adopt_units(source, source_commit, work, prefixes):
             source_env = json.load(f)
         with open(os.path.join(out, 'environment.json')) as f:
             env = json.load(f)
-        differ = [k for k in ENV_KEYS if source_env.get(k) != env.get(k)]
-        if differ:
-            sys.exit(f'--adopt-from {src}: inferred in another environment ({", ".join(differ)} differ); its units '
-                     f'would not be what this environment produces')
+        details = record_differences(source_env, env, ENV_KEYS)
+        if details and not force:
+            sys.exit(f'--adopt-from {src}: inferred on another machine or in another environment; its units would not '
+                     f'be what this one produces (--force-environment to adopt them anyway):\n'
+                     + '\n'.join('  ' + d for d in details[:20]))
+        if details:
+            note_forced(out, f'units adopted from {src}, made on another machine or in another environment',
+                        '--force-environment', details)
         record = dict(pages=len(dataset.all_pages), files=dataset.fingerprint())
         with open(os.path.join(src, 'benchmark.json')) as f:
             source_record = json.load(f)
@@ -1312,7 +1414,8 @@ def run_parallel(todo, registry, dataset, out, args, folder_name, units):
            (['--out', args.out] if args.out else ['--results', args.results]) + \
            (['--pages', str(args.pages)] if args.pages else []) + \
            (['--force-environment'] if args.force_environment else []) + \
-           (['--force-engine'] if args.force_engine else []) + ['--chunk-pages', str(args.chunk_pages)] + \
+           (['--force-commit'] if args.force_commit else []) + \
+           (['--force-model'] if args.force_model else []) + ['--chunk-pages', str(args.chunk_pages)] + \
            (['--keep-torchscript-fuser'] if args.keep_torchscript_fuser else [])
 
     def done(uid):
@@ -1438,10 +1541,15 @@ def main():
     p.add_argument('--list', action='store_true', help='show the units and whether they are done, run nothing')
     p.add_argument('--prune-logits', action='store_true',
                    help='delete the stored logits of the OCR runs whose decoders are all done, run nothing')
-    p.add_argument('--force-environment', action='store_true')
-    p.add_argument('--force-engine', action='store_true',
-                   help='add pages to a unit although its engine (files or config) changed since it was recorded; '
-                        'unit.json records the change ("engine_changes"). For development: such a unit mixes engines')
+    p.add_argument('--force-environment', action='store_true',
+                   help='add to records made on another machine or in another environment (python, packages, CUDA, '
+                        'GPU, driver) or from other pages; noted in forced.json')
+    p.add_argument('--force-commit', action='store_true',
+                   help='add to a free run\'s records with other code than its first run (commit or uncommitted '
+                        'changes); noted in forced.json. Official records are always per commit')
+    p.add_argument('--force-model', '--force-engine', dest='force_model', action='store_true',
+                   help='add pages to a unit although its model (files or config) changed since it was recorded; '
+                        'unit.json records the change ("engine_changes"). For development: such a unit mixes models')
     p.add_argument('--adopt-from', metavar='COMMIT_OR_FOLDER',
                    help='take the --adopt units over from the records of this commit (in --results) or folder instead '
                         'of computing them; only when the code change does not touch their stages')
@@ -1456,7 +1564,7 @@ def main():
         sys.exit('--chunk-pages must be at least 1')
     CHUNK_PAGES = args.chunk_pages
     KEEP_TORCHSCRIPT_FUSER = args.keep_torchscript_fuser
-    FORCE_ENGINE = args.force_engine
+    FORCE_ENGINE = args.force_model
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
     if not args.registry:
         sys.exit('--registry is required: the registries to run')
@@ -1493,6 +1601,10 @@ def main():
             units = [u for u in all_units.values() if any(u.id.startswith(prefix) for prefix in args.units)]
         work.append((dataset, registry, out, units, all_units))
 
+    RUN.update(hostname=socket.gethostname(), commit=folder_name if not args.out else current_commit())
+    if not args.list and not args.exact:  # unit processes run under the lock of the run that started them
+        for _, _, out, _, _ in work:
+            lock_records(out)
     if args.prune_logits:
         for dataset, registry, out, _, all_units in work:
             prune_logits(registry, out, all_units)
@@ -1505,7 +1617,7 @@ def main():
                 info = u.info()
                 if info is not None and info.get('files') != unit_engine(registry, u).files():
                     notes.append('ENGINE CHANGED since recorded: delete the unit to run it again, or its pages and '
-                                 'run them with --force-engine')
+                                 'run them with --force-model')
                 if registry.unit_pages[u.id][1] is not None:
                     notes.append(f'pages of {registry.unit_pages[u.id][1]}')
                 if u.stage == 'OCR' and registry.base(u.name) != u.name:
@@ -1527,11 +1639,11 @@ def main():
         for dataset, registry, out, _, _ in work:
             os.makedirs(out, exist_ok=True)
             check_record(os.path.join(out, 'environment.json'), environment(), ENV_KEYS,
-                         'in another environment', args.force_environment)
+                         'on another machine or in another environment', '--force-environment', args.force_environment)
             check_record(os.path.join(out, 'benchmark.json'), dict(pages=len(dataset.all_pages),
                                                                    files=dataset.fingerprint()),
-                         ('pages', 'files'), 'from other pages', args.force_environment)
-        adopt_units(source, source_commit, work, args.adopt)
+                         ('pages', 'files'), 'from other pages', '--force-environment', args.force_environment)
+        adopt_units(source, source_commit, work, args.adopt, args.force_environment)
         for _, _, out, _, _ in work:
             write_report(out, folder_name)
     if not any(not u.done() for _, _, _, units, _ in work for u in units):
@@ -1544,13 +1656,13 @@ def main():
             continue
         os.makedirs(out, exist_ok=True)
         check_record(os.path.join(out, 'environment.json'), environment(), ENV_KEYS,
-                     'in another environment', args.force_environment)
+                     'on another machine or in another environment', '--force-environment', args.force_environment)
         if not args.exact:  # a unit process: the run that started it checked the benchmark and wrote run.json
             if args.out:
-                record_free_run(out)
+                record_free_run(out, args.force_commit)
             check_record(os.path.join(out, 'benchmark.json'), dict(pages=len(dataset.all_pages),
                                                                    files=dataset.fingerprint()),
-                         ('pages', 'files'), 'from other pages', args.force_environment)
+                         ('pages', 'files'), 'from other pages', '--force-environment', args.force_environment)
         logger.info(f'{out}: {len(todo)} units to run')
         if args.exact or (args.jobs <= 1 and len(args.gpus or []) <= 1 and len(args.decoder_gpus or []) <= 1):
             run_inline(todo, registry, dataset, out, args.crop_workers)
