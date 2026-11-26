@@ -83,8 +83,8 @@ all, so an interrupted run loses at most the chunk it was computing (--chunk-pag
 the next run compute it again. engine.json holds the engine (unit, engine, files, config); unit.json exists only for
 an adopted unit (adopted_from) or one extended with --force-model (engine_changes); pages.tsv the processing of every
 page in the columns of its stage (page, seconds: wall time of the engine's call, gpu_peak_mb; layout: image_px,
-pass1_px, pass2_px (the ParseNet's input in each pass; empty: no such pass); cropper: crops; OCR: lines read, chars written, width_px of the crops; decoder: lines_decoded (the lines over its
-confidence threshold keep the OCR text), chars written, frames of those lines; with --jobs over 1 units share a GPU,
+pass1_px, pass2_px (the ParseNet's input in each pass; empty: no such pass); cropper: lines cropped; OCR: lines read, width_px of the crops, chars written; decoder: lines decoded (the lines over its
+confidence threshold keep the OCR text), frames of those lines, chars written; with --jobs over 1 units share a GPU,
 so the times include waiting for each other). Pages are added only
 with the engine the unit was recorded with; --force-model adds them anyway and records which pages got the new engine
 (unit.json "engine_changes"). Every line of a page is inferred. Every page is processed as if it were the first: the
@@ -804,9 +804,9 @@ def recorded_pages(folder, dataset):
 PAGE_STATS = 'pages.tsv'  # per unit: the processing of every page, the columns of its stage (PAGE_COLUMNS)
 PAGE_COLUMNS = {
     'LAYOUT_PARSER': ('page', 'seconds', 'gpu_peak_mb', 'image_px', 'pass1_px', 'pass2_px'),  # ParseNet passes
-    'LINE_CROPPER': ('page', 'seconds', 'crops'),                            # on the CPU
-    'OCR': ('page', 'seconds', 'gpu_peak_mb', 'lines', 'chars', 'width_px'),  # lines read, chars written, crop width
-    'DECODER': ('page', 'seconds', 'gpu_peak_mb', 'lines_decoded', 'chars', 'frames'),  # frames: of the decoded lines
+    'LINE_CROPPER': ('page', 'seconds', 'lines'),                            # lines cropped, on the CPU
+    'OCR': ('page', 'seconds', 'gpu_peak_mb', 'lines', 'width_px', 'chars'),  # input: lines, crop width; output: chars
+    'DECODER': ('page', 'seconds', 'gpu_peak_mb', 'lines', 'frames', 'chars'),  # input: lines decoded, their frames; output: chars
 }
 CROPS = 'crops.png.lmdb'  # a cropper's line crops, PNG images
 
@@ -915,10 +915,10 @@ class Unit:
     def page_done(self, name, seconds, **counts):
         """The processing of one page: the wall seconds of the engine's call and what its stage counts
         (PAGE_COLUMNS): peak GPU memory in MB, the pixels of the input image and of each ParseNet pass (layout),
-        crops (cropper), lines read, characters
-        written (as the engine wrote them, before any NFC of the output) and the total width of the crops (OCR), lines
-        decoded (the lines over the decoder's confidence threshold keep the OCR text), characters written and logit
-        frames of those lines (decoder)."""
+        lines cropped (cropper), lines read, the total width of their crops and characters written (as the engine
+        wrote them, before any NFC of the output) (OCR), lines decoded (the lines over the decoder's confidence
+        threshold keep the OCR text), logit frames of those lines and characters written in them (decoder): the input
+        before the output."""
         row = dict(page=name, seconds=seconds, **counts)
         if set(row) != set(PAGE_COLUMNS[self.stage]):
             raise ValueError(f'{self.id}: page columns {sorted(row)}, expected {PAGE_COLUMNS[self.stage]}')
@@ -1193,7 +1193,7 @@ def run_crops(units, registry, dataset, workers):
                     with envs[name].begin(write=True) as txn:
                         for key, png in items:
                             txn.put(key.encode(), png)
-                    by_name[name].page_done(page_name, seconds, crops=len(items))
+                    by_name[name].page_done(page_name, seconds, lines=len(items))
             for u in active:
                 envs[u.name].close()
                 u.finish(dict(engine=u.name, files=engines[u.name].files(), config=configs[u.name][0]))
@@ -1389,7 +1389,7 @@ def run_decoder(unit, registry, dataset, out):
             n = decoder.decoder.lines_decoded - decoded
             if n != len(to_decode):
                 logger.warning(f'{unit.id}: page {name}: {n} lines decoded, {len(to_decode)} expected')
-            unit.page_done(name, seconds, gpu_peak_mb=gpu, lines_decoded=n,
+            unit.page_done(name, seconds, gpu_peak_mb=gpu, lines=n,
                            chars=sum(len(line.transcription or '') for line in layout.lines_iterator()
                                      if line.id in to_decode), frames=sum(to_decode.values()))
             rows = page_rows(line_ids, layout)

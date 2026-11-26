@@ -204,12 +204,12 @@ pages). Every unit except a derived one also has
 | stage | columns |
 |---|---|
 | layout | `page`, `seconds`, `gpu_peak_mb`, `image_px` (the pixels of the page image), `pass1_px`, `pass2_px` (the pixels of the ParseNet's input in each pass, empty when there was no such pass) |
-| cropper | `page`, `seconds`, `crops` (on the CPU) |
-| OCR | `page`, `seconds`, `gpu_peak_mb`, `lines` (read), `chars` (written), `width_px` (the total width of the crops it read: its input size) |
-| decoder | `page`, `seconds`, `gpu_peak_mb`, `lines_decoded`, `chars` (written in those lines), `frames` (the logit frames of those lines, the padding included: its input size) |
+| cropper | `page`, `seconds`, `lines` (cropped; on the CPU) |
+| OCR | `page`, `seconds`, `gpu_peak_mb`, `lines` (read), `width_px` (the total width of the crops it read: its input size), `chars` (written) |
+| decoder | `page`, `seconds`, `gpu_peak_mb`, `lines` (decoded), `frames` (the logit frames of those lines, the padding included: its input size), `chars` (written in those lines) |
 
-`seconds` is the wall time of the engine's call for the page, without reading and writing; `gpu_peak_mb` the peak GPU
-memory; `chars` counts the text as the engine wrote it, before any NFC of the output. A decoder decodes only the lines
+The counts of a stage come in the order input, then output. `seconds` is the wall time of the engine's call for the
+page, without reading and writing; `gpu_peak_mb` the peak GPU memory; `chars` counts the text as the engine wrote it, before any NFC of the output. A decoder decodes only the lines
 over its confidence threshold, the others keep the OCR text. The counts can be derived from the records too (except a
 decoder's), and are kept with the inference as a check of them. With `--jobs` over 1 units share a GPU, so their
 times include waiting for each other. LAYOUT_CNN runs its ParseNet on the image resized by its starting downsample
