@@ -104,7 +104,7 @@ def score_text(records, lists, out):
         if not os.path.isdir(folder):
             continue
         for unit in sorted(os.listdir(folder)):
-            if not os.path.exists(os.path.join(folder, unit, 'unit.json')):
+            if not os.path.exists(os.path.join(folder, unit, 'engine.json')):
                 continue
             held = held_pages(os.path.join(folder, unit))
             hyp = {}
@@ -187,7 +187,7 @@ def score_layout(records, lists, dataset):
     rows = []
     pages_of = list_pages(lists)
     for unit in sorted(os.listdir(folder)):
-        if not os.path.exists(os.path.join(folder, unit, 'unit.json')):
+        if not os.path.exists(os.path.join(folder, unit, 'engine.json')):
             continue
         xml = os.path.join(folder, unit, 'page_xml')
         held = {f[:-4] for f in os.listdir(xml) if f.endswith('.xml') and not f.startswith('.')} if os.path.isdir(

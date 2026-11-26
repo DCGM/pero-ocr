@@ -42,7 +42,7 @@ the guard's flag forces it; every forced addition is noted in <benchmark>/forced
                   environment.json, and the same pages as benchmark.json                     --force-environment
     commit        official records: the folder is the commit (a clean checkout), so other code never adds to them;
                   a free run: the commit and uncommitted changes of its first run (run.json)  --force-commit
-    model         a unit: the model files and config it was recorded with (unit.json)        --force-model
+    model         a unit: the model files and config it was recorded with (engine.json)      --force-model
 A run holds
 <benchmark>/.lock while it adds to the records: a second run on the same records stops with who holds it (released
 however a run ends; the file is deleted at its normal end).
@@ -57,7 +57,7 @@ pages in chunks of --chunk-pages pages, so an interrupted run loses at most one 
 again computes the pages the units do not hold yet. A run reads only
 pages its input holds: the registry is refused at the start when it gives a run pages its input run does not get.
 
-Units (one folder each in <commit>/<benchmark>/, complete when it holds unit.json):
+Units (one folder each in <commit>/<benchmark>/, complete when it holds engine.json):
     LAYOUT_PARSER/<layout>          the layout engine on every page image: page_xml/<page>.xml
     LINE_CROPPER/<cropper>          the line cropper on the lines of the benchmark's PAGE XML: crops.lmdb, key
                                     "<page>/<line_id>", the crop as PNG (lossless)
@@ -80,7 +80,8 @@ Units (one folder each in <commit>/<benchmark>/, complete when it holds unit.jso
 
 A unit holds the pages whose files it has (a cropper: its unit.json "pages"); a page is written completely or not at
 all, so an interrupted run loses at most the chunk it was computing (--chunk-pages), and deleting a page's files makes
-the next run compute it again. unit.json holds the engine (its files and config); pages.tsv the processing of every
+the next run compute it again. engine.json holds the engine (unit, engine, files, config), unit.json what the kind
+of unit adds (below); pages.tsv the processing of every
 page (page, seconds: wall time of the engine's call, lines: the lines it processed (a decoder: decoded, the lines
 over its confidence threshold keep the OCR text), gpu_peak_mb: peak GPU memory; with --jobs over 1 units share a GPU,
 so the times include waiting for each other). Pages are added only
@@ -669,12 +670,45 @@ def check_record(path, record, keys, what, flag, force):
 # Units
 
 
+ENGINE_FIELDS = ('unit', 'engine', 'files', 'config')  # engine.json: what every unit records, the engine it ran
+
+
+def read_unit(folder):
+    """A unit's record: engine.json (unit, engine, files, config; a unit is complete when it has it) and unit.json (what
+    its kind of unit adds), as one dict; None for a unit that does not exist."""
+    path = os.path.join(folder, 'engine.json')
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        info = json.load(f)
+    extra = os.path.join(folder, 'unit.json')
+    if os.path.exists(extra):
+        with open(extra) as f:
+            info.update(json.load(f))
+    return info
+
+
+def write_unit(folder, info):
+    """Write a unit's record (read_unit): unit.json first, engine.json last (its presence marks a complete unit)."""
+    for name, part in (('unit.json', {k: v for k, v in info.items() if k not in ENGINE_FIELDS}),
+                       ('engine.json', {k: info[k] for k in ENGINE_FIELDS})):
+        path = os.path.join(folder, name)
+        if name == 'unit.json' and not part:
+            if os.path.exists(path):
+                os.remove(path)
+            continue
+        tmp = os.path.join(folder, f'.{name}.tmp')
+        with open(tmp, 'w') as f:
+            json.dump(part, f, indent=1, ensure_ascii=False)
+        os.replace(tmp, path)
+
+
 def recorded_pages(folder, dataset):
     """The pages a unit holds (empty when it was never run). OCR and DECODER units: the pages whose line files are
     there (records.py); layout units: the pages whose page_xml/<page>.xml is there; line croppers: unit.json "pages"
-    (records made before page lists: their number, the first N pages of the dataset)."""
-    path = os.path.join(folder, 'unit.json')
-    if not os.path.exists(path):
+    (records made before page lists: their number, the first N pages of the benchmark)."""
+    info = read_unit(folder)
+    if info is None:
         return set()
     stage = os.path.basename(os.path.dirname(os.path.normpath(folder)))
     if stage in ('OCR', 'DECODER'):
@@ -683,8 +717,7 @@ def recorded_pages(folder, dataset):
         xml = os.path.join(folder, 'page_xml')
         return {f[:-4] for f in os.listdir(xml) if f.endswith('.xml') and not f.startswith('.')} if os.path.isdir(
             xml) else set()
-    with open(path) as f:
-        pages = json.load(f)['pages']
+    pages = info['pages']
     if isinstance(pages, int):
         return {p['name'] for p in dataset.all_pages[:pages]}
     return set(pages)
@@ -749,11 +782,7 @@ class Unit:
         return f'{self.stage}/{self.name}'
 
     def info(self):
-        path = os.path.join(self.final, 'unit.json')
-        if not os.path.exists(path):
-            return None
-        with open(path) as f:
-            return json.load(f)
+        return read_unit(self.final)
 
     def recorded(self):
         return recorded_pages(self.final, self.dataset)
@@ -804,7 +833,8 @@ class Unit:
         self.stats[name] = dict(page=name, seconds=seconds, lines=lines, gpu_peak_mb=gpu_peak_mb)
 
     def finish(self, info):
-        """Add the chunk computed into <unit>.partial/ to the unit. unit.json holds the engine; the pages are the files
+        """Add the chunk computed into <unit>.partial/ to the unit. engine.json holds the engine, unit.json what the kind
+        of unit adds; the pages are the files
         (a cropper's: its "pages"), their processing (seconds, lines, GPU memory) is pages.tsv."""
         new = [p['name'] for p in self.pages]
         crops = self.stage == 'LINE_CROPPER'
@@ -812,15 +842,13 @@ class Unit:
         if not self.topup:
             if self.stats:
                 write_page_stats(self.partial, self.stats, order)
-            info = dict(unit=self.id, **info, **(dict(pages=new) if crops else {}))
-            with open(os.path.join(self.partial, 'unit.json'), 'w') as f:
-                json.dump(info, f, indent=1, ensure_ascii=False)
+            write_unit(self.partial, dict(unit=self.id, **info, **(dict(pages=new) if crops else {})))
             shutil.rmtree(self.final, ignore_errors=True)
             os.rename(self.partial, self.final)
         else:
             old = self.info()
             merge_unit(self.partial, self.final)
-            if self.stats:  # before unit.json: a page's row may stay if interrupted here, the next run replaces it
+            if self.stats:  # before the record: a page's row may stay if interrupted here, the next run replaces it
                 write_page_stats(self.final, dict(read_page_stats(self.final), **self.stats), order)
             merged = dict(old, **info)
             merged['page_output'] = old.get('page_output', False) or info.get('page_output', False)
@@ -836,10 +864,7 @@ class Unit:
                 merged['engine_changes'] = changes
             if 'page_output' not in old and 'page_output' not in info:
                 merged.pop('page_output')
-            tmp = os.path.join(self.final, '.unit.json.tmp')
-            with open(tmp, 'w') as f:
-                json.dump(merged, f, indent=1, ensure_ascii=False)
-            os.replace(tmp, os.path.join(self.final, 'unit.json'))  # the unit holds the new pages from here on
+            write_unit(self.final, merged)  # the unit holds the new pages from here on
             shutil.rmtree(self.partial)
         held = len(self.recorded() & set(self.wanted))
         seconds = sum(r['seconds'] for r in self.stats.values())
@@ -1074,7 +1099,7 @@ def page_rows(line_ids, layout):
 def crops_env(out, cropper):
     import lmdb
     folder = os.path.join(out, 'LINE_CROPPER', cropper)
-    if not os.path.exists(os.path.join(folder, 'unit.json')):
+    if not os.path.exists(os.path.join(folder, 'engine.json')):
         sys.exit(f'LINE_CROPPER/{cropper} is not done: the OCR runs on it read their line crops from it')
     return lmdb.open(os.path.join(folder, 'crops.lmdb'), subdir=True, readonly=True, lock=False)
 
@@ -1262,10 +1287,8 @@ def write_report(out, commit):
         if not os.path.isdir(folder):
             continue
         for name in sorted(os.listdir(folder)):
-            path = os.path.join(folder, name, 'unit.json')
-            if os.path.exists(path):
-                with open(path) as f:
-                    info = json.load(f)
+            info = read_unit(os.path.join(folder, name))
+            if info is not None:
                 held = recorded_pages(os.path.join(folder, name), None) if stage != 'LINE_CROPPER' else None
                 pages = info.get('pages', '') if held is None else sorted(held)
                 stats = read_page_stats(os.path.join(folder, name)).values()
@@ -1346,17 +1369,15 @@ def adopt_units(source, source_commit, work, prefixes, force):
             if not any(unit.id.startswith(prefix) for prefix in prefixes) or unit.info() is not None:
                 continue
             folder = os.path.join(src, unit.stage, unit.name)
-            if not os.path.exists(os.path.join(folder, 'unit.json')):
+            if read_unit(folder) is None:
                 logger.info(f'{dataset.name}: {unit.id} is not in {source}; it will be computed')
                 continue
             tmp = unit.final + '.adopting'
             shutil.rmtree(tmp, ignore_errors=True)
             shutil.copytree(folder, tmp)
-            with open(os.path.join(tmp, 'unit.json')) as f:
-                info = json.load(f)
+            info = read_unit(tmp)
             info['adopted_from'] = commit or src
-            with open(os.path.join(tmp, 'unit.json'), 'w') as f:
-                json.dump(info, f, indent=1, ensure_ascii=False)
+            write_unit(tmp, info)
             os.rename(tmp, unit.final)
             adopted.append(unit.id)
             logger.info(f'{dataset.name}: adopted {unit.id}')

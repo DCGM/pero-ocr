@@ -144,7 +144,7 @@ where):
 |---|---|---|
 | environment | the machine (hostname) and the environment (Python, packages, CUDA, cuDNN, GPU, GPU driver) of `environment.json`, and the pages of `benchmark.json` | `--force-environment` |
 | commit | official records: the folder is the commit (a clean checkout), so other code never adds to them; a free run: the commit and uncommitted changes of its first run (`run.json`) | `--force-commit` |
-| model | a unit: its model files and config (`unit.json`) | `--force-model` |
+| model | a unit: its model files and config (`engine.json`) | `--force-model` |
 
 A run holds `<benchmark>/.lock` while it adds to the records: a
 second run on the same records (by mistake, or another person) stops and says who holds it; `--list` needs no lock.
@@ -184,7 +184,20 @@ The records of a commit (a free run's folder has the same structure, plus `<benc
       lines/<OCR|DECODER>/<unit>/     <test list>.txt: the unit's output on the lines of the test list
 ```
 
-Every unit has `unit.json` (the engine: its files and config) and `pages.tsv`, the processing of every page: `page`,
+Every unit has `engine.json`, the engine it ran: `unit` (its id), `engine` (the engine's name), `files` (the md5 of
+every file of the engine's folder) and `config` (the config it ran with); a unit is complete when it has it. What a kind
+of unit adds is in `unit.json`:
+
+| unit | `unit.json` |
+|---|---|
+| line cropper | `pages` (the pages it holds: its crops are one LMDB, not files per page), `format` (`png`) |
+| OCR | `logprobs_subset` (which lines get full log-probabilities), `page_output` (whether its PAGE XML and logits are kept for a decoder) |
+| OCR derived by a higher threshold | `derived_from` (the base unit), `threshold` |
+| decoder | `ocr_run` (the OCR run it decodes), `charset_of` and `charset_md5` (whose char set it read the logits with) |
+| any, when it applies | `adopted_from` (the commit it was copied from), `engine_changes` (`--force-model`: what changed, which pages) |
+
+A layout unit has no `unit.json` unless one of the last row applies. Every unit except a derived one also has
+`pages.tsv`, the processing of every page: `page`,
 `seconds` (wall time of the engine's call for the page, without reading and writing), `lines` (the lines it processed;
 a decoder: the lines it decoded, as the lines over its confidence threshold keep the OCR text), `gpu_peak_mb` (peak GPU
 memory; empty for the croppers, on the CPU). With `--jobs` over 1 units share a GPU, so their times include waiting for
