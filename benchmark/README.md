@@ -146,8 +146,7 @@ where):
 | commit | official records: the folder is the commit (a clean checkout), so other code never adds to them; a free run: the commit and uncommitted changes of its first run (`run.json`) | `--force-commit` |
 | model | a unit: its model files and config (`unit.json`) | `--force-model` |
 
-Every chunk of pages a unit adds records the host and the commit it was computed on (`unit.json`), so a resumed or
-topped-up unit says where each part came from. A run holds `<benchmark>/.lock` while it adds to the records: a
+A run holds `<benchmark>/.lock` while it adds to the records: a
 second run on the same records (by mistake, or another person) stops and says who holds it; `--list` needs no lock.
 The lock is the operating system's lock on that file, released however the run ends (a crash or a kill leaves no
 stale lock); the file is deleted when the run ends normally, and one left by a crash only says who ran last.

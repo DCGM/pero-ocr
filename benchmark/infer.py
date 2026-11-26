@@ -43,7 +43,7 @@ the guard's flag forces it; every forced addition is noted in <benchmark>/forced
     commit        official records: the folder is the commit (a clean checkout), so other code never adds to them;
                   a free run: the commit and uncommitted changes of its first run (run.json)  --force-commit
     model         a unit: the model files and config it was recorded with (unit.json)        --force-model
-Every chunk of pages a unit adds records the host and commit it was computed on (unit.json). A run holds
+A run holds
 <benchmark>/.lock while it adds to the records: a second run on the same records stops with who holds it (released
 however a run ends; the file is deleted at its normal end).
 
@@ -140,7 +140,7 @@ LMDB_MAP_SIZE = 1 << 40
 CHUNK_PAGES = 25
 KEEP_TORCHSCRIPT_FUSER = False  # --keep-torchscript-fuser
 FORCE_ENGINE = False  # --force-model
-RUN = {}  # where this process runs (host, commit): recorded with every chunk of pages a unit adds
+RUN = {}  # where this process runs (host, commit): noted with a forced addition (forced.json)
 BIG_MODEL_PARAMETERS = 150e6  # an OCR model with more parameters is big (--big-jobs): the mega transformer (261 M);
 #                               the other transformers have ~110 M, the CTC models ~17 M
 
@@ -758,7 +758,7 @@ class Unit:
         """Add the chunk computed into <unit>.partial/ to the unit. unit.json holds the engine and the runs; the pages
         are the files (except a cropper's: its "pages")."""
         timing = dict(started_utc=self.started_utc, finished_utc=utc_now(),
-                      seconds=round(time.time() - self.started, 1), host=RUN.get('hostname'), commit=RUN.get('commit'))
+                      seconds=round(time.time() - self.started, 1))
         new = [p['name'] for p in self.pages]
         crops = self.stage == 'LINE_CROPPER'
         if not crops:  # the counts of a run go into its entry: the unit's pages are its files
