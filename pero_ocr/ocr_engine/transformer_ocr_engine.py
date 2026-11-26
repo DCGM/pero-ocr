@@ -31,7 +31,7 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
         self.max_decoded_seq_length = int(self.config.get('max_decoded_seq_length', 210))
         self.token_separator = self.config.get('token_separator', '')
 
-        # Tokens the model was trained to see before the sentence boundary (e.g. dataset and direction tokens).
+        # Tokens fed to the decoder before the sentence boundary (e.g. dataset and direction tokens).
         self.prefix_inds = [self.characters.index(token) for token in self.config.get('prefix_tokens', [])]
         if self.prefix_inds and not self.exported:
             raise ValueError('prefix_tokens are supported only for exported transformers.')
