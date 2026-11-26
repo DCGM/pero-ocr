@@ -1,44 +1,53 @@
 #!/usr/bin/env python3
-"""Run the engines of each dataset's registry on the dataset's pages and store what they produce, under the pero-ocr
+"""Run the engines a registry names on the pages of its benchmark and store what they produce, under the pero-ocr
 commit.
 
-    python benchmark/infer.py --jobs 6               # every dataset: everything not in the records yet
-    python benchmark/infer.py --list                 # the units and which are done
-    python benchmark/infer.py --datasets arabic      # only some datasets (rarely needed)
-    python benchmark/infer.py --units OCR/           # only some units (rarely needed)
-    python benchmark/infer.py --prune-logits         # delete the stored OCR logits no decoder still needs
-    python benchmark/infer.py --out ~/bench/try1     # a free run: any code, environment, engines or data
+    python benchmark/infer.py --registry R.yaml --jobs 6   # everything of the registry not in the records yet
+    python benchmark/infer.py --registry R.yaml S.yaml     # several registries (one per benchmark) in one run
+    python benchmark/infer.py --registry R.yaml --list     # the units and which are done
+    python benchmark/infer.py --registry R.yaml --units OCR/          # only some units (rarely needed)
+    python benchmark/infer.py --registry R.yaml --prune-logits        # delete the OCR logits no decoder still needs
+    python benchmark/infer.py --registry R.yaml --out ~/bench/try1    # a free run: any code, environment, engines
 
-Official runs (the default) record what a commit produces: the working tree must be clean and the records go to
-<PERO_INFERENCE>/<commit>/. A free run (--out) writes the same structure into any folder without looking at the
-commit, for experiments (another Python environment, uncommitted code, one's own engines or data); it records the
-commit, the uncommitted changes and the command in <folder>/inference/run.json.
+A registry (a .yaml file anywhere, see Registry) names the benchmark it runs on (BENCHMARK, a folder of the data
+folder) and the engines to run on it. Official runs (the default) record what a commit produces: the working tree
+must be clean and the records go to <PERO_INFERENCE>/<commit>/<benchmark>/. A free run (--out) writes the same
+structure into any folder without looking at the commit, for experiments (another Python environment, uncommitted
+code, one's own engines or data); it records the commit, the uncommitted changes and the command in
+<folder>/<benchmark>/run.json.
+
+The records of a benchmark are self-contained: <commit>/<benchmark>/ holds the units, environment.json (the
+environment they were made in; a benchmark's units are all made in one), benchmark.json (its pages and their
+checksums), adopted.json (units adopted from another commit), report.md, logs/ and, from score.py, score/. Nothing is
+stored at the level of the commit, so different benchmarks of one commit can be made by different people on different
+machines and put together by copying their folders.
 
 Inference is not a test: it only records what the code at this commit produces. benchmark/score.py turns the records
 into the benchmark, and test/inference/ compares the records of two commits.
 
 Inputs (environment variables or options):
-    PERO_TEST_DATA     the data folder: one folder per dataset, <dataset>/registry.yaml (which engines run on it),
-                       <dataset>/images/<page>.<ext>, <dataset>/page_xml/<page>.xml (the input layout; the croppers
-                       crop its lines); a page is named by its file name. Other files (test lists) are not read.
+    --registry         the registries to run, one per benchmark
+    PERO_TEST_DATA     the data folder: one folder per benchmark, <benchmark>/images/<page>.<ext>,
+                       <benchmark>/page_xml/<page>.xml (the input layout; the croppers crop its lines), and the page
+                       lists the registries name; a page is named by its file name. The test lists are read by score.py.
     PERO_TEST_MODELS   the engines: <STAGE>/<name>/ with a config.ini holding the stage's section and the files it
                        refers to (STAGE: LAYOUT_PARSER, LINE_CROPPER, OCR, DECODER)
-    PERO_INFERENCE     the records of official runs: <PERO_INFERENCE>/<commit>/inference/<dataset>/ (a free run:
-                       <--out>/inference/<dataset>/)
+    PERO_INFERENCE     the records of official runs: <PERO_INFERENCE>/<commit>/<benchmark>/ (a free run:
+                       <--out>/<benchmark>/)
 
 The configs are used as they are; the code only sets the RUN_* switches of [PAGE_PARSER] to the engine's stage. Adding
 an engine to a registry and running infer.py again computes only what is missing.
 
-A run is on every page of the dataset, or on the pages of a page list the registry gives it (see Registry). A unit
+A run is on every page of the benchmark, or on the pages of a page list the registry gives it (see Registry). A unit
 records the pages it holds; when the registry gives it pages it does not hold (a longer page list, or none: every
 page), a run computes only those and adds them to the unit (with the engine it was recorded with). A run adds its
 pages in chunks of --chunk-pages pages, so an interrupted run loses at most one chunk: running the same command
 again computes the pages the units do not hold yet. A run reads only
 pages its input holds: the registry is refused at the start when it gives a run pages its input run does not get.
 
-Units (one folder each in <commit>/inference/<dataset>/, complete when it holds unit.json):
+Units (one folder each in <commit>/<benchmark>/, complete when it holds unit.json):
     LAYOUT_PARSER/<layout>          the layout engine on every page image: page_xml/<page>.xml
-    LINE_CROPPER/<cropper>          the line cropper on the lines of the dataset's PAGE XML: crops.lmdb, key
+    LINE_CROPPER/<cropper>          the line cropper on the lines of the benchmark's PAGE XML: crops.lmdb, key
                                     "<page>/<line_id>", the crop as PNG (lossless)
     OCR/<ocr>@<cropper>             the OCR engine on the stored crops of the cropper, per page (records.py):
                                     lines/<page>.txt (the lines in the format of the test lists), lines/<page>.tsv
@@ -68,9 +77,10 @@ region with random.uniform, issue #100).
 Adopting units (--adopt-from <commit or folder> --adopt <unit id prefixes>): a run whose code changes only some stages
 copies the complete units of the other stages from the records of another commit instead of computing them again, e.g.
 a change of the layout engine adopts LINE_CROPPER/ OCR/ DECODER/ and computes only LAYOUT_PARSER/. The source must have
-been inferred in the same environment and on the same dataset (both are checked); that the code change does not touch
-the adopted stages is the caller's claim. <inference>/adopted.json records the source, the files the code changed
-between the two commits and the adopted units; each adopted unit.json gets "adopted_from"; report.md says so.
+been inferred in the same environment and on the same pages (both are checked, per benchmark); that the code change
+does not touch the adopted stages is the caller's claim. <commit>/<benchmark>/adopted.json records the source, the
+files the code changed between the two commits and the adopted units; each adopted unit.json gets "adopted_from";
+report.md says so.
 """
 import argparse
 import configparser
@@ -152,7 +162,7 @@ class Dataset:
         self.name = os.path.basename(os.path.normpath(folder))
         images, xmls = os.path.join(folder, 'images'), os.path.join(folder, 'page_xml')
         if not os.path.isdir(images) or not os.path.isdir(xmls):
-            sys.exit(f'{folder}: a dataset needs images/ and page_xml/')
+            sys.exit(f'{folder}: a benchmark needs images/ and page_xml/')
         by_name = {}
         for f in sorted(os.listdir(images)):
             stem, ext = os.path.splitext(f)
@@ -182,6 +192,22 @@ def config_text(config):
 
 # ----------------------------------------------------------------------------------------------------------------------
 # Registry
+
+
+def registry_benchmark(path):
+    """The benchmark a registry runs on: its BENCHMARK, the name of a folder of --data."""
+    try:
+        import yaml
+    except ImportError:
+        sys.exit('reading the registry needs PyYAML (pip install pyyaml)')
+    if not os.path.isfile(path):
+        sys.exit(f'no registry {path}')
+    with open(path, encoding='utf-8') as f:
+        data = yaml.safe_load(f) or {}
+    name = data.get('BENCHMARK') if isinstance(data, dict) else None
+    if not isinstance(name, str) or not name or os.sep in name or name.startswith('.'):
+        sys.exit(f'{path}: BENCHMARK must name the benchmark it runs on (a folder of --data), got {name!r}')
+    return name
 
 
 def names(value, where):
@@ -241,16 +267,17 @@ class Engine:
 
 
 class Registry:
-    """<dataset>/registry.yaml: for every stage (LAYOUT_PARSER, LINE_CROPPER, OCR, DECODER) its engines, by name; an
+    """A registry (any .yaml file, given with --registry): BENCHMARK, the benchmark it runs on (a folder of --data),
+    and for every stage (LAYOUT_PARSER, LINE_CROPPER, OCR, DECODER) its engines, by name; an
     engine's folder is <STAGE>/<name>/ in the engines folder. An engine is a list item, or a key with what it runs on:
         LINE_CROPPER: <names>    OCR engines: the croppers whose line crops it reads (required)
         OCR: <names>             DECODER engines: the OCR runs whose output it decodes (required); <ocr>, or
                                  <ocr>@<cropper> for an OCR engine listed with several croppers
     <names> is one name or a list. Any subset of the stages is valid.
 
-    Page lists: a run is on every page of the dataset, or on the pages of a page list given with its name: a layout
+    Page lists: a run is on every page of the benchmark, or on the pages of a page list given with its name: a layout
     engine or cropper as "<name>: <page list>", an OCR or decoder run as "<input>: <page list>" in its LINE_CROPPER or
-    OCR. A page list is a file relative to the dataset folder, one page name per line (blank lines and # comments
+    OCR. A page list is a file relative to the benchmark folder, one page name per line (blank lines and # comments
     ignored). A run's pages must be among the pages of the run it reads (OCR: its cropper's; DECODER: its OCR run's;
     an OCR run derived by a higher threshold: its base run's)."""
 
@@ -267,9 +294,10 @@ class Registry:
             data = yaml.safe_load(f) or {}
         if not isinstance(data, dict):
             sys.exit(f'{path}: expected the stages as keys')
+        data.pop('BENCHMARK', None)  # read by registry_benchmark()
         unknown = set(data) - set(STAGES)
         if unknown:
-            sys.exit(f'{path}: unknown stages {sorted(unknown)}; the stages are {", ".join(STAGES)}')
+            sys.exit(f'{path}: unknown stages {sorted(unknown)}; the stages are {", ".join(STAGES)} (and BENCHMARK)')
         self.engines = {stage: {} for stage in STAGES}
         for stage in STAGES:
             entries = data.get(stage)
@@ -304,7 +332,7 @@ class Registry:
         return Engine(stage, name, folder, names(settings[INPUT[stage]], f'{where}: {INPUT[stage]}'))
 
     def page_list(self, name, where):
-        """The pages of a page list file (relative to the dataset folder)."""
+        """The pages of a page list file (relative to the benchmark folder)."""
         if name is None:
             return frozenset(p['name'] for p in self.dataset.all_pages)
         if name not in self.page_lists:
@@ -317,7 +345,7 @@ class Registry:
                 sys.exit(f'registry: {where}: page list {name} is empty')
             unknown = sorted(pages - {p['name'] for p in self.dataset.all_pages})
             if unknown:
-                sys.exit(f'registry: {where}: page list {name}: {len(unknown)} pages are not in the dataset: '
+                sys.exit(f'registry: {where}: page list {name}: {len(unknown)} pages are not in the benchmark: '
                          f'{", ".join(unknown[:5])}')
             self.page_lists[name] = frozenset(pages)
         return self.page_lists[name]
@@ -451,8 +479,8 @@ def official_commit():
     return commit
 
 
-def record_free_run(inference):
-    """Append to <inference>/run.json what a free run ran with: the commit, uncommitted changes, the command."""
+def record_free_run(out):
+    """Append to <benchmark records>/run.json what a free run ran with: the commit, uncommitted changes, the command."""
     run = dict(started_utc=utc_now(), argv=sys.argv, python=sys.executable, cwd=os.getcwd())
     try:
         run['commit'] = git('rev-parse', 'HEAD')
@@ -460,7 +488,7 @@ def record_free_run(inference):
         run['diff'] = git('diff', 'HEAD')
     except (subprocess.CalledProcessError, OSError):
         run['commit'] = None  # pero-ocr not in a git checkout
-    path = os.path.join(inference, 'run.json')
+    path = os.path.join(out, 'run.json')
     runs = []
     if os.path.exists(path):
         with open(path) as f:
@@ -562,7 +590,7 @@ class Unit:
         return recorded_pages(self.final, self.dataset)
 
     def missing_pages(self):
-        """The pages to compute, in dataset order."""
+        """The pages to compute, in the benchmark's order."""
         have = self.recorded()
         return [p for p in self.dataset.all_pages if p['name'] in self.wanted and p['name'] not in have]
 
@@ -1063,41 +1091,39 @@ def prune_logits(registry, out, units):
 # Report
 
 
-def write_report(inference, commit):
-    """<commit>/inference/report.md: the units of every dataset."""
+def write_report(out, commit):
+    """<benchmark records>/report.md: the units of the benchmark."""
     rows = []
-    for dataset in sorted(os.listdir(inference)):
-        for stage in STAGES:
-            folder = os.path.join(inference, dataset, stage)
-            if not os.path.isdir(folder):
-                continue
-            for name in sorted(os.listdir(folder)):
-                path = os.path.join(folder, name, 'unit.json')
-                if os.path.exists(path):
-                    with open(path) as f:
-                        info = json.load(f)
-                    held = recorded_pages(os.path.join(folder, name), None) if stage != 'LINE_CROPPER' else None
-                    pages = info.get('pages', '') if held is None else sorted(held)
-                    seconds = info['seconds'] + sum(t['seconds'] for t in info.get('topups', []))
-                    finished = info['topups'][-1]['finished_utc'] if info.get('topups') else info['finished_utc']
-                    lines = info.get('lines', '') if stage == 'LINE_CROPPER' else ''
-                    if stage in ('OCR', 'DECODER'):
-                        lines = sum(records.count_lines(os.path.join(folder, name), p) for p in pages)
-                    if info.get('adopted_from'):
-                        name += f" (adopted from {info['adopted_from'][:7]})"
-                    rows.append((dataset, stage, name, len(pages) if isinstance(pages, list) else pages,
-                                 lines, seconds, finished))
-    with open(os.path.join(inference, 'environment.json')) as f:
+    for stage in STAGES:
+        folder = os.path.join(out, stage)
+        if not os.path.isdir(folder):
+            continue
+        for name in sorted(os.listdir(folder)):
+            path = os.path.join(folder, name, 'unit.json')
+            if os.path.exists(path):
+                with open(path) as f:
+                    info = json.load(f)
+                held = recorded_pages(os.path.join(folder, name), None) if stage != 'LINE_CROPPER' else None
+                pages = info.get('pages', '') if held is None else sorted(held)
+                seconds = info['seconds'] + sum(t['seconds'] for t in info.get('topups', []))
+                finished = info['topups'][-1]['finished_utc'] if info.get('topups') else info['finished_utc']
+                lines = info.get('lines', '') if stage == 'LINE_CROPPER' else ''
+                if stage in ('OCR', 'DECODER'):
+                    lines = sum(records.count_lines(os.path.join(folder, name), p) for p in pages)
+                if info.get('adopted_from'):
+                    name += f" (adopted from {info['adopted_from'][:7]})"
+                rows.append((stage, name, len(pages) if isinstance(pages, list) else pages, lines, seconds, finished))
+    with open(os.path.join(out, 'environment.json')) as f:
         env = json.load(f)
-    lines = [f'# Inference {commit}', '',
+    lines = [f'# Inference {commit}: {os.path.basename(os.path.normpath(out))}', '',
              f"Python {env['python']}, torch {env['packages'].get('torch')} (CUDA {env['torch_cuda']}), "
              f"numpy {env['packages'].get('numpy')}, opencv {env['packages'].get('opencv-python')}, GPU {env['gpu']}.",
-             '', '| dataset | stage | unit | pages | lines | seconds | finished (UTC) |', '|---|---|---|---|---|---|---|']
-    lines += [f'| {d} | {k} | {n} | {p} | {l} | {s:.0f} | {t} |' for d, k, n, p, l, s, t in rows]
-    if any('(adopted from' in r[2] for r in rows):
+             '', '| stage | unit | pages | lines | seconds | finished (UTC) |', '|---|---|---|---|---|---|']
+    lines += [f'| {k} | {n} | {p} | {l} | {s:.0f} | {t} |' for k, n, p, l, s, t in rows]
+    if any('(adopted from' in r[1] for r in rows):
         lines += ['', 'Adopted units were computed by the commit they name and copied here, not run by this commit '
                       '(adopted.json: the source and the files the code changed in between).']
-    with open(os.path.join(inference, 'report.md'), 'w') as f:
+    with open(os.path.join(out, 'report.md'), 'w') as f:
         f.write('\n'.join(lines) + '\n')
 
 
@@ -1106,46 +1132,48 @@ def write_report(inference, commit):
 
 
 def adopt_source(value, results):
-    """The records to adopt from: a folder holding inference/, or a commit with records in --results.
-    Returns (inference folder, commit or None)."""
-    if os.path.isdir(os.path.join(value, 'inference')):
-        source = os.path.join(value, 'inference')
-        commit = None
-        runs = os.path.join(source, 'run.json')
-        if os.path.exists(runs):
-            with open(runs) as f:
-                commit = json.load(f)[-1].get('commit')
-        return source, commit
+    """The records to adopt from: a free run's folder (holding <benchmark>/ folders), or a commit with records in
+    --results. Returns (folder, commit or None); the commit of a free run is the one its run.json names, per
+    benchmark (adopt_units)."""
+    if os.path.isdir(value):
+        return value, None
     try:
         commit = git('rev-parse', '--verify', value + '^{commit}')
     except subprocess.CalledProcessError:
-        sys.exit(f'--adopt-from {value}: neither a folder with inference/ nor a commit')
-    source = os.path.join(results or '', commit, 'inference')
+        sys.exit(f'--adopt-from {value}: neither a folder of records nor a commit')
+    source = os.path.join(results or '', commit)
     if not os.path.isdir(source):
         sys.exit(f'--adopt-from {value}: no records of {commit} in {results}')
     return source, commit
 
 
-def adopt_units(source, source_commit, inference, work, prefixes):
-    """Copy the complete units matching <prefixes> from <source> into the records being made, where they are not
-    there yet. The source must have been inferred in this environment and on the same datasets. Copies, not links: a
-    later top-up of an adopted unit must not change the source."""
-    with open(os.path.join(source, 'environment.json')) as f:
-        source_env = json.load(f)
-    with open(os.path.join(inference, 'environment.json')) as f:
-        env = json.load(f)
-    differ = [k for k in ENV_KEYS if source_env.get(k) != env.get(k)]
-    if differ:
-        sys.exit(f'--adopt-from {source}: inferred in another environment ({", ".join(differ)} differ); its units '
-                 f'would not be what this environment produces')
-    adopted = []
+def adopt_units(source, source_commit, work, prefixes):
+    """Copy the complete units matching <prefixes> from <source>/<benchmark>/ into the records being made, where they
+    are not there yet. The source must have been inferred in this benchmark's environment and on the same pages.
+    Copies, not links: a later top-up of an adopted unit must not change the source."""
     for dataset, registry, out, _, all_units in work:
         src = os.path.join(source, dataset.name)
+        if not os.path.isdir(src):
+            logger.info(f'{dataset.name}: no records in {source}; nothing adopted')
+            continue
+        with open(os.path.join(src, 'environment.json')) as f:
+            source_env = json.load(f)
+        with open(os.path.join(out, 'environment.json')) as f:
+            env = json.load(f)
+        differ = [k for k in ENV_KEYS if source_env.get(k) != env.get(k)]
+        if differ:
+            sys.exit(f'--adopt-from {src}: inferred in another environment ({", ".join(differ)} differ); its units '
+                     f'would not be what this environment produces')
         record = dict(pages=len(dataset.all_pages), files=dataset.fingerprint())
-        with open(os.path.join(src, 'dataset.json')) as f:
+        with open(os.path.join(src, 'benchmark.json')) as f:
             source_record = json.load(f)
         if any(source_record.get(k) != v for k, v in record.items()):
-            sys.exit(f'--adopt-from {source}: {dataset.name} was inferred from other pages')
+            sys.exit(f'--adopt-from {src}: {dataset.name} was inferred from other pages')
+        commit = source_commit
+        if commit is None and os.path.exists(os.path.join(src, 'run.json')):
+            with open(os.path.join(src, 'run.json')) as f:
+                commit = json.load(f)[-1].get('commit')
+        adopted = []
         for unit in all_units.values():
             if not any(unit.id.startswith(prefix) for prefix in prefixes) or unit.info() is not None:
                 continue
@@ -1158,27 +1186,27 @@ def adopt_units(source, source_commit, inference, work, prefixes):
             shutil.copytree(folder, tmp)
             with open(os.path.join(tmp, 'unit.json')) as f:
                 info = json.load(f)
-            info['adopted_from'] = source_commit or source
+            info['adopted_from'] = commit or src
             with open(os.path.join(tmp, 'unit.json'), 'w') as f:
                 json.dump(info, f, indent=1, ensure_ascii=False)
             os.rename(tmp, unit.final)
-            adopted.append(f'{dataset.name}/{unit.id}')
+            adopted.append(unit.id)
             logger.info(f'{dataset.name}: adopted {unit.id}')
-    if not adopted:
-        return
-    entry = dict(adopted_utc=utc_now(), source=source, source_commit=source_commit, units=adopted)
-    if source_commit:
-        try:
-            entry['changed_files'] = git('diff', '--name-only', source_commit, 'HEAD').splitlines()
-        except subprocess.CalledProcessError:
-            pass
-    path = os.path.join(inference, 'adopted.json')
-    entries = []
-    if os.path.exists(path):
-        with open(path) as f:
-            entries = json.load(f)
-    with open(path, 'w') as f:
-        json.dump(entries + [entry], f, indent=1, ensure_ascii=False)
+        if not adopted:
+            continue
+        entry = dict(adopted_utc=utc_now(), source=src, source_commit=commit, units=adopted)
+        if commit:
+            try:
+                entry['changed_files'] = git('diff', '--name-only', commit, 'HEAD').splitlines()
+            except subprocess.CalledProcessError:
+                pass
+        path = os.path.join(out, 'adopted.json')
+        entries = []
+        if os.path.exists(path):
+            with open(path) as f:
+                entries = json.load(f)
+        with open(path, 'w') as f:
+            json.dump(entries + [entry], f, indent=1, ensure_ascii=False)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1242,7 +1270,7 @@ def run_inline(todo, registry, dataset, out, crop_workers):
         run_unit(unit, registry, dataset, out)
 
 
-def run_parallel(todo, registry, dataset, out, args, inference, folder_name, units):
+def run_parallel(todo, registry, dataset, out, args, folder_name, units):
     """Crops in this process (a CPU pool), every other unit in a process of its own at low CPU priority: args.jobs
     layout and OCR units on each GPU of args.gpus, args.decoder_jobs decoder units on args.decoder_gpus; a unit starts
     when the units it needs are done and enough memory is free, on the GPU of its kind running the fewest units."""
@@ -1278,7 +1306,7 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name, uni
     todo_ids = {u.id for u in todo}
     os.makedirs(os.path.join(out, 'logs'), exist_ok=True)
     base = [sys.executable, os.path.abspath(__file__), '--exact', '--data', args.data, '--models', args.models,
-            '--datasets', dataset.name, '--crop-workers', '0', '--decoder-jobs', '1'] + \
+            '--registry', registry.path, '--crop-workers', '0', '--decoder-jobs', '1'] + \
            (['--out', args.out] if args.out else ['--results', args.results]) + \
            (['--pages', str(args.pages)] if args.pages else []) + \
            (['--force-environment'] if args.force_environment else []) + \
@@ -1354,7 +1382,7 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name, uni
                 if code != 0:
                     failed.append(unit.id)
                     logger.error(f'{dataset.name}: {unit.id} failed, see {dataset.name}/logs/{name}.log')
-            write_report(inference, folder_name)
+            write_report(out, folder_name)
 
     threads = [threading.Thread(target=worker) for _ in range(args.jobs * len(gpus) + args.decoder_jobs)]
     for t in threads:
@@ -1366,31 +1394,18 @@ def run_parallel(todo, registry, dataset, out, args, inference, folder_name, uni
     return [f'{dataset.name}: {u}' for u in failed]
 
 
-def dataset_folders(data, wanted):
-    """The datasets of the data folder: its subfolders with a registry.yaml."""
-    found = sorted(d for d in os.listdir(data) if os.path.isfile(os.path.join(data, d, 'registry.yaml')))
-    if wanted:
-        missing = [d for d in wanted if d not in found]
-        if missing:
-            sys.exit(f'{data}: no dataset {", ".join(missing)} (a dataset is a folder with registry.yaml); '
-                     f'found: {", ".join(found)}')
-        found = [d for d in found if d in wanted]
-    if not found:
-        sys.exit(f'{data}: no dataset (a folder with registry.yaml, images/ and page_xml/)')
-    return found
-
-
 def main():
     global CHUNK_PAGES, KEEP_TORCHSCRIPT_FUSER, FORCE_ENGINE
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--data', default=os.environ.get('PERO_TEST_DATA'))
+    p.add_argument('--registry', nargs='+', metavar='REGISTRY',
+                   help='the registries to run (.yaml files; each names its benchmark, BENCHMARK)')
+    p.add_argument('--data', default=os.environ.get('PERO_TEST_DATA'), help='the benchmarks: one folder each')
     p.add_argument('--models', default=os.environ.get('PERO_TEST_MODELS'))
     p.add_argument('--results', default=os.environ.get('PERO_INFERENCE'), help='the records of official runs')
     p.add_argument('--out', help='a free run into this folder: not bound to the commit (experiments)')
-    p.add_argument('--datasets', nargs='*', help='only these datasets of the data folder')
     p.add_argument('--units', nargs='*', default=[''], help='unit id prefixes to run, e.g. OCR/ DECODER/czech')
     p.add_argument('--exact', action='store_true', help='--units are exact unit ids; run them in this process (how the unit processes are started)')
-    p.add_argument('--pages', type=int, help='only the first N pages of each dataset (a trial; only with --out)')
+    p.add_argument('--pages', type=int, help='only the first N pages of each benchmark (a trial; only with --out)')
     p.add_argument('--jobs', type=int, default=1,
                    help='layout and OCR units running at the same time on each GPU, each in its own process')
     p.add_argument('--decoder-jobs', type=int, default=10,
@@ -1434,6 +1449,8 @@ def main():
     KEEP_TORCHSCRIPT_FUSER = args.keep_torchscript_fuser
     FORCE_ENGINE = args.force_engine
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
+    if not args.registry:
+        sys.exit('--registry is required: the registries to run')
     for name in ('data', 'models') + (() if args.out else ('results',)):
         if not getattr(args, name):
             sys.exit(f'--{name} (or its environment variable) is required')
@@ -1444,17 +1461,22 @@ def main():
 
     if args.out:
         folder_name = os.path.basename(os.path.normpath(args.out))
-        inference = os.path.join(args.out, 'inference')
+        root = args.out
     else:
         folder_name = official_commit()
-        inference = os.path.join(args.results, folder_name, 'inference')
+        root = os.path.join(args.results, folder_name)
     work = []
-    for name in dataset_folders(args.data, args.datasets):
+    for path in args.registry:
+        name = registry_benchmark(path)
+        if any(d.name == name for d, *_ in work):
+            sys.exit(f'--registry: two registries for the benchmark {name}; one run takes one registry per benchmark')
+        if not os.path.isdir(os.path.join(args.data, name)):
+            sys.exit(f'{path}: no benchmark {name} in {args.data}')
         dataset = Dataset(os.path.join(args.data, name))
         if args.pages:
             dataset.pages = dataset.pages[:args.pages]
-        registry = Registry(os.path.join(args.data, name, 'registry.yaml'), args.models, dataset)
-        out = os.path.join(inference, name)
+        registry = Registry(os.path.abspath(path), args.models, dataset)
+        out = os.path.join(root, name)
         all_units = {u.id: u for u in plan(registry, out, dataset)}
         if args.exact:
             units = [u for u in all_units.values() if u.id in set(args.units)]
@@ -1493,40 +1515,39 @@ def main():
         return
     if args.adopt:
         source, source_commit = adopt_source(args.adopt_from, args.results)
-        os.makedirs(inference, exist_ok=True)
-        check_record(os.path.join(inference, 'environment.json'), environment(), ENV_KEYS,
-                     'in another environment', args.force_environment)
         for dataset, registry, out, _, _ in work:
             os.makedirs(out, exist_ok=True)
-            check_record(os.path.join(out, 'dataset.json'), dict(pages=len(dataset.all_pages),
-                                                                 files=dataset.fingerprint()),
+            check_record(os.path.join(out, 'environment.json'), environment(), ENV_KEYS,
+                         'in another environment', args.force_environment)
+            check_record(os.path.join(out, 'benchmark.json'), dict(pages=len(dataset.all_pages),
+                                                                   files=dataset.fingerprint()),
                          ('pages', 'files'), 'from other pages', args.force_environment)
-        adopt_units(source, source_commit, inference, work, args.adopt)
-        write_report(inference, folder_name)
+        adopt_units(source, source_commit, work, args.adopt)
+        for _, _, out, _, _ in work:
+            write_report(out, folder_name)
     if not any(not u.done() for _, _, _, units, _ in work for u in units):
         print('nothing to do')
         return
-    os.makedirs(inference, exist_ok=True)
-    if args.out and not args.exact:
-        record_free_run(inference)
-    check_record(os.path.join(inference, 'environment.json'), environment(), ENV_KEYS,
-                 'in another environment', args.force_environment)
     failed = []
     for dataset, registry, out, units, all_units in work:
         todo = [u for u in units if not u.done()]
         if not todo:
             continue
         os.makedirs(out, exist_ok=True)
-        if not args.exact:  # a unit process: the run that started it checked the dataset
-            check_record(os.path.join(out, 'dataset.json'), dict(pages=len(dataset.all_pages),
-                                                                 files=dataset.fingerprint()),
+        check_record(os.path.join(out, 'environment.json'), environment(), ENV_KEYS,
+                     'in another environment', args.force_environment)
+        if not args.exact:  # a unit process: the run that started it checked the benchmark and wrote run.json
+            if args.out:
+                record_free_run(out)
+            check_record(os.path.join(out, 'benchmark.json'), dict(pages=len(dataset.all_pages),
+                                                                   files=dataset.fingerprint()),
                          ('pages', 'files'), 'from other pages', args.force_environment)
         logger.info(f'{out}: {len(todo)} units to run')
         if args.exact or (args.jobs <= 1 and len(args.gpus or []) <= 1 and len(args.decoder_gpus or []) <= 1):
             run_inline(todo, registry, dataset, out, args.crop_workers)
         else:
-            failed += run_parallel(todo, registry, dataset, out, args, inference, folder_name, all_units)
-        write_report(inference, folder_name)
+            failed += run_parallel(todo, registry, dataset, out, args, folder_name, all_units)
+        write_report(out, folder_name)
     if failed:
         sys.exit(f'failed: {"; ".join(failed)}')
     logger.info('all units done')

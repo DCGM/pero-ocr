@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Score the inference records of one commit against each dataset's test lists: the benchmark.
+"""Score the inference records of one commit against the test lists of each benchmark.
 
-    python benchmark/score.py                     # the records of the current commit
-    python benchmark/score.py --commit <hash>     # any commit with records in $PERO_INFERENCE
-    python benchmark/score.py --out ~/bench/try1  # the records of a free run (infer.py --out)
+    python benchmark/score.py                          # the records of the current commit, every benchmark
+    python benchmark/score.py --commit <hash>          # any commit with records in $PERO_INFERENCE
+    python benchmark/score.py --benchmarks main        # only some benchmarks
+    python benchmark/score.py --out ~/bench/try1       # the records of a free run (infer.py --out)
 
-Reads <commit>/inference/<dataset>/ (or <out>/inference/<dataset>/) and <data>/<dataset>/test_lists/, writes
-<commit>/score/<dataset>/ (or <out>/score/<dataset>/): cer.tsv,
+Reads the records of each benchmark, <commit>/<benchmark>/ (or <out>/<benchmark>/), and <data>/<benchmark>/test_lists/,
+writes <commit>/<benchmark>/score/: cer.tsv,
 layout.tsv and report.md, and lines/<OCR or DECODER>/<unit>/<test list>.txt: the unit's output on exactly the lines
 of the test list, in its order and format, to compare with the test list (or another unit's) line by line, e.g. in
 meld. Run it again after more units were inferred; it scores whatever is there.
 
 A test list has one line per row, "<page>-<line_id>.jpg <reference text>", where <page> is the page's file name in
-the dataset.
+the benchmark.
 
 A unit is scored on a test list when it holds every page of the list (the pages whose files it has); otherwise its
 score on that list is NA. Which pages were inferred is up to infer.py and its registry; this script does not read it.
@@ -26,7 +27,7 @@ vowel with umlaut or diaeresis, and long s to s; the "modern_german" test sets o
 that write long s and models that write s are then scored alike; the modernized CER is what the older benchmarks
 reported.
 
-Layout (LAYOUT_PARSER/ units): the annotated lines of the test lists are the reference (the dataset's PAGE XML; only
+Layout (LAYOUT_PARSER/ units): the annotated lines of the test lists are the reference (the benchmark's PAGE XML; only
 their baselines are known to be right, regions are not annotated). A reference baseline is sampled at 20 points; a
 point is covered by a detected line if its distance to the detected baseline is below half the reference line's
 height and it projects inside the detected baseline. The best detected line of a reference line is the one that
@@ -68,7 +69,7 @@ def modernize(text):
 
 
 def load_lists(dataset):
-    """{list name: [(page, line_id, reference text)]} of <dataset>/test_lists."""
+    """{list name: [(page, line_id, reference text)]} of <benchmark>/test_lists."""
     pages = sorted({os.path.splitext(f)[0] for f in os.listdir(os.path.join(dataset, 'page_xml'))}, key=len,
                    reverse=True)
     folder = os.path.join(dataset, 'test_lists')
@@ -83,7 +84,7 @@ def load_lists(dataset):
                 key = key[:-len('.jpg')] if key.endswith('.jpg') else key
                 page = next((p for p in pages if key.startswith(p + '-')), None)
                 if page is None:
-                    sys.exit(f'{os.path.join(folder, f)}: {key}: no page of the dataset')
+                    sys.exit(f'{os.path.join(folder, f)}: {key}: no page of the benchmark')
                 rows.append((page, key[len(page) + 1:], text))
         lists[f[:-len('.test_list')]] = rows
     return lists
@@ -269,7 +270,7 @@ def main():
     p.add_argument('--results', default=os.environ.get('PERO_INFERENCE'))
     p.add_argument('--commit', help='records folder name (default: the current commit)')
     p.add_argument('--out', help='the folder of a free run (infer.py --out) instead of a commit')
-    p.add_argument('--datasets', nargs='*', help='only these datasets')
+    p.add_argument('--benchmarks', nargs='*', help='only these benchmarks')
     args = p.parse_args()
     if not args.data or not (args.results or args.out):
         sys.exit('--data and --results or --out (or PERO_TEST_DATA and PERO_INFERENCE) are required')
@@ -279,20 +280,25 @@ def main():
         label = args.commit or subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], check=True,
                                               capture_output=True, text=True).stdout.strip()
         root = os.path.join(args.results, label)
-    inference = os.path.join(root, 'inference')
-    if not os.path.isdir(inference):
-        sys.exit(f'no records in {inference}')
-    with open(os.path.join(inference, 'environment.json')) as f:
-        env = json.load(f)
-    for name in sorted(os.listdir(inference)):
-        records, dataset = os.path.join(inference, name), os.path.join(args.data, name)
-        if not os.path.isdir(records) or (args.datasets and name not in args.datasets):
+    if not os.path.isdir(root):
+        sys.exit(f'no records in {root}')
+    found = sorted(n for n in os.listdir(root) if os.path.isfile(os.path.join(root, n, 'benchmark.json')))
+    missing = sorted(set(args.benchmarks or []) - set(found))
+    if missing:
+        sys.exit(f'no records of {", ".join(missing)} in {root}')
+    if not found:
+        sys.exit(f'no records in {root} (a benchmark\'s records are a folder with benchmark.json)')
+    for name in found:
+        records, dataset = os.path.join(root, name), os.path.join(args.data, name)
+        if args.benchmarks and name not in args.benchmarks:
             continue
         if not os.path.isdir(os.path.join(dataset, 'test_lists')):
             print(f'{name}: no test lists in {dataset}, not scored')
             continue
+        with open(os.path.join(records, 'environment.json')) as f:
+            env = json.load(f)
         lists = load_lists(dataset)
-        out = os.path.join(root, 'score', name)
+        out = os.path.join(records, 'score')
         os.makedirs(out, exist_ok=True)
         text_rows = score_text(records, lists, out)
         layout_rows = score_layout(records, lists, dataset)
