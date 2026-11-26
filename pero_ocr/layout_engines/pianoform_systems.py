@@ -24,9 +24,11 @@ def merge_pianoform_systems(page_layout: PageLayout, braces: list, page_size, st
         staff_category: category of the staff regions to pair.
         min_staff_confidence: staves detected with a lower confidence are not paired.
     """
-    staves = [region for region in page_layout.regions
-              if region.category == staff_category
-              and (region.detection_confidence is None or region.detection_confidence >= min_staff_confidence)]
+    staves = []
+    for region in page_layout.regions:
+        confidence = region.detection_confidence
+        if region.category == staff_category and (confidence is None or confidence >= min_staff_confidence):
+            staves.append(region)
     paired_ids = set()
 
     for brace in braces:
@@ -41,7 +43,8 @@ def merge_pianoform_systems(page_layout: PageLayout, braces: list, page_size, st
 
         box = system_box(top_stave, bottom_stave, brace_left, page_size)
         system = box_region(top_stave.id, box, PIANOFORM_CATEGORY, confidence)
-        page_layout.regions[page_layout.regions.index(top_stave)] = system
+        index = page_layout.regions.index(top_stave)
+        page_layout.regions[index] = system
         page_layout.regions.remove(bottom_stave)
 
     return page_layout

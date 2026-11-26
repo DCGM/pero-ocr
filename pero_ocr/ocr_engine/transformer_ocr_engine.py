@@ -121,7 +121,7 @@ class TransformerEngineLineOCR(BaseEngineLineOCR):
 
     def initial_transcriptions(self, count):
         start = self.prefix_inds + [self.sentence_boundary_ind]
-        return torch.tensor(start, dtype=torch.long, device=self.device).unsqueeze(0).repeat(count, 1)
+        return torch.tensor([start] * count, dtype=torch.long, device=self.device)
 
     def transcribe_batch_beam_search_exported(self, inputs):
         labels = []
