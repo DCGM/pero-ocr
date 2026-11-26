@@ -60,6 +60,24 @@ When a test needs a code path a tiny model cannot reach, upgrade the model in pl
 - Frozen data must be reproducible: if the engine uses randomness, seed it in the runner and say why.
 - Regenerate only in the basis environment, so the frozen models are exported with the oldest torch every worker loads and the outputs are what the live workers produce.
 
+## Benchmark: every page on its own
+
+`benchmark/infer.py` must process every page as if the engine processed that page alone, right after loading: a
+page's records must never depend on the pages processed before it (their order, a page list, a resumed or topped-up
+run). Models are not reloaded per page; instead every dependency between pages is wiped out before each page:
+
+- `start_page()` (in `infer.py`) runs before every page of every engine: it restores the attributes of pero-ocr's
+  objects in the parser to their values after loading (`PageState`), stops the run when a list, dict or array of
+  theirs changed in place, and seeds the random generators from the page name.
+- A change to pero-ocr that keeps anything from one page to the next (a cache, an adapted setting, the text or state
+  of the previous page, a counter that changes results), or a change of the benchmark that does, must be reset there.
+  `PageState` resets pero-ocr's object attributes by itself; state it cannot see (module globals, class attributes,
+  settings or caches of torch, numpy, opencv or other libraries) is reset in `start_page()` explicitly, with a comment
+  saying what and why.
+- Check it when adding an engine or changing one: process the same pages once in a longer sequence and once each
+  after other predecessors; their records must be identical (apart from the creation times in PAGE XML).
+- State that pero-ocr keeps across pages in production is recorded in #96 ("Weird behaviour to fix or decide").
+
 ## Known bugs and odd behaviour
 
 - A known bug gets a test that describes the correct behaviour, marked `@pytest.mark.xfail(reason=..., strict=True)`; the reason says what is wrong. The fix removes the marker in the same change.

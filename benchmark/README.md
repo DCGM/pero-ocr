@@ -169,7 +169,9 @@ page is reset (the attributes of pero-ocr's objects in the parser, not the model
 a container changed in place stops the run). In production the same parser carries such state over (the downsample
 `LAYOUT_CNN` adapted to on the previous page; with `CARRY_H_OVER` the decoder's last line of the previous page, issue
 #96), so a page's result there depends on the pages before it; in the benchmark it must not depend on their order, a
-page list or a resumed run. And every page is processed with numpy's and Python's random generators seeded from its
+page list or a resumed run. This is a rule for every change of pero-ocr or of this code (`AGENTS.md`, "Benchmark:
+every page on its own"): state kept across pages is wiped out before each page, never by reloading the models. And
+every page is processed with numpy's and Python's random generators seeded from its
 name, so the layout engine's random tie-breaks (issue #100) are the same in every run.
 
 The records of a commit (a free run's folder has the same structure, plus `<benchmark>/run.json`):
