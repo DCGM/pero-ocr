@@ -193,14 +193,20 @@ threshold in its config, a cropper's pages are the rows of its `pages.tsv` and i
 keeps `page_xml/` and `logits/` only for the pages a decoder decodes. `unit.json` appears only when a unit was adopted
 (`adopted_from`: the commit it was copied from) or extended with `--force-model` (`engine_changes`: what changed, which
 pages). Every unit except a derived one also has
-`pages.tsv`, the processing of every page: `page`,
-`seconds` (wall time of the engine's call for the page, without reading and writing), `lines` (the lines it processed;
-a decoder: the lines it decoded, as the lines over its confidence threshold keep the OCR text), `chars` (OCR and
-decoders: the characters it wrote in those lines, as the engine wrote them, before any NFC of the output), `width_px`
-(OCR: the total width in pixels of the line crops it read, its input size), `frames` (decoders: the logit frames of
-the lines it decoded, every frame it searches including the padding, its input size), `gpu_peak_mb` (peak GPU
-memory; empty for the croppers, on the CPU). With `--jobs` over 1 units share a GPU, so their times include waiting for
-each other. A unit derived by a higher threshold computes nothing and has no `pages.tsv`. OCR and decoder units keep one set of files
+`pages.tsv`, the processing of every page, one row per page, in the columns of its stage:
+
+| stage | columns |
+|---|---|
+| layout | `page`, `seconds`, `gpu_peak_mb`, `lines` (detected) |
+| cropper | `page`, `seconds`, `crops` (on the CPU) |
+| OCR | `page`, `seconds`, `gpu_peak_mb`, `lines` (read), `chars` (written), `width_px` (the total width of the crops it read: its input size) |
+| decoder | `page`, `seconds`, `gpu_peak_mb`, `lines_decoded`, `chars` (written in those lines), `frames` (the logit frames of those lines, the padding included: its input size) |
+
+`seconds` is the wall time of the engine's call for the page, without reading and writing; `gpu_peak_mb` the peak GPU
+memory; `chars` counts the text as the engine wrote it, before any NFC of the output. A decoder decodes only the lines
+over its confidence threshold, the others keep the OCR text. The counts can be derived from the records too (except a
+decoder's), and are kept with the inference as a check of them. With `--jobs` over 1 units share a GPU, so their
+times include waiting for each other. A unit derived by a higher threshold computes nothing and has no `pages.tsv`. OCR and decoder units keep one set of files
 per page (`benchmark/records.py`), the lines in the page's PAGE XML order:
 
 - `lines/<page>.txt`: the lines in the format of the test lists, `<page>-<line_id>.jpg <text>`; a line the
