@@ -126,17 +126,16 @@ class MusicPageExporter:
 
     def regions_to_parts(self, regions: List[RegionLayout]) -> List[Part]:
         """Takes a list of regions and splits them to parts."""
-        max_parts = max(
-            [len(region.get_lines_of_category(self.categories)) for region in regions],
-            default=0
-        )
+        region_lines = [[line for line in region.get_lines_of_category(self.categories) if line.transcription]
+                        for region in regions]
+        max_parts = max([len(lines) for lines in region_lines], default=0)
         if max_parts == 0:
             print('Warning: No music lines found in page.')
             return []
 
         parts = [Part(self.translator) for _ in range(max_parts)]
-        for region in regions:
-            for part, line in zip(parts, region.get_lines_of_category(self.categories)):
+        for lines in region_lines:
+            for part, line in zip(parts, lines):
                 part.add_textline(line)
 
         return parts
