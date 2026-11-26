@@ -9,7 +9,8 @@ A unit holds a page when it holds both line files of the page:
     lines/<page>.tsv      the rest of each line, in the same order: line_id, confidence (full precision, empty when
                           the line has none), kept (0: the filter removed the line)
     logprobs.1in64/<page>.npz   OCR units: the full log-probabilities of the page's lines in the fixed subset, one
-                          line in 64 by a hash of "<page>/<line_id>", the same in every unit (key: the line id); no
+                          line in 64 by a hash of "<page>/<line_id>", the same in every unit (a free run can choose
+                          another N, infer.py --logprobs-subset: logprobs.1in<N>/) (key: the line id); no
                           file when none of its lines is in the subset. The folder name says the subset, so records
                           made with another one do not look comparable.
 
@@ -23,8 +24,15 @@ import os
 import numpy as np
 
 LINES = 'lines'
-LOGPROBS_SUBSET = 64  # one line in LOGPROBS_SUBSET keeps its log-probabilities
+LOGPROBS_SUBSET = 64  # one line in LOGPROBS_SUBSET keeps its log-probabilities (official runs: always 64)
 LOGPROBS = f'logprobs.1in{LOGPROBS_SUBSET}'
+
+
+def set_logprobs_subset(n):
+    """Keep the log-probabilities of one line in n (infer.py --logprobs-subset, free runs only); the folder name
+    logprobs.1in<n> follows."""
+    global LOGPROBS_SUBSET, LOGPROBS
+    LOGPROBS_SUBSET, LOGPROBS = n, f'logprobs.1in{n}'
 HEADER = ['line_id', 'confidence', 'kept']
 
 

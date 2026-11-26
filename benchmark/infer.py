@@ -137,7 +137,6 @@ RUN_SWITCH = {'LAYOUT_PARSER': 'RUN_LAYOUT_PARSER', 'LINE_CROPPER': 'RUN_LINE_CR
               'DECODER': 'RUN_DECODER'}
 THRESHOLD = 'FILTER_CONFIDENT_LINES_THRESHOLD'
 IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp', '.jp2')
-LOGITS_SUBSET = records.LOGPROBS_SUBSET  # one line in it keeps its log-probabilities (a hash of its key, the same for every model)
 LMDB_MAP_SIZE = 1 << 40
 # A unit adds its computed pages to its folder every CHUNK_PAGES pages (--chunk-pages). 25 pages are under 10 minutes
 # for the slowest units of the eb446a3 run (decoders, ~22 s a page) and half a minute for a median unit (~0.7 s a page).
@@ -172,7 +171,9 @@ def seed_page(name):
 
 
 def in_logits_subset(key):
-    return int(hashlib.md5(key.encode()).hexdigest()[:8], 16) % LOGITS_SUBSET == 0
+    """One line in records.LOGPROBS_SUBSET keeps its log-probabilities, chosen by a hash of its key (the same lines in
+    every unit and every run with the same subset)."""
+    return int(hashlib.md5(key.encode()).hexdigest()[:8], 16) % records.LOGPROBS_SUBSET == 0
 
 
 class Dataset:
@@ -1103,11 +1104,22 @@ def ocr_parser(registry, run):
     return PageParser(config, config_path=engine.folder), config
 
 
+def check_logprobs_subset(folder, what):
+    """A unit keeps the log-probabilities of one subset: refuse to add to one recorded with another
+    (--logprobs-subset)."""
+    other = sorted(f for f in os.listdir(folder) if f.startswith('logprobs.') and f != records.LOGPROBS) \
+        if os.path.isdir(folder) else []
+    if other:
+        sys.exit(f'{what} keeps {other[0]}/, this run {records.LOGPROBS}/ (--logprobs-subset); run it with the same '
+                 f'subset, or into another folder')
+
+
 def run_ocr(unit, registry, dataset, out):
     """The OCR engine on the stored line crops of its cropper."""
     from pero_ocr.document_ocr.page_parser import prepare_dense_logits
     engine = registry.ocr_engine(unit.name)
     unit.check_engine(engine.files(), config_text(engine.config()))
+    check_logprobs_subset(unit.final, unit.id)
     pages = unit.missing_pages()
     need_pages(f"LINE_CROPPER/{unit.name.split('@', 1)[1]}", out, dataset, pages)
     parser, config = ocr_parser(registry, unit.name)
@@ -1151,6 +1163,7 @@ def run_derived(unit, registry, dataset, out):
     pages = unit.recorded() | set(unit.wanted)
     page_dicts = [p for p in dataset.all_pages if p['name'] in pages]
     need_pages(f'OCR/{base}', out, dataset, page_dicts)
+    check_logprobs_subset(base_folder, f'OCR/{base}')
     unit.start(page_dicts, replace=True)
     for page in page_dicts:
         name = page['name']
@@ -1488,6 +1501,7 @@ def run_parallel(todo, registry, dataset, out, args, folder_name, units):
            (['--force-environment'] if args.force_environment else []) + \
            (['--force-commit'] if args.force_commit else []) + \
            (['--force-model'] if args.force_model else []) + ['--chunk-pages', str(args.chunk_pages)] + \
+           ['--logprobs-subset', str(args.logprobs_subset)] + \
            (['--keep-torchscript-fuser'] if args.keep_torchscript_fuser else [])
 
     def done(uid):
@@ -1601,6 +1615,9 @@ def main():
     p.add_argument('--decoder-gpus', type=lambda s: s.split(','),
                    help='GPUs to spread the decoder units over (default: --gpus)')
     p.add_argument('--crop-workers', type=int, default=3)
+    p.add_argument('--logprobs-subset', type=int, default=records.LOGPROBS_SUBSET, metavar='N',
+                   help='OCR units keep the full log-probabilities of one line in N (default 64, logprobs.1in64/); '
+                        'another N only in a free run (--out), e.g. 1 for every line when debugging a model')
     p.add_argument('--chunk-pages', type=int, default=CHUNK_PAGES,
                    help='a unit adds its computed pages to its folder every this many pages')
     p.add_argument('--big-jobs', type=int, default=1,
@@ -1634,6 +1651,12 @@ def main():
         sys.exit('--adopt: not with --exact')
     if args.chunk_pages < 1:
         sys.exit('--chunk-pages must be at least 1')
+    if args.logprobs_subset < 1:
+        sys.exit('--logprobs-subset must be at least 1')
+    if args.logprobs_subset != records.LOGPROBS_SUBSET and not args.out:
+        sys.exit(f'--logprobs-subset: only in a free run (--out); official runs keep 1 line in '
+                 f'{records.LOGPROBS_SUBSET}, so that the records of all commits compare')
+    records.set_logprobs_subset(args.logprobs_subset)
     CHUNK_PAGES = args.chunk_pages
     KEEP_TORCHSCRIPT_FUSER = args.keep_torchscript_fuser
     FORCE_ENGINE = args.force_model
