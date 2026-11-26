@@ -196,7 +196,8 @@ pages). Every unit except a derived one also has
 `pages.tsv`, the processing of every page: `page`,
 `seconds` (wall time of the engine's call for the page, without reading and writing), `lines` (the lines it processed;
 a decoder: the lines it decoded, as the lines over its confidence threshold keep the OCR text), `chars` (OCR and
-decoders: the characters it wrote in those lines, as the engine wrote them, before any NFC of the output), `gpu_peak_mb` (peak GPU
+decoders: the characters it wrote in those lines, as the engine wrote them, before any NFC of the output), `width_px`
+(OCR: the total width in pixels of the line crops it read, its input size), `gpu_peak_mb` (peak GPU
 memory; empty for the croppers, on the CPU). With `--jobs` over 1 units share a GPU, so their times include waiting for
 each other. A unit derived by a higher threshold computes nothing and has no `pages.tsv`. OCR and decoder units keep one set of files
 per page (`benchmark/records.py`), the lines in the page's PAGE XML order:
