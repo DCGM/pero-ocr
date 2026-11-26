@@ -62,12 +62,14 @@ class MusicPageExporter:
 
     def export_page_layout(self, page_layout: PageLayout, file_id: str = None) -> None:
         if self.export_musicxml or self.export_midi:
-            self.export_pianoform_systems(page_layout, file_id)
+            exported_pianoform = self.export_pianoform_systems(page_layout, file_id)
 
             page_layout, _ = split_page_layout_by_categories(page_layout, self.categories)
             parts = self.regions_to_parts(
                 page_layout.regions)
             if not parts:
+                if not exported_pianoform:
+                    print('Warning: No music lines found in page.')
                 return
 
             music_parts = []
@@ -87,14 +89,14 @@ class MusicPageExporter:
             if self.export_midi:
                 self.export_to_midi(score, parts, file_id)
 
-    def export_pianoform_systems(self, page_layout: PageLayout, file_id: str = None) -> None:
+    def export_pianoform_systems(self, page_layout: PageLayout, file_id: str = None) -> bool:
         """Export the piano systems of the page (LMX transcriptions) as one piano score."""
         regions = [region for region in page_layout.regions if region.category == PIANOFORM_CATEGORY]
         systems = []
         for region in regions:
             systems += [line.transcription for line in region.lines if line.transcription]
         if not systems:
-            return
+            return False
 
         musicxml = lmx_systems_to_musicxml(systems)
         if self.export_musicxml:
@@ -102,6 +104,7 @@ class MusicPageExporter:
         if self.export_midi:
             score = music.converter.parseData(musicxml, format='musicxml')
             score.write('midi', self.get_output_file(file_id, extension='pianoform.mid'))
+        return True
 
     def get_output_file(self, file_id: str = None, extension: str = 'musicxml') -> str:
         base = self.get_output_file_base(file_id)
@@ -131,7 +134,6 @@ class MusicPageExporter:
             region_lines.append([line for line in region.get_lines_of_category(self.categories) if line.transcription])
         max_parts = max([len(lines) for lines in region_lines], default=0)
         if max_parts == 0:
-            print('Warning: No music lines found in page.')
             return []
 
         parts = [Part(self.translator) for _ in range(max_parts)]
