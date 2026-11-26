@@ -184,7 +184,11 @@ The records of a commit (a free run's folder has the same structure, plus `<benc
       lines/<OCR|DECODER>/<unit>/     <test list>.txt: the unit's output on the lines of the test list
 ```
 
-Every unit has `unit.json` (the engine: its files and config; the runs). OCR and decoder units keep one set of files
+Every unit has `unit.json` (the engine: its files and config) and `pages.tsv`, the processing of every page: `page`,
+`seconds` (wall time of the engine's call for the page, without reading and writing), `lines` (the lines it processed;
+a decoder: the lines it decoded, as the lines over its confidence threshold keep the OCR text), `gpu_peak_mb` (peak GPU
+memory; empty for the croppers, on the CPU). With `--jobs` over 1 units share a GPU, so their times include waiting for
+each other. A unit derived by a higher threshold computes nothing and has no `pages.tsv`. OCR and decoder units keep one set of files
 per page (`benchmark/records.py`), the lines in the page's PAGE XML order:
 
 - `lines/<page>.txt`: the lines in the format of the test lists, `<page>-<line_id>.jpg <text>`; a line the

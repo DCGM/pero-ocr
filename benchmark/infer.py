@@ -80,7 +80,10 @@ Units (one folder each in <commit>/<benchmark>/, complete when it holds unit.jso
 
 A unit holds the pages whose files it has (a cropper: its unit.json "pages"); a page is written completely or not at
 all, so an interrupted run loses at most the chunk it was computing (--chunk-pages), and deleting a page's files makes
-the next run compute it again. unit.json holds the engine (its files and config) and the runs. Pages are added only
+the next run compute it again. unit.json holds the engine (its files and config); pages.tsv the processing of every
+page (page, seconds: wall time of the engine's call, lines: the lines it processed (a decoder: decoded, the lines
+over its confidence threshold keep the OCR text), gpu_peak_mb: peak GPU memory; with --jobs over 1 units share a GPU,
+so the times include waiting for each other). Pages are added only
 with the engine the unit was recorded with; --force-model adds them anyway and records which pages got the new engine
 (unit.json "engine_changes"). Every line of a page is inferred. Every page is processed with numpy's and Python's random generators seeded
 from its name, so a rerun gives the same result (the layout engine breaks ties with np.random and orders the lines of a
@@ -687,6 +690,47 @@ def recorded_pages(folder, dataset):
     return set(pages)
 
 
+PAGE_STATS = 'pages.tsv'  # per unit: page, seconds, lines, gpu_peak_mb
+
+
+def measured(fn, *args):
+    """Run fn(*args) and return (its result, wall seconds, peak GPU memory in MB or '' without a GPU): the processing
+    of one page by an engine, without reading its input or writing its output."""
+    import torch
+    gpu = torch.cuda.is_available() and torch.cuda.is_initialized()
+    if gpu:
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+    t0 = time.perf_counter()
+    result = fn(*args)
+    if gpu or (torch.cuda.is_available() and torch.cuda.is_initialized()):
+        torch.cuda.synchronize()
+        peak = round(torch.cuda.max_memory_allocated() / 2 ** 20)
+    else:
+        peak = ''
+    return result, round(time.perf_counter() - t0, 3), peak
+
+
+def read_page_stats(folder):
+    path = os.path.join(folder, PAGE_STATS)
+    if not os.path.exists(path):
+        return {}
+    with open(path, newline='') as f:
+        return {r['page']: r for r in csv.DictReader(f, delimiter='\t')}
+
+
+def write_page_stats(folder, rows, order):
+    """<folder>/pages.tsv: {page: row}, in the benchmark's page order."""
+    tmp = os.path.join(folder, '.' + PAGE_STATS + '.tmp')
+    with open(tmp, 'w', newline='') as f:
+        w = csv.DictWriter(f, fieldnames=['page', 'seconds', 'lines', 'gpu_peak_mb'], delimiter='\t',
+                           lineterminator='\n')
+        w.writeheader()
+        for page in sorted(rows, key=lambda p: order.get(p, len(order))):
+            w.writerow({k: rows[page].get(k, '') for k in w.fieldnames})
+    os.replace(tmp, os.path.join(folder, PAGE_STATS))
+
+
 class Unit:
     """A unit's folder holds the pages it was run on: one set of files per page (OCR, DECODER: records.py; layout:
     page_xml/<page>.xml), the line crops of a cropper in one LMDB (unit.json "pages"). A run computes the pages the
@@ -749,38 +793,39 @@ class Unit:
         self.topup = not replace and self.info() is not None
         shutil.rmtree(self.partial, ignore_errors=True)
         os.makedirs(self.partial)
-        self.started = time.time()
-        self.started_utc = utc_now()
+        self.started_utc = utc_now()  # identifies the run in engine_changes
+        self.stats = {}
         if self.topup:
             logger.info(f'{self.id}: adding {len(pages)} pages to the {len(self.recorded())} it holds')
 
+    def page_done(self, name, seconds, lines, gpu_peak_mb):
+        """The processing of one page: wall seconds of the engine's call, the lines it processed (a decoder: the lines
+        it decoded; lines over its confidence threshold keep the OCR text), the peak GPU memory in MB."""
+        self.stats[name] = dict(page=name, seconds=seconds, lines=lines, gpu_peak_mb=gpu_peak_mb)
+
     def finish(self, info):
-        """Add the chunk computed into <unit>.partial/ to the unit. unit.json holds the engine and the runs; the pages
-        are the files (except a cropper's: its "pages")."""
-        timing = dict(started_utc=self.started_utc, finished_utc=utc_now(),
-                      seconds=round(time.time() - self.started, 1))
+        """Add the chunk computed into <unit>.partial/ to the unit. unit.json holds the engine; the pages are the files
+        (a cropper's: its "pages"), their processing (seconds, lines, GPU memory) is pages.tsv."""
         new = [p['name'] for p in self.pages]
         crops = self.stage == 'LINE_CROPPER'
-        if not crops:  # the counts of a run go into its entry: the unit's pages are its files
-            run = {k: info.pop(k) for k in ('lines', 'logprobs_lines', 'removed_lines') if k in info}
+        order = {p['name']: i for i, p in enumerate(self.dataset.all_pages)}
         if not self.topup:
-            info = dict(unit=self.id, **timing, **info, **(dict(pages=new) if crops else dict(pages_run=len(new), **run)))
+            if self.stats:
+                write_page_stats(self.partial, self.stats, order)
+            info = dict(unit=self.id, **info, **(dict(pages=new) if crops else {}))
             with open(os.path.join(self.partial, 'unit.json'), 'w') as f:
                 json.dump(info, f, indent=1, ensure_ascii=False)
             shutil.rmtree(self.final, ignore_errors=True)
             os.rename(self.partial, self.final)
         else:
             old = self.info()
-            order = {p['name']: i for i, p in enumerate(self.dataset.all_pages)}
             merge_unit(self.partial, self.final)
-            merged = dict(old, **{k: v for k, v in info.items() if k != 'lines'})
+            if self.stats:  # before unit.json: a page's row may stay if interrupted here, the next run replaces it
+                write_page_stats(self.final, dict(read_page_stats(self.final), **self.stats), order)
+            merged = dict(old, **info)
             merged['page_output'] = old.get('page_output', False) or info.get('page_output', False)
             if crops:
-                merged['lines'] = old.get('lines', 0) + info.get('lines', 0)
                 merged['pages'] = sorted(recorded_pages(self.final, self.dataset) | set(new), key=order.get)
-                merged['topups'] = old.get('topups', []) + [dict(timing, pages=len(new), lines=info.get('lines'))]
-            else:
-                merged['topups'] = old.get('topups', []) + [dict(timing, pages=len(new), **run)]
             change = getattr(self, 'engine_change', None)
             if change:  # --force-model: the pages computed with the new engine, one entry per run
                 changes = old.get('engine_changes', [])
@@ -797,7 +842,8 @@ class Unit:
             os.replace(tmp, os.path.join(self.final, 'unit.json'))  # the unit holds the new pages from here on
             shutil.rmtree(self.partial)
         held = len(self.recorded() & set(self.wanted))
-        logger.info(f'{self.id}: {len(new)} pages saved in {timing["seconds"]:.0f} s, holds {held} of its '
+        seconds = sum(r['seconds'] for r in self.stats.values())
+        logger.info(f'{self.id}: {len(new)} pages saved ({seconds:.0f} s processing), holds {held} of its '
                     f'{len(self.wanted)} pages' + (' (done)' if held == len(self.wanted) else ''))
 
 
@@ -937,14 +983,13 @@ def run_layout(unit, registry, dataset):
     for pages in chunks(unit.missing_pages()):
         unit.start(pages)
         os.makedirs(os.path.join(unit.partial, 'page_xml'))
-        n_lines = 0
         for page, image, _ in read_pages(pages, with_layout=False):
             seed_page(page['name'])
             layout = PageLayout(id=page['name'], page_size=(image.shape[0], image.shape[1]))
-            layout = parser.process_page(image, layout)
+            layout, seconds, gpu = measured(parser.process_page, image, layout)
             layout.to_pagexml(os.path.join(unit.partial, 'page_xml', page['name'] + '.xml'))
-            n_lines += sum(1 for _ in layout.lines_iterator())
-        unit.finish(dict(engine=unit.name, files=engine.files(), config=config_text(config), lines=n_lines))
+            unit.page_done(page['name'], seconds, sum(1 for _ in layout.lines_iterator()), gpu)
+        unit.finish(dict(engine=unit.name, files=engine.files(), config=config_text(config)))
     del parser
 
 
@@ -967,10 +1012,14 @@ def _crop_page(args):
             config.read_string(text)
             _croppers[name] = PageParser(config, config_path=folder)
         seed_page(page['name'])
-        layout = _croppers[name].process_page(image, PageLayout(file=page['page_xml']))
-        result[name] = [(f"{page['name']}/{line.id}", cv2.imencode('.png', line.crop)[1].tobytes())
-                        for line in layout.lines_iterator() if line.crop is not None]
-    return result
+        layout = PageLayout(file=page['page_xml'])
+        t0 = time.perf_counter()
+        layout = _croppers[name].process_page(image, layout)
+        seconds = round(time.perf_counter() - t0, 3)
+        items = [(f"{page['name']}/{line.id}", cv2.imencode('.png', line.crop)[1].tobytes())
+                 for line in layout.lines_iterator() if line.crop is not None]
+        result[name] = (items, seconds)
+    return page['name'], result
 
 
 def run_crops(units, registry, dataset, workers):
@@ -986,20 +1035,20 @@ def run_crops(units, registry, dataset, workers):
     with multiprocessing.get_context('spawn').Pool(workers, initializer=os.nice, initargs=(10,)) as pool:
         for chunk in chunks(jobs):
             active = [u for u in units if any(u.name in job[1] for job in chunk)]
-            envs, counts = {}, {u.name: 0 for u in active}
+            envs = {}
             for u in active:
                 u.start([page for page, cropper_configs in chunk if u.name in cropper_configs])
                 envs[u.name] = lmdb.open(os.path.join(u.partial, 'crops.lmdb'), map_size=LMDB_MAP_SIZE, subdir=True)
-            for result in pool.imap(_crop_page, chunk, chunksize=2):
-                for name, items in result.items():
+            by_name = {u.name: u for u in active}
+            for page_name, result in pool.imap(_crop_page, chunk, chunksize=2):
+                for name, (items, seconds) in result.items():
                     with envs[name].begin(write=True) as txn:
                         for key, png in items:
                             txn.put(key.encode(), png)
-                    counts[name] += len(items)
+                    by_name[name].page_done(page_name, seconds, len(items), '')
             for u in active:
                 envs[u.name].close()
-                u.finish(dict(engine=u.name, files=engines[u.name].files(), config=configs[u.name][0],
-                              lines=counts[u.name], format='png'))
+                u.finish(dict(engine=u.name, files=engines[u.name].files(), config=configs[u.name][0], format='png'))
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1052,14 +1101,14 @@ def run_ocr(unit, registry, dataset, out):
         if kept:
             os.makedirs(os.path.join(unit.partial, 'page_xml'))
             os.makedirs(os.path.join(unit.partial, 'logits'))
-        n_lines = n_logprobs = 0
         for page, image, layout in read_pages(chunk, crops=env):
             name = page['name']
             seed_page(name)
             line_ids = [line.id for line in layout.lines_iterator()]
             for line in layout.lines_iterator():
                 line.transcription = None
-            layout = parser.process_page(image, layout)
+            layout, seconds, gpu = measured(parser.process_page, image, layout)
+            unit.page_done(name, seconds, sum(1 for line in layout.lines_iterator() if line.crop is not None), gpu)
             rows = page_rows(line_ids, layout)
             logprobs = {line.id: prepare_dense_logits(line).astype(np.float32) for line in layout.lines_iterator()
                         if line.logits is not None and in_logits_subset(f'{name}/{line.id}')}
@@ -1069,10 +1118,7 @@ def run_ocr(unit, registry, dataset, out):
                     f.write(layout.save_logits_bytes(missing_line_logits_ok=True))
             records.write_logprobs(unit.partial, name, logprobs)
             records.write_page(unit.partial, name, rows)
-            n_lines += len(rows)
-            n_logprobs += len(logprobs)
-        unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(config), lines=n_lines,
-                         logprobs_lines=n_logprobs,
+        unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(config),
                          logprobs_subset=f'1/{LOGITS_SUBSET} by md5 of "<page>/<line_id>"', page_output=bool(kept)))
     del parser
     env.close()
@@ -1090,7 +1136,6 @@ def run_derived(unit, registry, dataset, out):
     page_dicts = [p for p in dataset.all_pages if p['name'] in pages]
     need_pages(f'OCR/{base}', out, dataset, page_dicts)
     unit.start(page_dicts, replace=True)
-    n = n_removed = n_logprobs = 0
     for page in page_dicts:
         name = page['name']
         rows, removed = [], set()
@@ -1102,13 +1147,9 @@ def run_derived(unit, registry, dataset, out):
         logprobs = {k: v for k, v in records.read_logprobs(base_folder, name).items() if k not in removed}
         records.write_logprobs(unit.partial, name, logprobs)
         records.write_page(unit.partial, name, rows)
-        n, n_removed, n_logprobs = n + len(rows), n_removed + len(removed), n_logprobs + len(logprobs)
-    with open(os.path.join(base_folder, 'unit.json')) as f:
-        base_info = json.load(f)
     engine = registry.ocr_engine(unit.name)
     unit.finish(dict(engine=engine.name, files=engine.files(), config=config_text(engine.config()),
-                     derived_from=base, base_finished_utc=base_info['finished_utc'], threshold=threshold,
-                     lines=n, removed_lines=n_removed, logprobs_lines=n_logprobs))
+                     derived_from=base, threshold=threshold))  # nothing computed: no pages.tsv
 
 
 def ocr_output(run, pages, registry, dataset, out):
@@ -1169,11 +1210,8 @@ def run_decoder(unit, registry, dataset, out):
         run_config.add_section('OCR')
     run_config['OCR']['OCR_JSON'] = alphabet['path']
     decoder = PageParser(run_config, config_path=engine.folder)
-    with open(os.path.join(ocr_unit, 'unit.json')) as f:
-        ocr_info = json.load(f)
     for chunk in chunks(pages):
         unit.start(chunk)
-        n_lines = 0
         for page in chunk:
             name = page['name']
             seed_page(name)
@@ -1184,12 +1222,12 @@ def run_decoder(unit, registry, dataset, out):
                 for region in layout.regions:
                     region.lines = [line for line in region.lines if line.id not in removed]
             layout.load_logits(os.path.join(ocr_folder, 'logits', name + '.logits'))
-            layout = decoder.process_page(None, layout)
+            decoded = decoder.decoder.lines_decoded
+            layout, seconds, gpu = measured(decoder.process_page, None, layout)
+            unit.page_done(name, seconds, decoder.decoder.lines_decoded - decoded, gpu)
             rows = page_rows(line_ids, layout)
             records.write_page(unit.partial, name, rows)
-            n_lines += len(rows)
         unit.finish(dict(engine=lm, files=engine.files(), config=config_text(config), ocr_run=run,
-                         ocr_unit_finished_utc=ocr_info['finished_utc'], lines=n_lines,
                          alphabet_of=alphabet['engine'], alphabet_md5=alphabet['md5']))
 
 
@@ -1230,21 +1268,22 @@ def write_report(out, commit):
                     info = json.load(f)
                 held = recorded_pages(os.path.join(folder, name), None) if stage != 'LINE_CROPPER' else None
                 pages = info.get('pages', '') if held is None else sorted(held)
-                seconds = info['seconds'] + sum(t['seconds'] for t in info.get('topups', []))
-                finished = info['topups'][-1]['finished_utc'] if info.get('topups') else info['finished_utc']
-                lines = info.get('lines', '') if stage == 'LINE_CROPPER' else ''
-                if stage in ('OCR', 'DECODER'):
-                    lines = sum(records.count_lines(os.path.join(folder, name), p) for p in pages)
+                stats = read_page_stats(os.path.join(folder, name)).values()
+                seconds = sum(float(r['seconds']) for r in stats) if stats else ''
+                processed = sum(int(r['lines']) for r in stats) if stats else ''
+                gpu = max((int(r['gpu_peak_mb']) for r in stats if r['gpu_peak_mb']), default='')
                 if info.get('adopted_from'):
                     name += f" (adopted from {info['adopted_from'][:7]})"
-                rows.append((stage, name, len(pages) if isinstance(pages, list) else pages, lines, seconds, finished))
+                rows.append((stage, name, len(pages) if isinstance(pages, list) else pages, processed, seconds, gpu))
     with open(os.path.join(out, 'environment.json')) as f:
         env = json.load(f)
     lines = [f'# Inference {commit}: {os.path.basename(os.path.normpath(out))}', '',
+             'Processing per unit from its pages.tsv (lines a decoder decoded; empty: not recorded, e.g. derived or '
+             'adopted from older records).', '',
              f"Python {env['python']}, torch {env['packages'].get('torch')} (CUDA {env['torch_cuda']}), "
              f"numpy {env['packages'].get('numpy')}, opencv {env['packages'].get('opencv-python')}, GPU {env['gpu']}.",
-             '', '| stage | unit | pages | lines | seconds | finished (UTC) |', '|---|---|---|---|---|---|']
-    lines += [f'| {k} | {n} | {p} | {l} | {s:.0f} | {t} |' for k, n, p, l, s, t in rows]
+             '', '| stage | unit | pages | lines processed | seconds | peak GPU MB |', '|---|---|---|---|---|---|']
+    lines += [f"| {k} | {n} | {p} | {l} | {f'{s:.0f}' if s != '' else ''} | {g} |" for k, n, p, l, s, g in rows]
     if any('(adopted from' in r[1] for r in rows):
         lines += ['', 'Adopted units were computed by the commit they name and copied here, not run by this commit '
                       '(adopted.json: the source and the files the code changed in between).']
