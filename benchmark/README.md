@@ -88,8 +88,12 @@ DECODER:
   at most one chunk per unit, and running the same command again computes only the pages that are missing.
 - The registry is checked before anything runs: every engine folder exists, every page list names pages of the
   dataset, a run gets only pages its input run gets, a cropper gives lines of the height the
-  OCR network takes, a decoder's `[OCR] OCR_JSON` alphabet is the alphabet of every OCR engine it decodes, and those
-  are CTC engines (not transformers).
+  OCR network takes, and the OCR engines a decoder decodes are CTC engines (not transformers).
+- A decoder reads the logits of an OCR run with the OCR engine's alphabet (its `[OCR] OCR_JSON`), as it does in a
+  config together with the OCR; its own `[OCR] OCR_JSON` is not used. `unit.json` records the OCR engine whose alphabet
+  it used and its md5 (`alphabet_of`, `alphabet_md5`). Whether the language model fits that alphabet is not checked
+  here: pero-ocr gives the language model the index of each OCR output, not the character, so the characters the
+  language model knows must be the alphabet's first characters, in order.
 
 Running it
 ----------

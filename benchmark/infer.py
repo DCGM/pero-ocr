@@ -383,16 +383,11 @@ class Registry:
                     sys.exit(f'registry: DECODER: {e.name}: OCR run {ref} is named twice')
                 resolved[ref] = pages
             e.inputs = resolved
-            if not e.config().has_option('OCR', 'OCR_JSON'):
-                sys.exit(f'registry: DECODER: {e.name}: its config has no [OCR] OCR_JSON (the alphabet it decodes)')
-            alphabet = e.ocr_json()['characters']
             for run in e.inputs:
                 ocr = runs[run]
                 if ocr.config()['OCR'].get('METHOD') == 'pytorch_ocr-transformer':
                     sys.exit(f'registry: DECODER: {e.name}: OCR {ocr.name} is a transformer; a decoder needs CTC '
                              f'logits')
-                if ocr.ocr_json()['characters'] != alphabet:
-                    sys.exit(f'registry: DECODER: {e.name}: its alphabet is not the alphabet of OCR {ocr.name}')
 
     def ocr_runs(self):
         """<ocr>@<cropper> of every OCR engine and cropper it is listed with."""
@@ -1011,11 +1006,16 @@ def run_decoder(unit, registry, dataset, out):
     ocr_unit = os.path.join(out, 'OCR', run)
     config = engine.config()
     unit.check_engine(engine.files(), config_text(config))
+    alphabet = decoder_alphabet(registry.engines['OCR'][run.split('@', 1)[0]])
     pages = unit.missing_pages()
     need_pages(f'OCR/{run}', out, dataset, pages)
     base = registry.base(run)
     ocr_folder = ocr_output(base, pages, registry, dataset, out)
-    decoder = PageParser(config, config_path=engine.folder)
+    run_config = engine.config()
+    if not run_config.has_section('OCR'):
+        run_config.add_section('OCR')
+    run_config['OCR']['OCR_JSON'] = alphabet['path']
+    decoder = PageParser(run_config, config_path=engine.folder)
     with open(os.path.join(ocr_unit, 'unit.json')) as f:
         ocr_info = json.load(f)
     for chunk in chunks(pages):
@@ -1036,7 +1036,16 @@ def run_decoder(unit, registry, dataset, out):
             records.write_page(unit.partial, name, rows)
             n_lines += len(rows)
         unit.finish(dict(engine=lm, files=engine.files(), config=config_text(config), ocr_run=run,
-                         ocr_unit_finished_utc=ocr_info['finished_utc'], lines=n_lines))
+                         ocr_unit_finished_utc=ocr_info['finished_utc'], lines=n_lines,
+                         alphabet_of=alphabet['engine'], alphabet_md5=alphabet['md5']))
+
+
+def decoder_alphabet(ocr_engine):
+    """The characters a decoder reads the logits of an OCR engine with: the OCR engine's own (its [OCR] OCR_JSON), as
+    for a decoder in the same config as the OCR. The decoder's own [OCR] OCR_JSON is not used: a decoder can decode
+    OCR engines with different alphabets, and its config keeps its own section for the record."""
+    path = os.path.join(ocr_engine.folder, ocr_engine.config()['OCR']['OCR_JSON'])
+    return dict(engine=ocr_engine.name, path=os.path.abspath(path), md5=md5_file(path))
 
 
 def prune_logits(registry, out, units):
