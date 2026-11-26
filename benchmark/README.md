@@ -113,7 +113,7 @@ Adding an engine (or pages of a run) is adding it to a registry and running the 
 runs. A unit whose engine was changed since (its files, e.g. a fixed model json) is not run again by itself: `--list`
 marks it ENGINE CHANGED, and unit folders the registry no longer has as orphan; delete them and run again to fill
 them in. A unit keeps one set of files per page, so computing some pages again is deleting their files
-(`lines/<page>.*`, `logprobs.1in64/<page>.npz`, for a layout unit `page_xml/<page>.xml`) and running again; when the engine
+(`lines/<page>.tsv`, `logits.1in64/<page>.logits`, for a layout unit `page_xml/<page>.xml`) and running again; when the engine
 changed since, add `--force-model`, which `unit.json` records (`engine_changes`: which pages got the new engine).
 `score.py` scores a unit on a test list when the unit holds all the list's pages, otherwise it reports NA.
 Several registries (one per benchmark) can be run at once (`--registry R.yaml S.yaml`). `--units` restricts a run,
@@ -132,9 +132,10 @@ Official and free runs:
 - **Official** (the default): what a commit produces, for the published benchmark and the consistency tests. The
   working tree must be clean; the records go to `$PERO_INFERENCE/<commit>/`.
 - **Free** (`--out <folder>`): the same run into any folder, not bound to the commit: another Python environment,
-  uncommitted code, one's own engines or data, a trial on a few pages (`--pages N`), the full log-probabilities of
-  more lines (`--logprobs-subset N`: one line in N, e.g. 1 for every line, in `logprobs.1in<N>/`; official runs keep
-  1 in 64, and a unit never mixes two subsets). `<folder>/<benchmark>/run.json`
+  uncommitted code, one's own engines or data, a trial on a few pages (`--pages N`), the full output of every page
+  for debugging (`--full-output`: OCR and decoder units also keep `page_xml/`, `alto/` and, OCR, `logits/` of every
+  page, as pero-ocr exports them, with the text as the engine wrote it; a unit has them for all its pages or for
+  none). `<folder>/<benchmark>/run.json`
   records the commit, the uncommitted changes and the command of every run into it. Score it with
   `python benchmark/score.py --out <folder>`.
 
@@ -184,8 +185,9 @@ The records of a commit (a free run's folder has the same structure, plus `<benc
     report.md                         the units
     LAYOUT_PARSER/<layout>/           page_xml/
     LINE_CROPPER/<cropper>/           crops.png.lmdb (the line crops as PNG; its pages: pages.tsv)
-    OCR/<ocr>@<cropper>/              lines/, logprobs.1in64/ (+ page_xml/, logits/ when a decoder decodes it)
-    DECODER/<lm>@<ocr>@<cropper>/     lines/
+    OCR/<ocr>@<cropper>/              lines/, logits.1in64/ (+ page_xml/, logits/ when a decoder decodes it;
+                                      + alto/ and all pages with --full-output)
+    DECODER/<lm>@<ocr>@<cropper>/     lines/ (+ page_xml/, alto/ with --full-output)
     logs/                             <unit>.log: every attempt of a unit appended, between a start and an end line
                                       (a start line without an end line: that attempt was killed or stopped)
     score/                            cer.tsv, layout.tsv, report.md
@@ -218,12 +220,13 @@ small or too large for the network, it runs it a second time at another downsamp
 output. A unit derived by a higher threshold computes nothing and has no `pages.tsv`. OCR and decoder units keep one set of files
 per page (`benchmark/records.py`), the lines in the page's PAGE XML order:
 
-- `lines/<page>.txt`: the lines in the format of the test lists, `<page>-<line_id>.jpg <text>`; a line the
-  confidence filter removed has no text;
-- `lines/<page>.tsv`: `line_id`, `confidence` (full precision), `kept` (0: the filter removed the line);
-- `logprobs.1in64/<page>.npz` (OCR): the full log-probabilities of the page's lines in a fixed subset of lines (1 in 64, by
-  a hash of `<page>/<line_id>`, the same in every unit), to compare the raw output of engines and environments; no file
-  for a page with no line in the subset.
+- `lines/<page>.tsv`: `line_id`, `confidence` (full precision), `kept` (0: the confidence filter removed the line;
+  it has no text and no confidence), `text` (as the engine wrote it; a tab, newline or backslash in it escaped by a
+  backslash);
+- `logits.1in64/<page>.logits` (OCR): the logits of the page's lines in a fixed subset of lines (1 in 64, by a hash
+  of `<page>/<line_id>`, the same in every unit), in pero-ocr's format (`PageLayout.save_logits_bytes`: the sparse
+  logits, characters and logit coordinates; `PageLayout.load_logits` reads it), to compare the raw output of engines
+  and environments beyond the best path; no file for a page with no line in the subset.
 
 `score.py` writes `<benchmark>/score/lines/<kind>/<unit>/<list>.txt`, the unit's output on exactly the lines of a test
 list in the list's order and format, so a test list and a unit (or two units, or two record sets) can be compared side
