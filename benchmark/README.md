@@ -175,7 +175,7 @@ The records of a commit (a free run's folder has the same structure, plus `<benc
     adopted.json                      when units were adopted
     report.md                         the units
     LAYOUT_PARSER/<layout>/           page_xml/
-    LINE_CROPPER/<cropper>/           crops.lmdb
+    LINE_CROPPER/<cropper>/           crops.png.lmdb (the line crops as PNG; its pages: pages.tsv)
     OCR/<ocr>@<cropper>/              lines/, logprobs/ (+ page_xml/, logits/ when decoded)
     DECODER/<lm>@<ocr>@<cropper>/     lines/
     logs/                             <unit>.log: every attempt of a unit appended, between a start and an end line
@@ -190,13 +190,13 @@ of unit adds is in `unit.json`:
 
 | unit | `unit.json` |
 |---|---|
-| line cropper | `pages` (the pages it holds: its crops are one LMDB, not files per page), `format` (`png`) |
 | OCR | `logprobs_subset` (which lines get full log-probabilities), `page_output` (whether its PAGE XML and logits are kept for a decoder) |
 | OCR derived by a higher threshold | `derived_from` (the base unit), `threshold` |
 | decoder | `ocr_run` (the OCR run it decodes), `charset_of` and `charset_md5` (whose char set it read the logits with) |
 | any, when it applies | `adopted_from` (the commit it was copied from), `engine_changes` (`--force-model`: what changed, which pages) |
 
-A layout unit has no `unit.json` unless one of the last row applies. Every unit except a derived one also has
+Layout units and croppers have no `unit.json` unless one of the last row applies; a cropper's crops are one LMDB
+(`crops.png.lmdb`), so the rows of its `pages.tsv` are the pages it holds. Every unit except a derived one also has
 `pages.tsv`, the processing of every page: `page`,
 `seconds` (wall time of the engine's call for the page, without reading and writing), `lines` (the lines it processed;
 a decoder: the lines it decoded, as the lines over its confidence threshold keep the OCR text), `gpu_peak_mb` (peak GPU

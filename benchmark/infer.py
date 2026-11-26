@@ -59,8 +59,8 @@ pages its input holds: the registry is refused at the start when it gives a run 
 
 Units (one folder each in <commit>/<benchmark>/, complete when it holds engine.json):
     LAYOUT_PARSER/<layout>          the layout engine on every page image: page_xml/<page>.xml
-    LINE_CROPPER/<cropper>          the line cropper on the lines of the benchmark's PAGE XML: crops.lmdb, key
-                                    "<page>/<line_id>", the crop as PNG (lossless)
+    LINE_CROPPER/<cropper>          the line cropper on the lines of the benchmark's PAGE XML: crops.png.lmdb, key
+                                    "<page>/<line_id>", the crop as PNG (lossless); its pages: pages.tsv
     OCR/<ocr>@<cropper>             the OCR engine on the stored crops of the cropper, per page (records.py):
                                     lines/<page>.txt (the lines in the format of the test lists), lines/<page>.tsv
                                     (line id, confidence, kept), logprobs/<page>.npz (full log-probabilities of the
@@ -78,7 +78,7 @@ Units (one folder each in <commit>/<benchmark>/, complete when it holds engine.j
                                     the OCR engine runs again and must give the recorded lines): lines/<page>.txt,
                                     lines/<page>.tsv
 
-A unit holds the pages whose files it has (a cropper: its unit.json "pages"); a page is written completely or not at
+A unit holds the pages whose files it has (a cropper: the pages of its pages.tsv); a page is written completely or not at
 all, so an interrupted run loses at most the chunk it was computing (--chunk-pages), and deleting a page's files makes
 the next run compute it again. engine.json holds the engine (unit, engine, files, config), unit.json what the kind
 of unit adds (below); pages.tsv the processing of every
@@ -705,8 +705,8 @@ def write_unit(folder, info):
 
 def recorded_pages(folder, dataset):
     """The pages a unit holds (empty when it was never run). OCR and DECODER units: the pages whose line files are
-    there (records.py); layout units: the pages whose page_xml/<page>.xml is there; line croppers: unit.json "pages"
-    (records made before page lists: their number, the first N pages of the benchmark)."""
+    there (records.py); layout units: the pages whose page_xml/<page>.xml is there; line croppers: the pages of its
+    pages.tsv (its crops are one LMDB, so the page's row says the page is in it)."""
     info = read_unit(folder)
     if info is None:
         return set()
@@ -717,13 +717,11 @@ def recorded_pages(folder, dataset):
         xml = os.path.join(folder, 'page_xml')
         return {f[:-4] for f in os.listdir(xml) if f.endswith('.xml') and not f.startswith('.')} if os.path.isdir(
             xml) else set()
-    pages = info['pages']
-    if isinstance(pages, int):
-        return {p['name'] for p in dataset.all_pages[:pages]}
-    return set(pages)
+    return set(read_page_stats(folder))
 
 
 PAGE_STATS = 'pages.tsv'  # per unit: page, seconds, lines, gpu_peak_mb
+CROPS = 'crops.png.lmdb'  # a cropper's line crops, PNG images
 
 
 def measured(fn, *args):
@@ -766,7 +764,7 @@ def write_page_stats(folder, rows, order):
 
 class Unit:
     """A unit's folder holds the pages it was run on: one set of files per page (OCR, DECODER: records.py; layout:
-    page_xml/<page>.xml), the line crops of a cropper in one LMDB (unit.json "pages"). A run computes the pages the
+    page_xml/<page>.xml), the line crops of a cropper in one LMDB (its pages: pages.tsv). A run computes the pages the
     registry gives it that the unit does not hold, a chunk at a time, into <unit>.partial/ and then moves them into
     the unit (a top-up), or, for a new unit, renames the folder. Deleting a page's files makes the next run compute
     the page again."""
@@ -835,14 +833,13 @@ class Unit:
     def finish(self, info):
         """Add the chunk computed into <unit>.partial/ to the unit. engine.json holds the engine, unit.json what the kind
         of unit adds; the pages are the files
-        (a cropper's: its "pages"), their processing (seconds, lines, GPU memory) is pages.tsv."""
+        (a cropper's: the rows of pages.tsv), their processing (seconds, lines, GPU memory) is pages.tsv."""
         new = [p['name'] for p in self.pages]
-        crops = self.stage == 'LINE_CROPPER'
         order = {p['name']: i for i, p in enumerate(self.dataset.all_pages)}
         if not self.topup:
             if self.stats:
                 write_page_stats(self.partial, self.stats, order)
-            write_unit(self.partial, dict(unit=self.id, **info, **(dict(pages=new) if crops else {})))
+            write_unit(self.partial, dict(unit=self.id, **info))
             shutil.rmtree(self.final, ignore_errors=True)
             os.rename(self.partial, self.final)
         else:
@@ -852,8 +849,6 @@ class Unit:
                 write_page_stats(self.final, dict(read_page_stats(self.final), **self.stats), order)
             merged = dict(old, **info)
             merged['page_output'] = old.get('page_output', False) or info.get('page_output', False)
-            if crops:
-                merged['pages'] = sorted(recorded_pages(self.final, self.dataset) | set(new), key=order.get)
             change = getattr(self, 'engine_change', None)
             if change:  # --force-model: the pages computed with the new engine, one entry per run
                 changes = old.get('engine_changes', [])
@@ -881,10 +876,10 @@ def merge_unit(partial, final):
             os.makedirs(os.path.join(final, sub), exist_ok=True)
             for f in os.listdir(src):
                 os.replace(os.path.join(src, f), os.path.join(final, sub, f))
-    if os.path.isdir(os.path.join(partial, 'crops.lmdb')):
+    if os.path.isdir(os.path.join(partial, CROPS)):
         import lmdb
-        src = lmdb.open(os.path.join(partial, 'crops.lmdb'), subdir=True, readonly=True, lock=False)
-        dst = lmdb.open(os.path.join(final, 'crops.lmdb'), map_size=LMDB_MAP_SIZE, subdir=True)
+        src = lmdb.open(os.path.join(partial, CROPS), subdir=True, readonly=True, lock=False)
+        dst = lmdb.open(os.path.join(final, CROPS), map_size=LMDB_MAP_SIZE, subdir=True)
         with src.begin() as r, dst.begin(write=True) as w:
             for key, value in r.cursor():
                 w.put(key, value)
@@ -1063,7 +1058,7 @@ def run_crops(units, registry, dataset, workers):
             envs = {}
             for u in active:
                 u.start([page for page, cropper_configs in chunk if u.name in cropper_configs])
-                envs[u.name] = lmdb.open(os.path.join(u.partial, 'crops.lmdb'), map_size=LMDB_MAP_SIZE, subdir=True)
+                envs[u.name] = lmdb.open(os.path.join(u.partial, CROPS), map_size=LMDB_MAP_SIZE, subdir=True)
             by_name = {u.name: u for u in active}
             for page_name, result in pool.imap(_crop_page, chunk, chunksize=2):
                 for name, (items, seconds) in result.items():
@@ -1073,7 +1068,7 @@ def run_crops(units, registry, dataset, workers):
                     by_name[name].page_done(page_name, seconds, len(items), '')
             for u in active:
                 envs[u.name].close()
-                u.finish(dict(engine=u.name, files=engines[u.name].files(), config=configs[u.name][0], format='png'))
+                u.finish(dict(engine=u.name, files=engines[u.name].files(), config=configs[u.name][0]))
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1101,7 +1096,7 @@ def crops_env(out, cropper):
     folder = os.path.join(out, 'LINE_CROPPER', cropper)
     if not os.path.exists(os.path.join(folder, 'engine.json')):
         sys.exit(f'LINE_CROPPER/{cropper} is not done: the OCR runs on it read their line crops from it')
-    return lmdb.open(os.path.join(folder, 'crops.lmdb'), subdir=True, readonly=True, lock=False)
+    return lmdb.open(os.path.join(folder, CROPS), subdir=True, readonly=True, lock=False)
 
 
 def ocr_parser(registry, run):
@@ -1289,8 +1284,7 @@ def write_report(out, commit):
         for name in sorted(os.listdir(folder)):
             info = read_unit(os.path.join(folder, name))
             if info is not None:
-                held = recorded_pages(os.path.join(folder, name), None) if stage != 'LINE_CROPPER' else None
-                pages = info.get('pages', '') if held is None else sorted(held)
+                pages = sorted(recorded_pages(os.path.join(folder, name), None))
                 stats = read_page_stats(os.path.join(folder, name)).values()
                 seconds = sum(float(r['seconds']) for r in stats) if stats else ''
                 processed = sum(int(r['lines']) for r in stats) if stats else ''
