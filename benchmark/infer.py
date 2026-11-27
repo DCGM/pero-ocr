@@ -75,18 +75,22 @@ Units (one folder each in <commit>/<benchmark>/, complete when it holds engine.j
                                     stores them for the LM stage; where they are not stored, the OCR engine runs
                                     again and must give the recorded lines): lines/<page>.tsv, page_xml/<page>.xml,
                                     alto/<page>.xml.
-    --page-xml, --logits, --alto    the outputs a run writes: all three by default, only those given otherwise; a run
-                                    refuses to add to a unit that holds pages without an output it writes.
-    --sparse-output N               for large benchmarks: the outputs of one line in N only (chosen by a hash of
-                                    "<page>/<line_id>", the same lines in every unit), cut out of the page's export, in
-                                    page_xml.1in<N>/, logits.1in<N>/, alto.1in<N>/ (no file for a page with no line in
+    --page-xml, --logits, --alto    which outputs a run writes: all three by default, only those given otherwise.
+    --full-output, --sparse-output N
+                                    in which version: every line (<kind>/, the default) or one line in N (for large
+                                    benchmarks; chosen by a hash of "<page>/<line_id>", the same lines in every unit),
+                                    cut out of the page's export, in <kind>.1in<N>/ (no file for a page with no line in
                                     the subset; ALTO lines exported with their neighbours in the region, which decide a
-                                    word hyphenated across lines). An OCR run then keeps its full page_xml/ and logits/
-                                    only for the pages its decoders and derived runs read. A unit keeps the outputs of
-                                    every line or of one subset; adding to it the other way is refused.
-    --prune-page-xml, --prune-logits, --prune-alto (--prune-outputs: all three)
-                                    delete those full outputs, an OCR run's PAGE XML and logits once its decoders and
-                                    derived runs are done; --prune-sparse deletes the sparse outputs (every N).
+                                    word hyphenated across lines). --sparse-output alone writes only the sparse
+                                    version, with --full-output both. Without the full PAGE XML and logits, an OCR run
+                                    keeps them for the pages its decoders and derived runs read. A run refuses to add
+                                    to a unit that holds pages without an output it writes, or sparse outputs of
+                                    another N.
+    --prune-page-xml, --prune-logits, --prune-alto, --prune-full-output, --prune-sparse-output
+                                    delete outputs and run nothing, mirroring the output flags: the kinds given (all
+                                    without any), the full version unless only --prune-sparse-output is given, both
+                                    with both; an OCR run's full PAGE XML and logits once its decoders and derived runs
+                                    are done.
 
 A unit holds the pages whose files it has (a cropper: the pages of its pages.tsv); a page is written completely or not at
 all, so an interrupted run loses at most the chunk it was computing (--chunk-pages), and deleting a page's files makes
@@ -822,7 +826,8 @@ ALTO = 'alto'
 OUTPUT_KINDS = ('page_xml', 'logits', ALTO)  # what OCR units output for every page (decoders: no logits of their own)
 OUTPUT_EXT = {'page_xml': '.xml', 'logits': '.logits', ALTO: '.xml'}
 KINDS = set(OUTPUT_KINDS)  # --page-xml, --logits, --alto: the outputs a run writes (default: all)
-SPARSE = None  # --sparse-output N: the outputs of one line in N only, in <kind>.1in<N>/
+FULL = True  # --full-output: the outputs of every line, in <kind>/ (the default, unless only --sparse-output is given)
+SPARSE = None  # --sparse-output N: the outputs of one line in N, in <kind>.1in<N>/
 CROPS = 'crops.png.lmdb'  # a cropper's line crops, PNG images
 
 
@@ -1241,45 +1246,39 @@ def ocr_parser(registry, run):
     return PageParser(config, config_path=engine.folder), config
 
 
-def output_folder(kind):
-    """Where a unit keeps an output kind (page_xml, logits, alto): <kind>/, or with --sparse-output N <kind>.1in<N>/."""
-    return kind if SPARSE is None else f'{kind}.1in{SPARSE}'
+def output_folder(kind, n=None):
+    """Where a unit keeps an output: <kind>/ for every line, <kind>.1in<n>/ for one line in n."""
+    return kind if n is None else f'{kind}.1in{n}'
 
 
-def recorded_sparse(folder):
-    """How a unit keeps its outputs: None for every line, N for one line in N (its <kind>.1in<N>/ folders, there even
-    when empty), False when it holds no pages yet."""
-    if not records.held_pages(folder):
-        return False
-    found = {int(m.group(1)) for m in (re.fullmatch(r'[a-z_]+\.1in(\d+)', f) for f in os.listdir(folder)) if m}
-    if len(found) > 1:
-        sys.exit(f'{folder}: outputs of several subsets ({sorted(found)})')
-    return found.pop() if found else None
+def output_versions():
+    """The versions a run writes: None for every line (--full-output), N for one line in N (--sparse-output N)."""
+    return ([None] if FULL else []) + ([SPARSE] if SPARSE else [])
 
 
-def check_sparse(folder, what):
-    """A unit keeps the outputs of every line or of one subset, for all its pages: refuse to add to it otherwise."""
-    have = recorded_sparse(folder)
-    if have is not False and have != SPARSE:
-        kept = 'every line' if have is None else f'one line in {have} (--sparse-output {have})'
-        sys.exit(f'{what} keeps the outputs of {kept}; add to it the same way, or run into another folder')
-
-
-def check_kinds(folder, what, kinds):
-    """A run writes its outputs (kinds) for every page it computes: refuse to add to a unit that holds pages without
-    one of them (recorded without it, or pruned), so that each output a unit has covers all its pages. A sparse
-    output's folder is there even when no line of a page is in the subset."""
+def check_outputs(folder, what, kinds):
+    """A run writes its outputs (kinds, in its versions) for every page it computes: refuse to add to a unit that holds
+    pages without one of them (recorded without it, or pruned), so that each output a unit has covers all its pages,
+    and to a unit whose sparse outputs are of another subset. A sparse output's folder is there even when no line of a
+    page is in the subset."""
     held = records.held_pages(folder)
-    for kind in sorted(kinds):
-        sub = os.path.join(folder, output_folder(kind))
-        if SPARSE is not None:
-            lacking = held if not os.path.isdir(sub) else []
-        else:
-            lacking = [p for p in held if not os.path.exists(os.path.join(sub, p + OUTPUT_EXT[kind]))]
-        if lacking:
-            flags = ' '.join('--' + k.replace('_', '-') for k in OUTPUT_KINDS if k != kind and k in kinds)
-            sys.exit(f'{what} holds {len(lacking)} pages without {output_folder(kind)}/ (recorded without it, or '
-                     f'pruned); run it with the outputs it has ({flags or "flags for them"}), or into another folder')
+    if not held:
+        return
+    found = {int(m.group(1)) for m in (re.fullmatch(r'[a-z_]+\.1in(\d+)', f) for f in os.listdir(folder)) if m}
+    if SPARSE and found - {SPARSE}:
+        sys.exit(f'{what} keeps the sparse outputs of one line in {sorted(found)[0]}, this run of one line in {SPARSE}; '
+                 f'run it with --sparse-output {sorted(found)[0]}, or into another folder')
+    for n in output_versions():
+        for kind in sorted(kinds):
+            sub = os.path.join(folder, output_folder(kind, n))
+            if n is not None:
+                lacking = held if not os.path.isdir(sub) else []
+            else:
+                lacking = [p for p in held if not os.path.exists(os.path.join(sub, p + OUTPUT_EXT[kind]))]
+            if lacking:
+                sys.exit(f'{what} holds {len(lacking)} pages without {output_folder(kind, n)}/ (recorded without it, '
+                         f'or pruned); run it with the outputs it has (--page-xml, --logits, --alto, --full-output, '
+                         f'--sparse-output), or into another folder')
 
 
 def unit_kinds(unit):
@@ -1300,30 +1299,32 @@ def only_lines(xml, ids, line_tag, block_tag, line_id):
 
 
 def write_outputs(folder, name, layout, kinds):
-    """The outputs <kinds> of a page as pero-ocr exports them: PAGE XML, logits (OCR units) and ALTO, of every line; with
-    --sparse-output N of the lines in the subset only, cut out of the export (ALTO: exported with their neighbours in
-    the region, which decide a word hyphenated across lines; the page and block measures are those of that reduced
-    page). The ALTO last: its export computes the confidences of lines that have none."""
-    if SPARSE is None:
-        if 'page_xml' in kinds:
-            layout.to_pagexml(os.path.join(folder, 'page_xml', name + '.xml'))
-        if 'logits' in kinds:
-            records.write_file(os.path.join(folder, 'logits', name + '.logits'),
-                               layout.save_logits_bytes(missing_line_logits_ok=True))
-        if ALTO in kinds:
-            layout.to_altoxml(os.path.join(folder, ALTO, name + '.xml'))
-        return
-    order = [line.id for line in layout.lines_iterator() if in_subset(f'{name}/{line.id}', SPARSE)]
-    if not order:
-        return
+    """The outputs <kinds> of a page as pero-ocr exports them: PAGE XML, logits (OCR units) and ALTO; of every line
+    (--full-output) and/or of the lines in the subset of one line in N (--sparse-output N), cut out of the export
+    (ALTO: exported with their neighbours in the region, which decide a word hyphenated across lines; the page and
+    block measures are those of that reduced page). The ALTO last: its export computes the confidences of lines that
+    have none."""
+    order = [line.id for line in layout.lines_iterator() if in_subset(f'{name}/{line.id}', SPARSE)] if SPARSE else []
     ids = set(order)
     if 'page_xml' in kinds:
-        records.write_file(os.path.join(folder, output_folder('page_xml'), name + '.xml'),
-                           only_lines(layout.to_pagexml_string(), ids, 'TextLine', 'TextRegion', lambda e: e.get('id')))
+        if FULL:
+            layout.to_pagexml(os.path.join(folder, 'page_xml', name + '.xml'))
+        if ids:
+            records.write_file(os.path.join(folder, output_folder('page_xml', SPARSE), name + '.xml'),
+                               only_lines(layout.to_pagexml_string(), ids, 'TextLine', 'TextRegion',
+                                          lambda e: e.get('id')))
     if 'logits' in kinds:
-        records.write_file(os.path.join(folder, output_folder('logits'), name + '.logits'),
-                           records.logits_of_lines(layout.save_logits_bytes(missing_line_logits_ok=True), order))
+        data = layout.save_logits_bytes(missing_line_logits_ok=True)
+        if FULL:
+            records.write_file(os.path.join(folder, 'logits', name + '.logits'), data)
+        if ids:
+            records.write_file(os.path.join(folder, output_folder('logits', SPARSE), name + '.logits'),
+                               records.logits_of_lines(data, order))
     if ALTO not in kinds:
+        return
+    if FULL:
+        layout.to_altoxml(os.path.join(folder, ALTO, name + '.xml'))
+    if not ids:
         return
     regions, lines = layout.regions, [(region, region.lines) for region in layout.regions]
     try:
@@ -1340,29 +1341,29 @@ def write_outputs(folder, name, layout, kinds):
         layout.regions = regions
         for region, kept in lines:
             region.lines = kept
-    records.write_file(os.path.join(folder, output_folder(ALTO), name + '.xml'),
+    records.write_file(os.path.join(folder, output_folder(ALTO, SPARSE), name + '.xml'),
                        only_lines(alto, ids, 'TextLine', 'TextBlock', lambda e: (e.get('ID') or '')[len('line_'):]))
 
 
 def make_output_folders(folder, kinds):
-    for kind in kinds:
-        os.makedirs(os.path.join(folder, output_folder(kind)), exist_ok=True)
+    for n in output_versions():
+        for kind in kinds:
+            os.makedirs(os.path.join(folder, output_folder(kind, n)), exist_ok=True)
 
 
 def run_ocr(unit, registry, dataset, out):
     """The OCR engine on the stored line crops of its cropper."""
     engine = registry.ocr_engine(unit.name)
     unit.check_engine(engine.files(), config_text(engine.config()))
-    check_sparse(unit.final, unit.id)
     kinds = unit_kinds(unit)
-    check_kinds(unit.final, unit.id, kinds)
+    check_outputs(unit.final, unit.id, kinds)
     pages = unit.missing_pages()
     need_pages(f"LINE_CROPPER/{unit.name.split('@', 1)[1]}", out, dataset, pages)
     parser, config = ocr_parser(registry, unit.name)
     env = crops_env(out, unit.name.split('@', 1)[1])
     # the pages whose full PAGE XML and logits its readers (decoders, derived runs) need, unless it outputs them anyway
     kept = frozenset()
-    if SPARSE is not None or not {'page_xml', 'logits'} <= kinds:
+    if not (FULL and {'page_xml', 'logits'} <= kinds):
         kept = registry.kept_pages(unit.name) if unit.name in registry.kept_output() else frozenset()
         kept = kept.union(*(registry.pages(f'OCR/{r}') for r in registry.ocr_runs()
                             if r != unit.name and registry.base(r) == unit.name))  # derived runs
@@ -1384,7 +1385,7 @@ def run_ocr(unit, registry, dataset, out):
                            chars=sum(len(line.transcription or '') for line in read))
             rows = page_rows(layout)
             if name in kept:  # what write_outputs does not write in full
-                full = kinds if SPARSE is None else set()
+                full = kinds if FULL else set()
                 if 'page_xml' not in full:
                     layout.to_pagexml(os.path.join(unit.partial, 'page_xml', name + '.xml'))
                 if 'logits' not in full:
@@ -1475,9 +1476,8 @@ def run_decoder(unit, registry, dataset, out):
     ocr_unit = os.path.join(out, 'OCR', run)
     config = engine.config()
     unit.check_engine(engine.files(), config_text(config))
-    check_sparse(unit.final, unit.id)
     kinds = unit_kinds(unit)
-    check_kinds(unit.final, unit.id, kinds)
+    check_outputs(unit.final, unit.id, kinds)
     charset = decoder_charset(registry.engines['OCR'][run.split('@', 1)[0]])  # the OCR engine's json
     pages = unit.missing_pages()
     need_pages(f'OCR/{run}', out, dataset, pages)
@@ -1538,30 +1538,33 @@ def decoder_charset(ocr_engine):
     return os.path.abspath(os.path.join(ocr_engine.folder, ocr_engine.config()['OCR']['OCR_JSON']))
 
 
-def prune_outputs(registry, out, units, kinds, sparse=False):
-    """Delete the full outputs <kinds> (page_xml, logits, alto folders) of the OCR and decoder units; an OCR run's PAGE
-    XML and logits only once the units that read them are done (the decoders of its runs, the runs derived from it).
-    The sparse outputs (<kind>.1in<N>/, every N) only with sparse. A reader added later runs the OCR engine again."""
+def prune_outputs(registry, out, units, kinds, full, sparse):
+    """Delete the outputs <kinds> (page_xml, logits, alto) of the OCR and decoder units: the full ones (<kind>/) with
+    full, the sparse ones (<kind>.1in<N>/, every N) with sparse. An OCR run's full PAGE XML and logits only once the
+    units that read them are done (the decoders of its runs, the runs derived from it); a reader added later runs the
+    OCR engine again."""
     for uid in sorted(units):
         stage, name = uid.split('/', 1)
-        if stage not in ('OCR', 'DECODER'):
+        folder = os.path.join(out, uid)
+        if stage not in ('OCR', 'DECODER') or not os.path.isdir(folder):
             continue
-        if sparse and os.path.isdir(os.path.join(out, uid)):
-            for sub in sorted(os.listdir(os.path.join(out, uid))):
-                if re.fullmatch(r'[a-z_]+\.1in\d+', sub):
-                    shutil.rmtree(os.path.join(out, uid, sub))
-                    logger.info(f'pruned {sub}/ of {uid}')
-        for kind in kinds:
-            folder = os.path.join(out, uid, kind)
-            if not os.path.isdir(folder):
+        for sub in sorted(os.listdir(folder)):
+            m = re.fullmatch(r'([a-z_]+)(\.1in\d+)?', sub)
+            if not m or m.group(1) not in kinds or not os.path.isdir(os.path.join(folder, sub)):
                 continue
-            if stage == 'OCR' and kind != ALTO:
-                readers = [f'DECODER/{e.name}@{run}' for e, run in registry.decoder_runs() if registry.base(run) == name]
-                readers += [f'OCR/{r}' for r in registry.ocr_runs() if r != name and registry.base(r) == name]
-                if not all(units[r].done() for r in readers if r in units):
+            if m.group(2) is None:
+                if not full:
                     continue
-            shutil.rmtree(folder)
-            logger.info(f'pruned {kind}/ of {uid}')
+                if stage == 'OCR' and sub != ALTO:
+                    readers = [f'DECODER/{e.name}@{run}' for e, run in registry.decoder_runs()
+                               if registry.base(run) == name]
+                    readers += [f'OCR/{r}' for r in registry.ocr_runs() if r != name and registry.base(r) == name]
+                    if not all(units[r].done() for r in readers if r in units):
+                        continue
+            elif not sparse:
+                continue
+            shutil.rmtree(os.path.join(folder, sub))
+            logger.info(f'pruned {sub}/ of {uid}')
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1798,7 +1801,7 @@ def run_parallel(todo, registry, dataset, out, args, folder_name, units):
            (['--force-environment'] if args.force_environment else []) + \
            (['--force-commit'] if args.force_commit else []) + \
            (['--force-model'] if args.force_model else []) + ['--chunk-pages', str(args.chunk_pages)] + \
-           (['--sparse-output', str(SPARSE)] if SPARSE else []) + \
+           (['--sparse-output', str(SPARSE)] if SPARSE else []) + (['--full-output'] if FULL and SPARSE else []) + \
            ([f"--{k.replace('_', '-')}" for k in sorted(KINDS)] if KINDS != set(OUTPUT_KINDS) else []) + \
            (['--keep-torchscript-fuser'] if args.keep_torchscript_fuser else [])
 
@@ -1891,7 +1894,7 @@ def run_parallel(todo, registry, dataset, out, args, folder_name, units):
 
 
 def main():
-    global CHUNK_PAGES, KEEP_TORCHSCRIPT_FUSER, FORCE_ENGINE, SPARSE, KINDS
+    global CHUNK_PAGES, KEEP_TORCHSCRIPT_FUSER, FORCE_ENGINE, SPARSE, KINDS, FULL
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--registry', nargs='+', metavar='REGISTRY',
                    help='the registries to run (.yaml files; each names its benchmark, BENCHMARK)')
@@ -1918,10 +1921,10 @@ def main():
     p.add_argument('--alto', action='store_true',
                    help='output the ALTO (OCR and decoder units); without any of --page-xml, --logits, --alto all '
                         'three are output, with some only those')
+    p.add_argument('--full-output', action='store_true',
+                   help='output every line, in <kind>/ (the default; with --sparse-output: both)')
     p.add_argument('--sparse-output', type=int, metavar='N',
-                   help='OCR and decoder units keep their outputs (PAGE XML, ALTO, OCR logits) of one line in N only, '
-                        'in <kind>.1in<N>/ (for large benchmarks, e.g. 64); by default they keep the outputs of every '
-                        'line')
+                   help='output one line in N, in <kind>.1in<N>/ (for large benchmarks); alone: only these')
     p.add_argument('--chunk-pages', type=int, default=CHUNK_PAGES,
                    help='a unit adds its computed pages to its folder every this many pages')
     p.add_argument('--big-jobs', type=int, default=1,
@@ -1932,18 +1935,15 @@ def main():
     p.add_argument('--min-free-gb', type=float, default=5.0, help='start a unit process only with this much free RAM')
     p.add_argument('--stagger', type=float, default=45.0, help='seconds between starting two unit processes')
     p.add_argument('--list', action='store_true', help='show the units and whether they are done, run nothing')
-    p.add_argument('--prune-page-xml', action='store_true',
-                   help='delete the full PAGE XML (page_xml/) of the OCR and decoder units, run nothing; an OCR '
-                        'run\'s only once its decoders and derived runs are done')
-    p.add_argument('--prune-logits', action='store_true',
-                   help='delete the full logits (logits/) of the OCR units, run nothing; only once their decoders and '
-                        'derived runs are done')
-    p.add_argument('--prune-alto', action='store_true',
-                   help='delete the full ALTO (alto/) of the OCR and decoder units, run nothing')
-    p.add_argument('--prune-outputs', action='store_true',
-                   help='--prune-page-xml, --prune-logits and --prune-alto; the sparse outputs (*.1in<N>/) are kept')
-    p.add_argument('--prune-sparse', action='store_true',
-                   help='delete the sparse outputs (<kind>.1in<N>/, every N) of the OCR and decoder units, run nothing')
+    p.add_argument('--prune-page-xml', action='store_true', help='prune the PAGE XML')
+    p.add_argument('--prune-logits', action='store_true', help='prune the logits')
+    p.add_argument('--prune-alto', action='store_true', help='prune the ALTO')
+    p.add_argument('--prune-full-output', action='store_true', help='prune the full outputs (<kind>/)')
+    p.add_argument('--prune-sparse-output', action='store_true',
+                   help='prune the sparse outputs (<kind>.1in<N>/, every N). Any --prune-* flag deletes outputs of the '
+                        'OCR and decoder units and runs nothing: the kinds given (all without any), the full outputs '
+                        'unless only --prune-sparse-output is given; an OCR run\'s full PAGE XML and logits only once '
+                        'its decoders and derived runs are done')
     p.add_argument('--force-environment', action='store_true',
                    help='add to records made on another machine or in another environment (python, packages, CUDA, '
                         'GPU, driver) or from other pages; noted in forced.json')
@@ -1970,6 +1970,7 @@ def main():
     CHUNK_PAGES = args.chunk_pages
     KEEP_TORCHSCRIPT_FUSER = args.keep_torchscript_fuser
     SPARSE = args.sparse_output
+    FULL = args.full_output or not SPARSE
     KINDS = {k for k, on in (('page_xml', args.page_xml), ('logits', args.logits), (ALTO, args.alto)) if on} or \
         set(OUTPUT_KINDS)
     FORCE_ENGINE = args.force_model
@@ -2013,11 +2014,12 @@ def main():
     if not args.list and not args.exact:  # unit processes run under the lock of the run that started them
         for _, _, out, _, _ in work:
             lock_records(out)
-    prune = [kind for kind, on in (('page_xml', args.prune_page_xml), ('logits', args.prune_logits),
-                                   (ALTO, args.prune_alto)) if on or args.prune_outputs]
-    if prune or args.prune_sparse:
+    prune_kinds = {kind for kind, on in (('page_xml', args.prune_page_xml), ('logits', args.prune_logits),
+                                         (ALTO, args.prune_alto)) if on}
+    if prune_kinds or args.prune_full_output or args.prune_sparse_output:
         for dataset, registry, out, _, all_units in work:
-            prune_outputs(registry, out, all_units, prune, args.prune_sparse)
+            prune_outputs(registry, out, all_units, prune_kinds or set(OUTPUT_KINDS),
+                          args.prune_full_output or not args.prune_sparse_output, args.prune_sparse_output)
         return
     if args.list:
         for dataset, registry, out, units, all_units in work:
@@ -2063,8 +2065,7 @@ def main():
         for u in units:
             if not u.done():
                 if u.stage == 'DECODER' or (u.stage == 'OCR' and registry.base(u.name) == u.name):
-                    check_sparse(u.final, u.id)
-                    check_kinds(u.final, u.id, unit_kinds(u))
+                    check_outputs(u.final, u.id, unit_kinds(u))
     failed = []
     for dataset, registry, out, units, all_units in work:
         todo = [u for u in units if not u.done()]

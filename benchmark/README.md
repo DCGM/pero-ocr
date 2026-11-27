@@ -182,9 +182,9 @@ The records of a commit (a free run's folder has the same structure, plus `<benc
     report.md                         the units
     LAYOUT_PARSER/<layout>/           page_xml/
     LINE_CROPPER/<cropper>/           crops.png.lmdb (the line crops as PNG; its pages: pages.tsv)
-    OCR/<ocr>@<cropper>/              lines/, page_xml/, logits/, alto/ (--sparse-output N: page_xml.1in<N>/,
-                                      logits.1in<N>/, alto.1in<N>/, + page_xml/, logits/ of the pages its readers need)
-    DECODER/<lm>@<ocr>@<cropper>/     lines/, page_xml/, alto/ (--sparse-output N: page_xml.1in<N>/, alto.1in<N>/)
+    OCR/<ocr>@<cropper>/              lines/, page_xml/, logits/, alto/ and/or (--sparse-output N) page_xml.1in<N>/,
+                                      logits.1in<N>/, alto.1in<N>/ (+ page_xml/, logits/ of the pages its readers need)
+    DECODER/<lm>@<ocr>@<cropper>/     lines/, page_xml/, alto/ and/or page_xml.1in<N>/, alto.1in<N>/
     logs/                             <unit>.log: every attempt of a unit appended, between a start and an end line
                                       (a start line without an end line: that attempt was killed or stopped)
     score/                            cer.tsv, layout.tsv, report.md
@@ -227,16 +227,17 @@ per page (`benchmark/records.py`):
 
 Which outputs and how many lines:
 
-- `--page-xml`, `--logits`, `--alto`: by default a run writes all three; with one or more of them, only those. A run
-  refuses to add to a unit that holds pages without an output it writes (recorded without it, or pruned), so an
-  output a unit has covers all its pages; run it with the outputs it has.
-- `--sparse-output N`, for large benchmarks: the outputs of one line in N only (by a hash of `<page>/<line_id>`,
-  the same lines in every unit), cut out of the page's export, in `page_xml.1in<N>/`, `logits.1in<N>/`,
-  `alto.1in<N>/`; no file for a page with no line in the subset. The ALTO lines are exported with their neighbours
-  in the region, which decide a word hyphenated across lines, so each line is exactly as in the full export (the page
-  and block measures around it are not). They are the records to compare the raw output of engines and environments
-  beyond the text. An OCR run then keeps its full `page_xml/` and `logits/` only for the pages its decoders and
-  derived runs read. A unit keeps every line or one subset; adding to it the other way is refused.
+- `--page-xml`, `--logits`, `--alto`: by default a run writes all three; with one or more of them, only those.
+- `--full-output`, `--sparse-output N`: every line (`<kind>/`, the default) or one line in N, for large benchmarks
+  (by a hash of `<page>/<line_id>`, the same lines in every unit), cut out of the page's export, in
+  `page_xml.1in<N>/`, `logits.1in<N>/`, `alto.1in<N>/`; no file for a page with no line in the subset. The ALTO
+  lines are exported with their neighbours in the region, which decide a word hyphenated across lines, so each line
+  is exactly as in the full export (the page and block measures around it are not). `--sparse-output` alone writes
+  only the sparse version, with `--full-output` both. The sparse outputs are the records to compare the raw output
+  of engines and environments beyond the text. Without the full PAGE XML and logits, an OCR run keeps them for the
+  pages its decoders and derived runs read.
+- A run refuses to add to a unit that holds pages without an output it writes (recorded without it, or pruned), or
+  sparse outputs of another N, so an output a unit has covers all its pages; run it with the outputs it has.
 
 `score.py` writes `<benchmark>/score/lines/<kind>/<unit>/<list>.txt`, the unit's output on exactly the lines of a test
 list in the list's order and format, so a test list and a unit (or two units, or two record sets) can be compared side
@@ -245,9 +246,10 @@ by side (e.g. `meld test_lists/<list>.test_list <benchmark>/score/lines/OCR/<uni
 Nothing is computed twice: each cropper crops once and the OCR engines read its crops; an OCR engine that differs
 from another only in a higher `FILTER_CONFIDENT_LINES_THRESHOLD` is derived from the other's run (its lines without
 the lines of confidence at or below the threshold, as pero-ocr removes them); the decoders decode the stored PAGE
-XML and logits of the OCR runs. `--prune-page-xml`, `--prune-logits`, `--prune-alto` (all three: `--prune-outputs`)
-delete the full outputs, an OCR run's PAGE XML and logits once its decoders and derived runs are done (one added
-later then runs the OCR engine again, and must get the recorded lines); `--prune-sparse` deletes the sparse outputs
-of every N.
+XML and logits of the OCR runs. The prune flags delete outputs and run nothing, mirroring the output flags:
+`--prune-page-xml`, `--prune-logits`, `--prune-alto` choose the kinds (all without any), `--prune-full-output` and
+`--prune-sparse-output` the versions (full unless only `--prune-sparse-output` is given; both with both). An OCR
+run's full PAGE XML and logits go only once its decoders and derived runs are done (one added later then runs the OCR
+engine again, and must get the recorded lines).
 
 See the docstring of `infer.py` for what each unit records.
