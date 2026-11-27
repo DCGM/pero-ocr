@@ -1190,7 +1190,8 @@ def _crop_page(args):
     return page['name'], result
 
 
-def run_crops(units, registry, dataset, workers):
+def run_crops(units, registry, dataset, workers, stop=None):
+    """Crop the pages the units miss, chunk by chunk; stops after the current chunk once stop (an Event) is set."""
     import lmdb
     engines = {u.name: registry.engines['LINE_CROPPER'][u.name] for u in units}
     configs = {n: (config_text(e.config()), e.folder) for n, e in engines.items()}
@@ -1202,6 +1203,8 @@ def run_crops(units, registry, dataset, workers):
             if any(page['name'] in pages for pages in need.values())]
     with multiprocessing.get_context('spawn').Pool(workers, initializer=os.nice, initargs=(10,)) as pool:
         for chunk in chunks(jobs):
+            if stop is not None and stop.is_set():
+                break
             active = [u for u in units if any(u.name in job[1] for job in chunk)]
             envs = {}
             for u in active:
@@ -1742,14 +1745,27 @@ def order(todo, registry):
     return sorted((u for u in todo if u.stage != 'LINE_CROPPER'), key=lambda u: (u.stage == 'DECODER', -cost(u.id)))
 
 
+def stop_crops(crop_thread, stop):
+    """After a failure of this thread: let the line crops finish their chunk and stop. Left running, the crop thread
+    keeps the process alive at exit, and the pool's new workers, started once __main__ is torn down, cannot load
+    _crop_page: the run would hang instead of failing."""
+    stop.set()
+    if crop_thread:
+        crop_thread.join()
+
+
 def run_inline(todo, registry, dataset, out, crop_workers):
     crops = [u for u in todo if u.stage == 'LINE_CROPPER']
-    crop_thread = None
+    crop_thread, stop = None, threading.Event()
     if crops:
-        crop_thread = threading.Thread(target=run_crops, args=(crops, registry, dataset, crop_workers))
+        crop_thread = threading.Thread(target=run_crops, args=(crops, registry, dataset, crop_workers, stop))
         crop_thread.start()
-    for unit in (u for u in todo if u.stage == 'LAYOUT_PARSER'):
-        run_unit(unit, registry, dataset, out)
+    try:
+        for unit in (u for u in todo if u.stage == 'LAYOUT_PARSER'):
+            run_unit(unit, registry, dataset, out)
+    except BaseException:
+        stop_crops(crop_thread, stop)
+        raise
     if crop_thread:
         crop_thread.join()
     ocr = [u for u in todo if u.stage == 'OCR']
@@ -1777,9 +1793,11 @@ def run_parallel(todo, registry, dataset, out, args, folder_name, units):
             return False
         return model_parameters(registry.ocr_engine(unit.name).folder) > BIG_MODEL_PARAMETERS
 
+    stop = threading.Event()
+
     def crop_job():
         try:
-            run_crops(crops, registry, dataset, args.crop_workers)
+            run_crops(crops, registry, dataset, args.crop_workers, stop)
         except Exception:
             logger.exception('line crops failed')
             with lock:
@@ -1884,10 +1902,14 @@ def run_parallel(todo, registry, dataset, out, args, folder_name, units):
             write_report(out, folder_name)
 
     threads = [threading.Thread(target=worker) for _ in range(args.jobs * len(gpus) + args.decoder_jobs)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    except BaseException:
+        stop_crops(crop_thread, stop)
+        raise
     if crop_thread:
         crop_thread.join()
     return [f'{dataset.name}: {u}' for u in failed]
