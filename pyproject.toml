@@ -76,10 +76,7 @@ select-embed-id = "pero_ocr.user_scripts.select_embed_id:main"
 [tool.pytest.ini_options]
 testpaths = ["test"]
 pythonpath = ["."]
-addopts = "-ra --strict-markers -m 'not gpu and not models and not regression'"
+addopts = "-ra --strict-markers"
 markers = [
-    "gpu: needs a CUDA device",
-    "models: needs real (non-tiny) models, located through PERO_TEST_MODELS",
-    "regression: needs the external page sample, located through PERO_TEST_DATA",
     "slow: takes more than a few seconds",
 ]

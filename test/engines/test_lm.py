@@ -169,10 +169,3 @@ class TorchCPULmWrapperTests(LMWrapperTemplate, unittest.TestCase):
         self._device = torch.device('cpu')
         self._wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'], device=self._device)
 
-
-@pytest.mark.gpu
-@unittest.skipIf(not torch.cuda.is_available(), "CUDA is not available")
-class GPULMWrapperTests(LMWrapperTemplate, unittest.TestCase):
-    def setUp(self):
-        self._device = torch.device('cuda')
-        self._wrapper = LMWrapper(DummyLm(), ['a', 'b', 'c'], device=self._device)

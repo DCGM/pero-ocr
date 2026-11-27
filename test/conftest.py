@@ -9,15 +9,6 @@ TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_DIR = os.path.dirname(TEST_DIR)
 
 
-def pytest_collection_modifyitems(config, items):
-    if torch.cuda.is_available():
-        return
-    skip_gpu = pytest.mark.skip(reason='CUDA is not available')
-    for item in items:
-        if 'gpu' in item.keywords:
-            item.add_marker(skip_gpu)
-
-
 @pytest.fixture(scope='session')
 def cpu():
     return torch.device('cpu')
