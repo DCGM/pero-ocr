@@ -35,6 +35,12 @@ name, a stage, or a glob over <STAGE>/<unit>) that fails is EXPECTED instead: a 
 failure. Units held by one side only, a changed engine (its files or config differ) and different environments are
 reported, not judged.
 
+Logits compatibility, a strong warning at the top of the report and the summary (judged from the modules the logits
+pickles name and the numpy and scipy of both environments): logits written under numpy 2 (or scipy >= 1.8) cannot be
+loaded under numpy 1 (or scipy < 1.8) at all, so any reader still on the older version, a worker or a service, fails on
+them; logits written under the older versions load under the newer ones only through deprecated aliases and have to
+be converted before those are removed.
+
 Writes <new records>/<benchmark>/consistency/<base>/:
     summary.md        the text for the pull request: verdicts per stage, the largest differences, no unit names
     report.md         the verdict of every unit, worst first, and where a unit differs: its page lists and pages
@@ -500,6 +506,84 @@ def fmt(v, digits=3):
     return str(v)
 
 
+# Logits compatibility: pero-ocr's logits files are pickles of scipy sparse matrices holding numpy arrays, and a pickle
+# names the modules of the classes it holds. Two renames break them across versions (checked by loading the files in
+# both directions): numpy 2.0 renamed numpy.core to numpy._core (no numpy 1.x, not even 1.26, loads numpy 2's
+# pickles; numpy 2 loads numpy 1's through a deprecated alias), and scipy 1.8 moved the sparse classes to private
+# modules (scipy.sparse.csc -> scipy.sparse._csc; older scipy loads neither; newer scipy loads the old names through
+# deprecated modules, to be removed in scipy 2.0).
+RENAMES = (
+    # (library, the new module prefix, the old one, the release that renamed it)
+    ('numpy', 'numpy._core', 'numpy.core', (2, 0)),
+    ('scipy', 'scipy.sparse._', 'scipy.sparse.', (1, 8)),
+)
+
+
+def pickle_modules(path):
+    """The numpy and scipy modules a pickle file names."""
+    import pickletools
+    mods, strings = set(), []
+    with open(path, 'rb') as f:
+        for op, arg, _ in pickletools.genops(f):
+            if op.name == 'GLOBAL':
+                mods.add(arg.split(' ')[0])
+            elif op.name == 'STACK_GLOBAL' and len(strings) >= 2:
+                mods.add(strings[-2])
+            elif isinstance(arg, str) and 'UNICODE' in op.name:
+                strings.append(arg)
+    return {m for m in mods if m.split('.')[0] in ('numpy', 'scipy')}
+
+
+def logits_modules(records, units, sample=3):
+    """The numpy and scipy modules the logits files of the OCR units name (a few files per unit)."""
+    mods = set()
+    for uid, folder in units.items():
+        if not uid.startswith('OCR/'):
+            continue
+        for kind in sorted(f for f in os.listdir(folder) if re.fullmatch(r'logits(\.1in\d+)?', f)):
+            files = sorted(f for f in os.listdir(os.path.join(folder, kind)) if f.endswith('.logits'))[:sample]
+            for f in files:
+                mods |= pickle_modules(os.path.join(folder, kind, f))
+    return mods
+
+
+def version(env, library):
+    """(major, minor) of a library in an environment.json, None when unknown."""
+    v = (env.get('packages') or {}).get(library)
+    m = re.match(r'(\d+)\.(\d+)', v or '')
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def logits_compatibility(base_mods, new_mods, env_base, env_new):
+    """Warnings, in words, when the logits written in one environment cannot be loaded in the other, or only through
+    a deprecated alias that a future release removes."""
+    out = []
+    sides = (('base', base_mods, env_base, 'new', env_new), ('new', new_mods, env_new, 'base', env_base))
+    for side, mods, env, other, other_env in sides:
+        for library, new_prefix, old_prefix, renamed in RENAMES:
+            reader = version(other_env, library)
+            if reader is None:
+                continue
+            writer_v = (env.get('packages') or {}).get(library)
+            reader_v = (other_env.get('packages') or {}).get(library)
+            names_new = any(m.startswith(new_prefix) for m in mods)
+            names_old = any(m.startswith(old_prefix) and not m.startswith(new_prefix) for m in mods)
+            release = '.'.join(map(str, renamed))
+            if names_new and reader < renamed:
+                out.append(f'Logits written by the {side} environment ({library} {writer_v}) CANNOT BE LOADED by the '
+                           f'{other} environment ({library} {reader_v}): they name {new_prefix}*, which {library} < '
+                           f'{release} does not have (ModuleNotFoundError). Every reader of these logits on {library} < '
+                           f'{release} (a worker or service that loads logits, e.g. for the decoder or alignment) fails '
+                           f'on them: move the readers first, or convert the logits for them.')
+            if names_old and reader >= renamed:
+                out.append(f'Logits written by the {side} environment ({library} {writer_v}) load in the {other} '
+                           f'environment ({library} {reader_v}) only through {library}\'s deprecated {old_prefix}* '
+                           f'(a DeprecationWarning): once {library} removes it, they will not load. Stored logits '
+                           f'written with {library} < {release} have to be converted before readers move to such a '
+                           f'{library}.')
+    return out
+
+
 def env_diff(a, b):
     out = []
     for k in sorted(set(a) | set(b)):
@@ -556,7 +640,9 @@ def compare_benchmark(name, base_rec, new_rec, base_label, new_label, dataset, e
     env_b = read_json(os.path.join(new_rec, 'environment.json'))
     pages_a = read_json(os.path.join(base_rec, 'benchmark.json')).get('pages')
     pages_b = read_json(os.path.join(new_rec, 'benchmark.json')).get('pages')
+    compat = logits_compatibility(logits_modules(base_rec, ub), logits_modules(new_rec, un), env_a, env_b)
     info = dict(benchmark=name, base=base_label, new=new_label, environment_differences=env_diff(env_a, env_b),
+                logits_compatibility=compat,
                 benchmark_pages_differ=pages_a != pages_b, units_base_only=sorted(ub.keys() - un.keys()),
                 units_new_only=sorted(un.keys() - ub.keys()), registries_new=registries(new_rec),
                 tolerances=TOLERANCES, expected=expected)
@@ -569,7 +655,7 @@ def compare_benchmark(name, base_rec, new_rec, base_label, new_label, dataset, e
     write_report(os.path.join(out, 'report.md'), info, unit_rows, list_rows, page_rows)
     write_summary(os.path.join(out, 'summary.md'), info, unit_rows)
     print(os.path.join(out, 'report.md'))
-    return unit_rows
+    return unit_rows, compat
 
 
 MEASURE_COLS = {
@@ -597,6 +683,8 @@ def write_report(path, info, unit_rows, list_rows, page_rows):
          f"Verdict: **{overall(unit_rows)}** ({', '.join(f'{v} {n}' for v, n in counts(unit_rows))}).", '',
          f"Records: base `{info['base']}/{info['benchmark']}`, new `{info['new']}/{info['benchmark']}` (commits, or free "
          f"runs by their folder name).", '']
+    if info['logits_compatibility']:
+        L += ['## ⚠ LOGITS COMPATIBILITY WARNING', ''] + [f'- **{w}**' for w in info['logits_compatibility']] + ['']
     if info['environment_differences']:
         L += ['Environments differ (differences may come from them):', ''] + [f'- {d}' for d in info['environment_differences']] + ['']
     else:
@@ -658,6 +746,9 @@ def write_summary(path, info, unit_rows):
          f"- commits: new `{info['new'][:12]}` against base `{info['base'][:12]}`",
          f"- registries (new): {', '.join(f'`{r}`' for r in info['registries_new']) or '–'}",
          f"- environment: {'same' if not info['environment_differences'] else 'differs (' + str(len(info['environment_differences'])) + ' items)'}"]
+    if info['logits_compatibility']:
+        L[0] = L[0][:-2] + ' — ⚠ LOGITS COMPATIBILITY WARNING**'
+        L += ['', '**⚠ Logits compatibility:**', ''] + [f'- {w}' for w in info['logits_compatibility']]
     if info['units_base_only'] or info['units_new_only']:
         L.append(f"- units not compared: {len(info['units_base_only'])} only in base, {len(info['units_new_only'])} only in new")
     L += ['', '| stage | units | verdicts | largest difference |', '|---|---|---|---|']
@@ -716,9 +807,11 @@ def main():
         sys.exit(f'no benchmark in both {base_root} and {new_root}')
     failed = False
     for name in found:
-        rows = compare_benchmark(name, os.path.join(base_root, name), os.path.join(new_root, name), base_label,
+        rows, compat = compare_benchmark(name, os.path.join(base_root, name), os.path.join(new_root, name), base_label,
                                  new_label, os.path.join(args.data, name) if args.data else None, args.expected)
         print(f'{name}: {overall(rows)}')
+        for w in compat:
+            print(f'{name}: WARNING, logits compatibility: {w}', file=sys.stderr)
         failed |= overall(rows) == FAIL
     sys.exit(1 if failed else 0)
 

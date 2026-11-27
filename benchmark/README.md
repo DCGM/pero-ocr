@@ -278,7 +278,13 @@ and judged against `TOLERANCES` in the script (warn and fail limits: e.g. a text
 fails; the script says what they were set from). Only a whole unit can fail; a page list or a page at most warns and
 shows where the unit differs (on a small list a single line would be several per cent). A unit is PASS, WARN or FAIL
 by its worst row, with the measures over their limits as its `why`; `--expected <unit, stage or glob>` turns a deliberate change's FAIL into EXPECTED. Units
-held by one side only, a changed engine and different environments are reported, not judged. The script exits with 1
+held by one side only, a changed engine and different environments are reported, not judged. **Logits
+compatibility** is a strong warning at the top of the report and the summary: pero-ocr's logits files are pickles that
+name numpy's and scipy's modules, and logits written under numpy 2 (or scipy >= 1.8) cannot be loaded under numpy 1
+(or scipy < 1.8) at all, while older logits load under the newer versions only through deprecated aliases. When the
+two environments differ so, the warning says which side cannot read which logits: before workers move to such
+versions, every reader of their logits (another worker, a service) has to move first, and stored logits have to be
+converted before the aliases are removed. The script exits with 1
 when a unit fails.
 
 It writes `<new>/<benchmark>/consistency/<base>/`: `summary.md` (for the pull request: verdicts and the largest
