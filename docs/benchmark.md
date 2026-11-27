@@ -56,6 +56,6 @@ seconds, peak GPU memory and the counts of its stage). Keep them so:
   and computed again.
 - Nothing is recorded that the unit's name, its engine or its folders already say; a new piece of information goes
   where it belongs (a page's file, a column of `pages.tsv`, a folder name such as `crops.png.lmdb` or
-  `logits.1in64/`), not into a general bag of fields.
+  `alto.1in64/`), not into a general bag of fields.
 - Counts in `pages.tsv` are taken where the engine works, even when they could be derived from the records later:
   they are the check of the records.

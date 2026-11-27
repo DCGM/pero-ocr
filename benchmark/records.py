@@ -8,11 +8,9 @@ A unit holds a page when it holds its lines file:
                           not output (e.g. removed by the PAGE_PARSER confidence filter) is not there; tab-separated,
                           a tab, newline or backslash in the text escaped by a backslash (csv, QUOTE_NONE,
                           escapechar '\\')
-    logits.1in64/<page>.logits   OCR units: the logits of the page's lines in the fixed subset, one line in 64 by a
-                          hash of "<page>/<line_id>", the same in every unit, in pero-ocr's format
-                          (PageLayout.save_logits_bytes: a pickled dict of the lines' sparse logits, their characters
-                          and logit_coords; PageLayout.load_logits reads it); no file when none of its lines is in the
-                          subset
+
+The other outputs of a unit (page_xml/, logits/, alto/ or their sparse versions <kind>.1in<N>/) are pero-ocr's exports,
+written by infer.py; logits_of_lines cuts the lines of a sparse subset out of a page's logits.
 
 Every file is written under a temporary name and renamed, so a page is either there completely or not at all; deleting
 a page's files makes the next run compute it again.
@@ -23,8 +21,6 @@ import os
 import pickle
 
 LINES = 'lines'
-LOGITS_SUBSET = 64  # one line in LOGITS_SUBSET keeps its logits in every OCR unit
-LOGITS = f'logits.1in{LOGITS_SUBSET}'
 HEADER = ['line_id', 'confidence', 'text']
 DIALECT = dict(delimiter='\t', lineterminator='\n', quoting=csv.QUOTE_NONE, escapechar='\\')
 
@@ -32,6 +28,11 @@ DIALECT = dict(delimiter='\t', lineterminator='\n', quoting=csv.QUOTE_NONE, esca
 def line_key(page, line_id):
     """The key of a line in the test lists."""
     return f'{page}-{line_id}.jpg'
+
+
+def write_file(path, data):
+    """Write a file under a temporary name and rename it: it is there completely or not at all."""
+    _write(path, data)
 
 
 def _write(path, data):
@@ -81,20 +82,3 @@ def logits_of_lines(data, line_ids):
     for key in ('line_characters', 'logit_coords'):
         out[key] = {k: page.get(key, {}).get(k) for k in ids}
     return pickle.dumps(out, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def write_logits(folder, page, data):
-    """The subset logits of a page (logits_of_lines); nothing when None."""
-    if data is None:
-        return
-    os.makedirs(os.path.join(folder, LOGITS), exist_ok=True)
-    _write(os.path.join(folder, LOGITS, page + '.logits'), data)
-
-
-def read_logits(folder, page):
-    """The subset logits of a page as bytes (PageLayout.load_logits takes them), None when it has none."""
-    path = os.path.join(folder, LOGITS, page + '.logits')
-    if not os.path.exists(path):
-        return None
-    with open(path, 'rb') as f:
-        return f.read()
