@@ -10,8 +10,10 @@ one benchmark.
 2. **Benchmark** (`score.py`) scores one commit's records against the test lists: CER per engine and test list, and
    how well the layout engines find the annotated lines. Output: `<commit>/<benchmark>/score/`. For people who only care
    about the models.
-3. **Consistency** (`test/inference/`) compares the records of two commits: the differences must stay within what two
-   runs of the same commit differ by. This is the pero-ocr test. It needs no test lists.
+3. **Consistency** (`consistency.py --base <commit>`) compares the records of two commits, unit by unit, page by page
+   and line by line, and fails when they differ by more than fixed tolerances: the pero-ocr test of the GPU tier. It
+   reads only the records (never `score/`), and of the benchmark its page lists and test lists, to say on which data a
+   unit differs and to measure the annotated lines separately. Output: `<commit>/<benchmark>/consistency/<base>/`.
 
 Inputs, given as environment variables or options:
 
@@ -23,7 +25,9 @@ Inputs, given as environment variables or options:
 | `PERO_INFERENCE` | the records, one folder per commit, one folder per benchmark in it |
 
 The data, the engines and the registries are not public; the benchmarks' definition (lists, page metadata, how they
-were made) and the registries are kept privately with the data.
+were made) and the registries are kept privately with the data, and the maintainers' private repository
+`pero-ocr-private` describes them and how they are run. Run on them, the benchmark is the GPU tier of the tests: a pull
+request into `develop` needs the develop tier, one into `master` the official tier (`AGENTS.md`, "The GPU tier").
 
 A benchmark
 -----------
@@ -108,6 +112,7 @@ In the basis environment (`requirements/lock.txt`); GPU:
     python benchmark/infer.py --registry R.yaml --jobs 6   # everything of the registry not in the records yet
     python benchmark/infer.py --registry R.yaml --list     # the units and which are done
     python benchmark/score.py                              # score the records of the commit, every benchmark
+    python benchmark/consistency.py --base <commit>        # compare the records of the commit with <commit>'s
 
 Adding an engine (or pages of a run) is adding it to a registry and running the same command; only what is missing
 runs. A unit whose engine was changed since (its files, e.g. a fixed model json) is not run again by itself: `--list`
@@ -253,3 +258,30 @@ run's full PAGE XML and logits go only once its decoders and derived runs are do
 engine again, and must get the recorded lines).
 
 See the docstring of `infer.py` for what each unit records.
+
+Consistency
+-----------
+
+`consistency.py --base <commit> [--new <commit>]` (each a commit with records in `$PERO_INFERENCE` or a free run's
+folder; `--new` defaults to the current commit) compares, for every benchmark and unit both records hold, the pages both
+units hold:
+
+| stage | measures (new against base) |
+|---|---|
+| layout | lines matched by polygon overlap (IoU >= 0.5): lines without a match on either side, regions added or lost, pages whose ParseNet input size changed |
+| cropper | lines cropped, crops that differ and their largest pixel difference |
+| OCR, decoder | text change (the edit distance between the texts of both, over the base's characters), lines missing or new, the largest confidence difference, for OCR the largest difference of a log-probability both store in the logits (of the lines with the same text); on the annotated lines (the test lists) separately: their text change and the CER of both against the references |
+| all | seconds and peak GPU memory, new / base: reported, never judged |
+
+Each measure is computed per unit, per unit and page list (the annotated ones per test list) and per unit and page,
+and judged against `TOLERANCES` in the script (warn and fail limits: e.g. a text change over 0.1 % warns, over 1 %
+fails; the script says what they were set from). Only a whole unit can fail; a page list or a page at most warns and
+shows where the unit differs (on a small list a single line would be several per cent). A unit is PASS, WARN or FAIL
+by its worst row, with the measures over their limits as its `why`; `--expected <unit, stage or glob>` turns a deliberate change's FAIL into EXPECTED. Units
+held by one side only, a changed engine and different environments are reported, not judged. The script exits with 1
+when a unit fails.
+
+It writes `<new>/<benchmark>/consistency/<base>/`: `summary.md` (for the pull request: verdicts and the largest
+differences per stage, no unit names), `report.md` (every unit, worst first, and for a unit that differs its page lists
+and pages), `units.tsv`, `unit_lists.tsv`, `pages.tsv`, `lines/<STAGE>/<unit>.tsv` (the lines that differ, both texts
+and confidences) and `run.json` (both records, the environments, the tolerances).

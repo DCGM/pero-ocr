@@ -8,9 +8,17 @@ Rules for agents (and people) changing pero-ocr. The details are in `test/README
     pytest                        # everything that runs on CPU without models or external data (~60 s)
     pytest -m "not slow"          # without the parse_folder.py subprocess runs (~15 s)
     pytest test/<tier>            # one tier
-    pytest -m gpu                 # GPU tests; skipped without CUDA
 
 Every change keeps `pytest` green. A test that fails because of a deliberate change is updated in the same change, never deleted or loosened to make it pass.
+
+## The GPU tier: before a pull request is merged
+
+The test suite above runs on CPU only and is for everybody: it needs no GPU, models or data, and has no GPU tests. Everything on the GPU is checked by the GPU tier, which runs the benchmark (`benchmark/infer.py`; rules in `docs/benchmark.md`) with real models on real pages, which are not public, and compares its records with those of the target branch (`benchmark/consistency.py`, which fails on differences over its tolerances). Which benchmarks, registries and models it runs, and how, is described in the maintainers' private repository `pero-ocr-private` (its `AGENTS.md`). Contributors without access to it leave this tier to a maintainer.
+
+- **A pull request into `develop`** is merged only after the **develop tier** was run on its last commit: the develop benchmark with its base registry, plus the extensions for what the change can influence.
+- **A pull request into `master`** (a release) is merged only after the **official tier** was run on its last commit.
+- A change pushed after the run that can influence the records needs a new run; a change of documentation or tests only does not.
+- The description of the pull request ends with a `GPU tier` section (`.github/pull_request_template.md`): the `summary.md` of each benchmark's consistency report (verdicts and the largest differences per stage, no unit names), and for a FAIL or EXPECTED why the change is right. Nothing else concrete (the PR is public, see below): no model names, pages or paths; the full report stays with the private records.
 
 ## Dependencies: the lock and pyproject.toml
 

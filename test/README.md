@@ -7,7 +7,12 @@ The rules for where a test goes and when an engine needs a consistency check are
     pytest test/stages           # one tier
     pytest test/io/consistency test/engines/consistency   # only the consistency checks
     pytest -m slow               # only the slow tests (parse_folder.py end-to-end runs)
-    pytest -m gpu                # GPU tests (skipped automatically without CUDA)
+
+These tests run on CPU only and are for everybody: they need no GPU, models or external data, and there are no GPU
+tests among them. Everything on the GPU is checked by the GPU tier. Before a pull request is merged, the GPU tier
+runs too: the benchmark (`benchmark/`) with real models on non-public pages, described in the maintainers' private
+repository `pero-ocr-private`. A pull request into `develop` needs the develop tier, one into `master` the official tier,
+and its description ends with a `GPU tier` section saying it was done (`AGENTS.md`, "The GPU tier").
 
 The basis environment (`requirements/lock.txt`) is one set of versions for Python 3.8, 3.9 and 3.10, the recommended way to run pero-ocr and the one tested in production (issue #94). `pip install -e ".[test]"` works too, with whatever versions `pyproject.toml` allows (the lock loosened, capped only where a release is known to cause problems); the consistency checks then tell whether those versions change any output. Such installs pass the CPU suite on Python 3.8 to 3.13 but were not tested in production. Frozen data and golden files are regenerated only in the basis environment.
 
@@ -23,6 +28,7 @@ The basis environment (`requirements/lock.txt`) is one set of versions for Pytho
 | `io/` | PAGE XML / ALTO / logits: export, import (also from other tools), round trips, known bugs | CPU |
 | `io/consistency/` | the exporters still write the committed golden IO files, and the committed PAGE XML still reads back | CPU |
 | `unit/` | internals in isolation: algorithms and data structures with no config section of their own (decoder internals, hypotheses, confusion networks, confidences, alignments, the page data model `PageLayout`, `RegionLayout`, `TextLine`), mirroring the `pero_ocr` package | CPU |
+| GPU tier (`benchmark/`, not pytest) | real models on real pages: `infer.py` records what a commit produces, `consistency.py` compares the records with those of the target branch and fails on differences over its tolerances (`benchmark/README.md`) | GPU, the non-public benchmarks and models (maintainers, `pero-ocr-private`) |
 
 The tiers follow the call stack: `parse_folder.py` wraps `PageParser`, which runs the stages, which wrap the engines, which produce the `PageLayout` that `io` exports.
 
@@ -42,8 +48,6 @@ Each tier tests its own logic and treats the tier below as a black box:
 | `[DECODER]` | `test_decoder_stage.py` | `GreedyDecoder`, `CTCPrefixLogRawNumpyDecoder`, the language model |
 
 Every engine with its engine tests and its consistency check (or why it has none) is listed in `engines/README.md`.
-
-The markers `gpu`, `models` (real models, `PERO_TEST_MODELS`) and `regression` (the external page sample, `PERO_TEST_DATA`) are deselected by default.
 
 ## Consistency checks
 
