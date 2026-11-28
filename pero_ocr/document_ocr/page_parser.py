@@ -637,6 +637,14 @@ class PageParser(object):
 
         self.device = device if device is not None else get_default_device()
 
+        # TORCHSCRIPT_FUSER = no turns off TorchScript's tensor-expression fuser. On the GPU the fuser makes the output
+        # of a TorchScript model (e.g. OCR logits, by about 1e-5) depend on the inputs processed before it in the same
+        # process; without it, the output of an input does not depend on what came before (issue #96). The switch is
+        # global to the process. Not set: torch's default (the fuser on) is left as it is.
+        fuser = config['PAGE_PARSER'].getboolean('TORCHSCRIPT_FUSER', fallback=None)
+        if fuser is not None:
+            torch._C._jit_set_texpr_fuser_enabled(fuser)
+
         self.layout_parsers = {}
         self.line_croppers = {}
         self.ocrs = {}

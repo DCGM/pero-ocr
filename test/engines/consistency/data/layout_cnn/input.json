@@ -1,0 +1,66 @@
+{
+ "configs": {
+  "layout_2022_04_13": {
+   "DETECT_LINES": "yes",
+   "DETECT_REGIONS": "yes",
+   "MERGE_LINES": "no",
+   "ADJUST_HEIGHTS": "no",
+   "MAX_MEGAPIXELS": 5,
+   "DOWNSAMPLE": 3,
+   "DETECTION_THRESHOLD": 0.3,
+   "LINE_END_WEIGHT": 1.0,
+   "VERTICAL_LINE_CONNECTION_RANGE": 3,
+   "SMOOTH_LINE_PREDICTIONS": "no"
+  },
+  "experimental_2024_12_08": {
+   "DETECT_LINES": "yes",
+   "DETECT_REGIONS": "yes",
+   "MERGE_LINES": "no",
+   "ADJUST_HEIGHTS": "no",
+   "MAX_MEGAPIXELS": 5,
+   "DOWNSAMPLE": 3,
+   "DETECTION_THRESHOLD": 0.4,
+   "LINE_END_WEIGHT": 0.6,
+   "VERTICAL_LINE_CONNECTION_RANGE": 3,
+   "SMOOTH_LINE_PREDICTIONS": "no",
+   "ADAPTIVE_DOWNSAMPLE": 1
+  }
+ },
+ "pages": [
+  "two_columns",
+  "title_and_paragraph",
+  "separated_paragraphs",
+  "line_end",
+  "large_text",
+  "varying_heights",
+  "tilted_3deg",
+  "with_an_image_region",
+  "empty"
+ ],
+ "non_text": {
+  "with_an_image_region": [
+   {
+    "id": "image_1",
+    "category": "image",
+    "polygon": [
+     [
+      480,
+      100
+     ],
+     [
+      720,
+      100
+     ],
+     [
+      720,
+      380
+     ],
+     [
+      480,
+      380
+     ]
+    ]
+   }
+  ]
+ }
+}

@@ -1,0 +1,14 @@
+{
+ "checkpoint": "./model.pt",
+ "line_px_height": 40,
+ "line_vertical_scale": 1.0,
+ "net_name": "TINY_CTC",
+ "characters": [
+  "�",
+  "a",
+  "b",
+  "c",
+  "d",
+  " "
+ ]
+}

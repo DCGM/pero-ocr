@@ -121,6 +121,7 @@ ENV/
 *.pkl
 
 *.txt
+!requirements/*.txt
 
 *.swo
 
@@ -133,3 +134,8 @@ ENV/
 *.del
 
 *.swp
+
+# test fixtures are committed on purpose
+!test/io/consistency/data/**
+!test/engines/consistency/data/**
+**/__pycache__/

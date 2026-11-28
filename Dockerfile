@@ -8,7 +8,8 @@ COPY ./ /opt/pero/pero-ocr/
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip python3-dev build-essential ffmpeg \
   && python3 -m pip install --upgrade pip setuptools wheel \
-  && pip install --no-cache-dir --prefer-binary . \
+  && pip install --no-cache-dir -r requirements/lock.txt \
+  && pip install --no-cache-dir --no-deps . \
   && apt-get purge -y --auto-remove python3-dev build-essential \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /root/.cache

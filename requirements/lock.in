@@ -1,0 +1,28 @@
+# The basis: the recommended environment for running pero-ocr on its own (Python 3.8, 3.9 or 3.10), and the exact versions
+# the tests, the frozen data and the Docker image use. Tested in production on Python 3.10, with variants on 3.8 and 3.9
+# (issue #94, "Stable dependency basis"). pyproject.toml loosens it for other projects that depend on pero-ocr; this file
+# pins one point inside its ranges.
+#
+# Regenerate requirements/lock.txt after changing this file:
+#   uv pip compile requirements/lock.in -o requirements/lock.txt --python-version 3.8 \
+#       --extra-index-url https://download.pytorch.org/whl/cu118 --index-strategy unsafe-best-match \
+#       --python-platform x86_64-manylinux_2_28 --emit-index-url
+torch==2.4.1+cu118
+torchvision==0.19.1+cu118
+numpy==1.24.4
+opencv-python==4.11.0.86
+scipy==1.10.1
+shapely==2.0.7
+scikit-image==0.21.0
+scikit-learn==1.3.2
+numba==0.58.1
+lxml==6.0.2
+lmdb==1.7.5
+levenshtein==0.25.1
+brnolm==0.3.0
+safe-gpu==2.0.0
+arabic-reshaper==3.0.0
+ultralytics==8.4.3
+music21==8.3.0
+pillow==10.4.0
+pytest==8.3.5

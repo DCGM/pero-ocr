@@ -1,0 +1,15 @@
+{
+ "config": {
+  "model_path": "model.pt",
+  "max_bbox_count": 32,
+  "image_width": 64,
+  "image_height": 64,
+  "use_cpu": "yes"
+ },
+ "pages": [
+  "two_columns",
+  "twelve_regions_in_a_column",
+  "one_region",
+  "marked_against_the_geometry"
+ ]
+}

@@ -7,7 +7,7 @@ name = "pero-ocr"
 version = "0.7.0"
 description = "Toolkit for advanced OCR of poor quality documents"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 license = {file = "LICENSE"}
 keywords = ["OCR", "Layout analysis", "handwriting recognition"]
 
@@ -24,28 +24,37 @@ classifiers=[
     "Operating System :: OS Independent",
 ]
 
+# Ranges for using pero-ocr as a dependency of other projects. To run pero-ocr on its own, install requirements/lock.txt:
+# the tested basis (Python 3.8 to 3.10, issue #94). These ranges are that lock loosened: lower bounds are the oldest
+# releases known to give the lock's results, upper bounds exist only for releases known to change results or not to
+# install. Everything else is open. Installs from these ranges pass the CPU suite (Python 3.8 to 3.13) and should work,
+# but only the lock and its variants on Python 3.8 and 3.9 were tested in production.
 dependencies = [
-    "numpy~=1.24.2",
-    "opencv-python",
-    "lxml",
-    "lmdb",
-    "levenshtein",
-    "scipy",
-    "numba",
-    "torch>=2.0.1",
-    "torchvision>=0.15.2",
-    "brnolm>=0.3.0",
-    "scikit-learn",
-    "scikit-image",
-    "shapely",
+    "numpy>=1.21,<2.5",  # 2.5 returns complex eigenvectors from linalg.eig, which DETECT_STRAIGHT_LINES_IN_REGIONS cannot use (TypeError, #97); only reachable on Python >= 3.11
+    "opencv-python>=4.11,<5",  # 4.5.5 changes the line crops slightly (#94); 5.x changes them by about a grey level (cv2.remap) and fails the frozen line-cropper check, the OCR changes only at noise level (#99)
+    "lxml>=4.7",
+    "lmdb>=1.3",
+    "lmdb<2; python_version < '3.9'",  # lmdb 2 does not build on Python 3.8 but does not declare it
+    "levenshtein>=0.17",
+    "scipy>=1.10,<2",  # scipy < 1.8 cannot read logits files written with a newer scipy (#94); 1.10 is the oldest tested; 2.0 removes scipy.ndimage.morphology/measurements, which the layout imports (#97)
+    "numba>=0.55",
+    "torch>=2.4,<2.14",  # 2.14 (cuDNN 9.24) makes the LAYOUT_CNN layout slightly worse (fewer lines found, more on some GPUs than others); 2.4 to 2.13 change it only at noise level (#99)
+    "torchvision>=0.19",
+    "brnolm>=0.2",
+    "scikit-learn>=1.0",
+    "scikit-image>=0.19",
+    "shapely>=1.8,<2.1",  # 2.1 moves region and line polygons of LAYOUT_CNN (production config included) and RETRACE_REGIONS by up to a few pixels, same layout quality; it fails the frozen checks (#94, #99)
     "safe-gpu>=1.5.1",
-    "pyamg",
-    "imgaug",
-    "arabic_reshaper",
-    "ultralytics",
-    "music21"
+    "arabic_reshaper>=2.1.3",  # 2.1.0 does not build with current setuptools
+    "ultralytics>=8.4",
+    "music21>=8.3"
 ]
 
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7",
+]
 
 [project.urls]
 homepage = "https://pero.fit.vutbr.cz/"
@@ -63,3 +72,11 @@ compare-page-xml-texts = "pero_ocr.user_scripts.compare_page_xml_texts:main"
 merge-ocr-results = "pero_ocr.user_scripts.merge_ocr_results:main"
 parse-folder = "pero_ocr.user_scripts.parse_folder:main"
 select-embed-id = "pero_ocr.user_scripts.select_embed_id:main"
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: takes more than a few seconds",
+]
